@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenK Platform - Technology Stack</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #2d3748;
+            font-size: 42px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #718096;
+            font-size: 18px;
+        }
+        
+        .stack-category {
+            margin-bottom: 40px;
+            background: #f7fafc;
+            border-radius: 15px;
+            padding: 30px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .category-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #cbd5e0;
+        }
+        
+        .category-icon {
+            width: 50px;
+            height: 50px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            margin-right: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .category-title {
+            flex: 1;
+        }
+        
+        .category-title h2 {
+            color: #2d3748;
+            font-size: 28px;
+            margin-bottom: 5px;
+        }
+        
+        .category-title p {
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .tech-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        
+        .tech-item {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-left: 4px solid #667eea;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        
+        .tech-item:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        .tech-name {
+            font-size: 20px;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+        
+        .tech-version {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin-bottom: 10px;
+        }
+        
+        .tech-description {
+            color: #4a5568;
+            font-size: 14px;
+            line-height: 1.6;
+            margin-bottom: 10px;
+        }
+        
+        .tech-usage {
+            color: #718096;
+            font-size: 13px;
+            font-style: italic;
+        }
+        
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .comparison-table th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 15px;
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .comparison-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #4a5568;
+        }
+        
+        .comparison-table tr:hover {
+            background: #f7fafc;
+        }
+        
+        .highlight-box {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 25px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+        
+        .highlight-box h3 {
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+        
+        .highlight-box ul {
+            list-style: none;
+            padding-left: 0;
+        }
+        
+        .highlight-box li {
+            margin-bottom: 10px;
+            padding-left: 25px;
+            position: relative;
+        }
+        
+        .highlight-box li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            font-weight: bold;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ZenK Platform Technology Stack</h1>
+            <p>Comprehensive Technology Selection & Rationale</p>
+        </div>
+        
+        <!-- Frontend Stack -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">⚛️</div>
+                <div class="category-title">
+                    <h2>Frontend Technology Stack</h2>
+                    <p>User Interface & User Experience</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">React 18+</div>
+                    <span class="tech-version">v18.2+</span>
+                    <div class="tech-description">
+                        Modern React with hooks, concurrent features, and server components support.
+                    </div>
+                    <div class="tech-usage">Primary UI framework for all dashboards</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">TypeScript</div>
+                    <span class="tech-version">v5.0+</span>
+                    <div class="tech-description">
+                        Type-safe JavaScript for better code quality and developer experience.
+                    </div>
+                    <div class="tech-usage">All frontend code</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Redux Toolkit</div>
+                    <span class="tech-version">v1.9+</span>
+                    <div class="tech-description">
+                        Simplified state management for complex application state.
+                    </div>
+                    <div class="tech-usage">Global state management</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Material-UI</div>
+                    <span class="tech-version">v5.14+</span>
+                    <div class="tech-description">
+                        Comprehensive React component library with beautiful design system.
+                    </div>
+                    <div class="tech-usage">UI components & theming</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">React Router</div>
+                    <span class="tech-version">v6.15+</span>
+                    <div class="tech-description">
+                        Declarative routing for React applications.
+                    </div>
+                    <div class="tech-usage">Navigation & routing</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Socket.io Client</div>
+                    <span class="tech-version">v4.6+</span>
+                    <div class="tech-description">
+                        Real-time bidirectional event-based communication.
+                    </div>
+                    <div class="tech-usage">Real-time updates (leaderboards, notifications)</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Backend Stack -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">🐍</div>
+                <div class="category-title">
+                    <h2>Backend Technology Stack</h2>
+                    <p>Server-Side Logic & APIs</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">Python 3.11+</div>
+                    <span class="tech-version">v3.11+</span>
+                    <div class="tech-description">
+                        Modern Python with improved performance and type hints support.
+                    </div>
+                    <div class="tech-usage">All backend services</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">FastAPI</div>
+                    <span class="tech-version">v0.104+</span>
+                    <div class="tech-description">
+                        High-performance async web framework with automatic API documentation.
+                    </div>
+                    <div class="tech-usage">REST API services</div>
+                </div>
+            
+                <div class="tech-item">
+                    <div class="tech-name">Celery</div>
+                    <span class="tech-version">v5.3+</span>
+                    <div class="tech-description">
+                        Distributed task queue for asynchronous job processing.
+                    </div>
+                    <div class="tech-usage">Background tasks & scheduled jobs</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Pydantic</div>
+                    <span class="tech-version">v2.4+</span>
+                    <div class="tech-description">
+                        Data validation using Python type annotations.
+                    </div>
+                    <div class="tech-usage">Request/response validation</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">SQLAlchemy</div>
+                    <span class="tech-version">v2.0+</span>
+                    <div class="tech-description">
+                        SQL toolkit and ORM for Python.
+                    </div>
+                    <div class="tech-usage">Database ORM</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- AI/ML Stack -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">🤖</div>
+                <div class="category-title">
+                    <h2>AI/ML Technology Stack</h2>
+                    <p>Machine Learning & Intelligence</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">TensorFlow</div>
+                    <span class="tech-version">v2.13+</span>
+                    <div class="tech-description">
+                        End-to-end open-source platform for machine learning.
+                    </div>
+                    <div class="tech-usage">Deep learning models</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">PyTorch</div>
+                    <span class="tech-version">v2.1+</span>
+                    <div class="tech-description">
+                        Flexible deep learning framework with dynamic computation graphs.
+                    </div>
+                    <div class="tech-usage">Research & experimentation</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">scikit-learn</div>
+                    <span class="tech-version">v1.3+</span>
+                    <div class="tech-description">
+                        Machine learning library with simple and efficient tools.
+                    </div>
+                    <div class="tech-usage">Classical ML algorithms</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">spaCy</div>
+                    <span class="tech-version">v3.7+</span>
+                    <div class="tech-description">
+                        Industrial-strength natural language processing.
+                    </div>
+                    <div class="tech-usage">NLP & content analysis</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Transformers</div>
+                    <span class="tech-version">v4.35+</span>
+                    <div class="tech-description">
+                        State-of-the-art NLP models and architectures.
+                    </div>
+                    <div class="tech-usage">Advanced NLP tasks</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Pandas</div>
+                    <span class="tech-version">v2.1+</span>
+                    <div class="tech-description">
+                        Data manipulation and analysis library.
+                    </div>
+                    <div class="tech-usage">Data processing & analysis</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Generative AI (GenAI)</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Large Language Models (LLMs) for content generation, personalized learning materials, and intelligent responses.
+                    </div>
+                    <div class="tech-usage">Content generation, personalized tutoring, automated responses</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Agentic AI</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Autonomous AI agents that can plan, execute tasks, and make decisions to optimize learning paths and sponsor impact.
+                    </div>
+                    <div class="tech-usage">Autonomous learning path optimization, intelligent intervention recommendations</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Database Stack -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">💾</div>
+                <div class="category-title">
+                    <h2>Database & Storage Stack</h2>
+                    <p>Data Persistence & Management</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">PostgreSQL</div>
+                    <span class="tech-version">v15+</span>
+                    <div class="tech-description">
+                        Advanced open-source relational database with JSON support.
+                    </div>
+                    <div class="tech-usage">Primary database (users, transactions, marketplace)</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Redis</div>
+                    <span class="tech-version">v7.2+</span>
+                    <div class="tech-description">
+                        In-memory data structure store for caching and queues.
+                    </div>
+                    <div class="tech-usage">Cache, sessions, real-time leaderboards</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Pinecone / Weaviate</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Vector database for AI embeddings and semantic search.
+                    </div>
+                    <div class="tech-usage">AI recommendations, semantic search</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Google Cloud Storage</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Object storage for files and media.
+                    </div>
+                    <div class="tech-usage">User uploads, learning materials, images</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">BigQuery</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Serverless data warehouse for analytics.
+                    </div>
+                    <div class="tech-usage">Analytics, reporting, ML features</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Cloud & Infrastructure -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">☁️</div>
+                <div class="category-title">
+                    <h2>Cloud & Infrastructure Stack</h2>
+                    <p>Google Cloud Platform Services</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">Google Kubernetes Engine (GKE)</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Managed Kubernetes service for container orchestration.
+                    </div>
+                    <div class="tech-usage">Container orchestration</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Cloud Run</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Serverless container platform with auto-scaling.
+                    </div>
+                    <div class="tech-usage">Stateless microservices</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Cloud SQL</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Fully managed relational database service.
+                    </div>
+                    <div class="tech-usage">PostgreSQL hosting</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Memorystore</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Managed Redis service.
+                    </div>
+                    <div class="tech-usage">Redis hosting</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Cloud Build</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        CI/CD platform for building and deploying applications.
+                    </div>
+                    <div class="tech-usage">CI/CD pipeline</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Cloud Load Balancing</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        Distributed load balancing for high availability.
+                    </div>
+                    <div class="tech-usage">Traffic distribution</div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Integration Stack -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">🔌</div>
+                <div class="category-title">
+                    <h2>Integration & Third-Party Services</h2>
+                    <p>External Service Integrations</p>
+                </div>
+            </div>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Service</th>
+                        <th>Purpose</th>
+                        <th>Usage</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Razorpay</strong></td>
+                        <td>Payment Gateway</td>
+                        <td>Multi-currency payments (USD, GBP, INR), webhooks</td>
+                    </tr>
+                    <tr>
+                        <td><strong>SendGrid</strong></td>
+                        <td>Email Service</td>
+                        <td>Transactional emails, notifications</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Twilio</strong></td>
+                        <td>WhatsApp API</td>
+                        <td>Real-time WhatsApp notifications</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Firebase Cloud Messaging</strong></td>
+                        <td>Push Notifications</td>
+                        <td>Mobile & web push notifications</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Kong / Envoy</strong></td>
+                        <td>API Gateway</td>
+                        <td>Request routing, rate limiting, authentication</td>
+                    </tr>
+                    <tr>
+                        <td><strong>External LMS APIs</strong></td>
+                        <td>Learning Management</td>
+                        <td>Learning progress import, grade synchronization</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <!-- Development Tools -->
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">🛠️</div>
+                <div class="category-title">
+                    <h2>Development & DevOps Tools</h2>
+                    <p>Development Workflow & Operations</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">Docker</div>
+                    <span class="tech-version">v24+</span>
+                    <div class="tech-description">
+                        Containerization platform for consistent deployments.
+                    </div>
+                    <div class="tech-usage">Container packaging</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Kubernetes</div>
+                    <span class="tech-version">v1.28+</span>
+                    <div class="tech-description">
+                        Container orchestration for scalable deployments.
+                    </div>
+                    <div class="tech-usage">Container orchestration</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">GitHub Actions</div>
+                    <span class="tech-version">Latest</span>
+                    <div class="tech-description">
+                        CI/CD automation for code deployment.
+                    </div>
+                    <div class="tech-usage">CI/CD pipeline</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Terraform</div>
+                    <span class="tech-version">v1.6+</span>
+                    <div class="tech-description">
+                        Infrastructure as Code for GCP resources.
+                    </div>
+                    <div class="tech-usage">Infrastructure provisioning</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="highlight-box">
+            <h3>Key Technology Decisions</h3>
+            <ul>
+                <li><strong>Python Backend:</strong> Chosen for AI/ML capabilities, extensive libraries, and rapid development</li>
+                <li><strong>React Frontend:</strong> Modern, component-based UI with excellent ecosystem</li>
+                <li><strong>GCP Platform:</strong> Scalable, managed services, cost-effective for India region</li>
+                <li><strong>Microservices:</strong> Independent scaling, technology flexibility, team autonomy</li>
+                <li><strong>Containerization:</strong> Consistent deployments, easy scaling, cloud-native architecture</li>
+                <li><strong>Multi-Database:</strong> Right tool for right job (PostgreSQL for structured, MongoDB for documents, Redis for cache)</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+

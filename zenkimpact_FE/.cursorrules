@@ -1,0 +1,125 @@
+# ZenK UI - Project Rules
+
+## CRITICAL: Reference this file before making any UI/component changes
+
+## Tech Stack
+
+- React (Vite)
+- TailwindCSS
+- Inter Font
+- Heroicons (outline) - USE ONLY OUTLINE VARIANTS
+- React Router
+- react-chartjs-2 + Chart.js
+- Axios
+
+## UI Rules (MUST FOLLOW EXACTLY)
+
+### Global Style
+
+- Use Inter font everywhere - it's already configured in index.css
+- Base background: #F8FAFC (Tailwind slate-50) - use `bg-slate-50`
+- All cards MUST use: `rounded-xl bg-white shadow-sm border border-gray-200`
+- Never deviate from these card styles
+
+### Buttons
+
+- Primary buttons: `bg-blue-600 hover:bg-blue-700 text-white`
+- Export buttons: ghost style with icon - use `text-gray-700 hover:bg-gray-50` with icon from Heroicons
+- All buttons should have proper padding and rounded corners
+
+### Icon Library
+
+- ALWAYS use Heroicons Outline variants: `@heroicons/react/24/outline`
+- Never use solid or mini variants
+- Import pattern: `import { IconName } from '@heroicons/react/24/outline'`
+
+### Sidebar
+
+- Width: `w-64` (exactly)
+- Left aligned
+- Text-gray-700 for labels
+- Icons + text layout: `flex gap-3 items-center`
+- Active state: `bg-blue-50 text-blue-600`
+- Hover state: `hover:bg-gray-50`
+
+### Dashboard Layout Order (MUST FOLLOW)
+
+When creating or modifying the dashboard, maintain this exact section order:
+
+1. Top Filters Row
+2. KPI Cards (4 columns grid)
+   - Today's Sales
+   - Today's Litres Sold
+   - Cash in Hand
+   - Profit Today
+3. Charts Section
+   - Line chart for daily sales
+   - Bar chart for monthly litres
+   - Donut chart for payment mode split
+4. Fuel Tank Status
+   - Petrol, Diesel, Power
+   - Percentage bars with low fuel warning (<20%)
+5. Alerts Panel
+   - Red/Yellow alerts with proper styling
+6. Latest Activity Table
+   - Table format with export button
+7. Quick Actions Panel
+   - Add Sale, Add Expense, Add Credit, Update Price, Start/Close Shift
+
+### Charts Config (MUST FOLLOW)
+
+Use react-chartjs-2 + Chart.js
+
+- Line chart: curved lines, tension=0.4 (already configured in chartConfig.js)
+- Bar chart: soft rounded bars, borderRadius: 8
+- Donut chart: centered labels, cutout: '60%'
+- Always use the chart options from `src/utils/chartConfig.js`
+- Maintain responsive design with `maintainAspectRatio: false` and container height
+
+### Component Structure
+
+- All components should be in appropriate folders:
+  - Layout components: `src/components/`
+  - Dashboard components: `src/components/dashboard/`
+  - Pages: `src/pages/`
+  - Utils: `src/utils/`
+
+### Code Style
+
+- Use functional components with hooks
+- Follow React best practices
+- Use TailwindCSS utility classes (no custom CSS unless absolutely necessary)
+- Keep components modular and reusable
+- Use proper TypeScript-like prop validation (consider PropTypes if needed)
+
+### Color Palette
+
+- Primary: blue-600/blue-700
+- Success: green-600/green-50
+- Warning: yellow-600/yellow-50
+- Error: red-600/red-50
+- Text: gray-700 (labels), gray-900 (headings), gray-500 (subtle text)
+- Background: slate-50 (base), white (cards)
+
+### Spacing & Layout
+
+- Use Tailwind spacing scale (gap-3, gap-4, gap-6, p-4, p-6, etc.)
+- Grid layouts: `grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4` for responsive design
+- Consistent padding: p-6 for cards, p-4 for smaller elements
+
+## IMPORTANT REMINDERS
+
+- Before creating any new component, check if similar component exists
+- Always use the card style: `rounded-xl bg-white shadow-sm border border-gray-200`
+- Always use Heroicons Outline variants
+- Always maintain the dashboard section order
+- Always use Inter font (already configured globally)
+- Always follow the color palette specified above
+- Always use the chart configurations from chartConfig.js
+
+## File Naming Conventions
+
+- Components: PascalCase (e.g., `KPICards.jsx`)
+- Files: match component name
+- Folders: lowercase with dashes if needed (e.g., `dashboard/`)
+

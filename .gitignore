@@ -1,0 +1,39 @@
+# Python essentials
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+.env.local
+.env.*
+
+# Node essentials
+node_modules/
+dist/
+dist-ssr
+npm-debug.log*
+
+# OS essentials
+.DS_Store
+Thumbs.db
+
+# Planning/Tracking
+*plan*.md
+task.md
+walkthrough.md
+research_notes.md
+analysis_results.md
+presentation.md
+kia_response_check_*.png
+kia_bot_verify_*.webp
+final_chat_state_*.png
+login_page_teal_check_*.png
+avatar_check_teal_*.webp
+media__*.png
+media__*.jpg
+*.webp
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico

@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenK Platform - Flow Diagrams</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 15px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #2d3748;
+            font-size: 42px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #718096;
+            font-size: 18px;
+        }
+        
+        .flow-section {
+            margin-bottom: 40px;
+            background: #f7fafc;
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .flow-title {
+            font-size: 28px;
+            color: #2d3748;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #cbd5e0;
+        }
+        
+        .flow-diagram {
+            position: relative;
+            padding: 20px;
+            background: white;
+            border-radius: 10px;
+        }
+        
+        .flow-steps-container {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            column-gap: 30px;
+            row-gap: 40px;
+            position: relative;
+        }
+        
+        .flow-step {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s, box-shadow 0.2s;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            position: relative;
+        }
+        
+        .flow-step:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+        }
+        
+        /* Horizontal arrow between cards in same row (cards 1→2, 2→3) */
+        .flow-step:not(:nth-child(3n)):not(:last-child)::after {
+            content: '→';
+            position: absolute;
+            right: -25px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: #667eea;
+            font-size: 18px;
+            font-weight: 300;
+            opacity: 0.7;
+            z-index: 1;
+        }
+        
+        .flow-row-separator {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 5px 0;
+            color: #667eea;
+            font-size: 16px;
+            line-height: 1;
+        }
+        
+        .flow-row-separator::before {
+            content: '↓';
+            display: block;
+            font-weight: 300;
+            opacity: 0.7;
+        }
+        
+        .step-title {
+            font-size: 15px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            line-height: 1.3;
+        }
+        
+        .step-details {
+            font-size: 12px;
+            opacity: 0.9;
+            line-height: 1.4;
+            margin-bottom: 8px;
+        }
+        
+        .step-service {
+            display: inline-block;
+            background: rgba(255,255,255,0.2);
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 10px;
+            margin-top: auto;
+            margin-right: 3px;
+        }
+        
+        .horizontal-flow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+        
+        .flow-node {
+            background: white;
+            border: 3px solid #667eea;
+            border-radius: 12px;
+            padding: 20px;
+            min-width: 180px;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            position: relative;
+        }
+        
+        .flow-node::after {
+            content: '→';
+            position: absolute;
+            right: -25px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 24px;
+            color: #667eea;
+        }
+        
+        .flow-node:last-child::after {
+            display: none;
+        }
+        
+        .node-title {
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 8px;
+            font-size: 16px;
+        }
+        
+        .node-details {
+            font-size: 12px;
+            color: #718096;
+        }
+        
+        .flow-legend {
+            margin-top: 15px;
+            padding: 12px;
+            background: #edf2f7;
+            border-radius: 8px;
+        }
+        
+        .legend-item {
+            display: inline-block;
+            margin-right: 20px;
+            font-size: 14px;
+            color: #4a5568;
+        }
+        
+        .legend-color {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border-radius: 3px;
+            margin-right: 5px;
+            vertical-align: middle;
+        }
+        
+        .parallel-flow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .parallel-step {
+            background: white;
+            border-left: 4px solid #48bb78;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .parallel-step h4 {
+            color: #2d3748;
+            margin-bottom: 8px;
+        }
+        
+        .parallel-step p {
+            color: #718096;
+            font-size: 13px;
+        }
+        
+        @media (max-width: 768px) {
+            .flow-steps-container {
+                grid-template-columns: 1fr;
+            }
+            .flow-row-separator {
+                padding: 3px 0;
+            }
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+            .flow-section {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ZenK Platform Flow Diagrams</h1>
+            <p>Key Data Flows & Process Flows</p>
+        </div>
+        
+        <!-- Payment Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">1. Payment & Escrow Flow</h2>
+            <div class="flow-diagram">
+                <div class="flow-steps-container">
+                    <div class="flow-step">
+                        <div class="step-title">Sponsor Initiates Payment</div>
+                        <div class="step-details">Sponsor selects amount and currency (USD/GBP/INR) via React Dashboard</div>
+                        <span class="step-service">React Frontend</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">API Gateway Authentication</div>
+                        <div class="step-details">JWT token validation, rate limiting check</div>
+                        <span class="step-service">API Gateway</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Payment Service Processing</div>
+                        <div class="step-details">Create payment intent, call Razorpay API with multi-currency support</div>
+                        <span class="step-service">Payment Service</span>
+                    </div>
+                    <div class="flow-row-separator"></div>
+                    <div class="flow-step">
+                        <div class="step-title">Razorpay Gateway</div>
+                        <div class="step-details">Process payment, handle currency conversion, return payment status</div>
+                        <span class="step-service">Razorpay</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Escrow Service - Fund Holding</div>
+                        <div class="step-details">Hold funds in escrow account, create transaction record, update balance</div>
+                        <span class="step-service">Escrow Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Database Update</div>
+                        <div class="step-details">Store transaction in PostgreSQL, update escrow balance, log audit trail</div>
+                        <span class="step-service">PostgreSQL</span>
+                    </div>
+                    <div class="flow-row-separator"></div>
+                    <div class="flow-step">
+                        <div class="step-title">Notification Service</div>
+                        <div class="step-details">Send confirmation via Email (SendGrid) and WhatsApp (Twilio)</div>
+                        <span class="step-service">Notification Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Sponsor Receives Confirmation</div>
+                        <div class="step-details">Real-time update on dashboard, email & WhatsApp notifications</div>
+                        <span class="step-service">React Frontend</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flow-legend">
+                <span class="legend-item">
+                    <span class="legend-color" style="background: #667eea;"></span>
+                    <strong>Flow Direction:</strong> Sequential processing
+                </span>
+                <span class="legend-item">
+                    <span class="legend-color" style="background: #48bb78;"></span>
+                    <strong>Async:</strong> Notification sent asynchronously
+                </span>
+            </div>
+        </div>
+        
+        <!-- Marketplace Purchase Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">2. Marketplace Purchase Flow</h2>
+            <div class="flow-diagram">
+                <div class="horizontal-flow">
+                    <div class="flow-node">
+                        <div class="node-title">Student</div>
+                        <div class="node-details">Selects resource from marketplace</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Marketplace Service</div>
+                        <div class="node-details">Check inventory (Redis cache)</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Escrow Service</div>
+                        <div class="node-details">Validate funds, release payment</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Vendor Dashboard</div>
+                        <div class="node-details">Order notification, update inventory</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Student</div>
+                        <div class="node-details">Receives confirmation & access</div>
+                    </div>
+                </div>
+            </div>
+            <div class="parallel-flow">
+                <div class="parallel-step">
+                    <h4>Real-time Inventory Check</h4>
+                    <p>Redis cache lookup for availability, fallback to PostgreSQL if cache miss</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>Fund Release</h4>
+                    <p>Escrow service validates sufficient balance, releases funds to vendor account</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>Commission Calculation</h4>
+                    <p>Fixed percentage commission deducted, remaining amount transferred to vendor</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>End-to-End Tracking</h4>
+                    <p>Complete audit trail stored in PostgreSQL for transparency</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Impact Score Calculation Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">3. Impact Score Calculation Flow (Daily Batch)</h2>
+            <div class="flow-diagram">
+                <div class="flow-steps-container">
+                    <div class="flow-step">
+                        <div class="step-title">Scheduler Triggers (Daily 2 AM)</div>
+                        <div class="step-details">Cloud Scheduler triggers Celery task for impact score calculation</div>
+                        <span class="step-service">Cloud Scheduler</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Gamification Service</div>
+                        <div class="step-details">Collects metrics: time spent, money donated, quality scores</div>
+                        <span class="step-service">Gamification Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Data Aggregation</div>
+                        <div class="step-details">Query PostgreSQL for circle activities, aggregate per circle</div>
+                        <span class="step-service">PostgreSQL</span>
+                    </div>
+                    <div class="flow-row-separator"></div>
+                    <div class="flow-step">
+                        <div class="step-title">Impact Scoring Engine (AI)</div>
+                        <div class="step-details">Hybrid scoring: rule-based + ML model inference, calculate 0-100 score</div>
+                        <span class="step-service">AI/ML Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Score Update</div>
+                        <div class="step-details">Update impact scores in PostgreSQL, refresh Redis leaderboard cache</div>
+                        <span class="step-service">PostgreSQL + Redis</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Leaderboard Update (Real-time)</div>
+                        <div class="step-details">WebSocket broadcast to all connected clients with updated rankings</div>
+                        <span class="step-service">WebSocket Server</span>
+                    </div>
+                    <div class="flow-row-separator"></div>
+                    <div class="flow-step">
+                        <div class="step-title">Notification Service</div>
+                        <div class="step-details">Notify circle members about score updates and rankings</div>
+                        <span class="step-service">Notification Service</span>
+                    </div>
+                </div>
+            </div>
+            <div class="flow-legend">
+                <span class="legend-item">
+                    <span class="legend-color" style="background: #ed8936;"></span>
+                    <strong>Batch Processing:</strong> Daily at 2 AM
+                </span>
+                <span class="legend-item">
+                    <span class="legend-color" style="background: #48bb78;"></span>
+                    <strong>Real-time:</strong> Leaderboard updates instantly
+                </span>
+            </div>
+        </div>
+        
+        <!-- Circle Creation Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">4. Sponsor Circle Creation Flow</h2>
+            <div class="flow-diagram">
+                <div class="horizontal-flow">
+                    <div class="flow-node">
+                        <div class="node-title">Sponsor</div>
+                        <div class="node-details">Creates new circle</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Circle Service</div>
+                        <div class="node-details">Validate, create circle record</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Invite Members</div>
+                        <div class="node-details">Send invitations via email/WhatsApp</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Assign Student</div>
+                        <div class="node-details">Link circle to student (secure ID)</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Activate Circle</div>
+                        <div class="node-details">Circle ready for collaboration</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Learning Trajectory Tracking Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">5. Learning Trajectory Tracking Flow</h2>
+            <div class="flow-diagram">
+                <div class="flow-steps-container">
+                    <div class="flow-step">
+                        <div class="step-title">Data Ingestion</div>
+                        <div class="step-details">File uploads (student work) or API integration (external LMS)</div>
+                        <span class="step-service">Integration Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Data Processing</div>
+                        <div class="step-details">Store in MongoDB, extract metadata, prepare for analysis</div>
+                        <span class="step-service">MongoDB</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Learning Trajectory Analyzer</div>
+                        <div class="step-details">AI model processes data, identifies patterns, predicts outcomes</div>
+                        <span class="step-service">AI/ML Service</span>
+                    </div>
+                    <div class="flow-row-separator"></div>
+                    <div class="flow-step">
+                        <div class="step-title">Insights Generation</div>
+                        <div class="step-details">Generate recommendations, identify intervention needs, track progress</div>
+                        <span class="step-service">AI/ML Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Update Dashboard</div>
+                        <div class="step-details">Real-time update to student and sponsor dashboards</div>
+                        <span class="step-service">React Frontend</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Notification to Circle</div>
+                        <div class="step-details">Notify sponsor circle about progress updates and recommendations</div>
+                        <span class="step-service">Notification Service</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Vendor Onboarding Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">6. Vendor Onboarding & Verification Flow</h2>
+            <div class="flow-diagram">
+                <div class="horizontal-flow">
+                    <div class="flow-node">
+                        <div class="node-title">Vendor Sign-up</div>
+                        <div class="node-details">Vendor registers via portal</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">User Service</div>
+                        <div class="node-details">Create vendor account, assign persona</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Admin Verification</div>
+                        <div class="node-details">Admin reviews and verifies vendor</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Marketplace Access</div>
+                        <div class="node-details">Vendor can list products/services</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Inventory Setup</div>
+                        <div class="node-details">Vendor manages inventory in dashboard</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Real-time Notification Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">7. Real-time Notification Flow</h2>
+            <div class="flow-diagram">
+                <div class="flow-steps-container">
+                    <div class="flow-step">
+                        <div class="step-title">Event Trigger</div>
+                        <div class="step-details">Payment success, order placed, score updated, etc.</div>
+                        <span class="step-service">Business Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Notification Service</div>
+                        <div class="step-details">Check user preferences, prepare notification payload</div>
+                        <span class="step-service">Notification Service</span>
+                    </div>
+                    <div class="flow-step">
+                        <div class="step-title">Parallel Delivery</div>
+                        <div class="step-details">Send via multiple channels simultaneously</div>
+                        <span class="step-service">Multi-channel</span>
+                    </div>
+                </div>
+            </div>
+            <div class="parallel-flow">
+                <div class="parallel-step">
+                    <h4>Email (SendGrid)</h4>
+                    <p>Transactional email with template, delivery tracking</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>WhatsApp (Twilio)</h4>
+                    <p>Template message via WhatsApp Business API</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>In-App Notification</h4>
+                    <p>Real-time WebSocket push to React frontend</p>
+                </div>
+                <div class="parallel-step">
+                    <h4>Push Notification (FCM)</h4>
+                    <p>Mobile push notification for PWA</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Content Review Engine Flow -->
+        <div class="flow-section">
+            <h2 class="flow-title">8. Content Review Engine Flow (Hybrid)</h2>
+            <div class="flow-diagram">
+                <div class="horizontal-flow">
+                    <div class="flow-node">
+                        <div class="node-title">Content Submission</div>
+                        <div class="node-details">User uploads content</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Automated Check</div>
+                        <div class="node-details">AI model scans for violations</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Decision Point</div>
+                        <div class="node-details">Flagged or Approved?</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Manual Review</div>
+                        <div class="node-details">Admin reviews flagged content</div>
+                    </div>
+                    <div class="flow-node">
+                        <div class="node-title">Final Action</div>
+                        <div class="node-details">Approve, reject, or request changes</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 40px; padding: 25px; background: #edf2f7; border-radius: 15px;">
+            <h3 style="color: #2d3748; margin-bottom: 15px; font-size: 24px;">Flow Characteristics</h3>
+            <ul style="color: #4a5568; line-height: 1.8; list-style-position: inside;">
+                <li><strong>Synchronous Flows:</strong> Payment processing, inventory checks (immediate response required)</li>
+                <li><strong>Asynchronous Flows:</strong> Impact score calculation, batch processing (background tasks)</li>
+                <li><strong>Real-time Flows:</strong> Leaderboard updates, notifications, inventory changes (WebSocket)</li>
+                <li><strong>Event-driven Flows:</strong> Notifications triggered by events, webhooks for external systems</li>
+                <li><strong>Batch Flows:</strong> Daily impact scoring, vendor reconciliation, analytics aggregation</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+

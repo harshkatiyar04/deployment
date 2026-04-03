@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenK Platform - Target Architecture Components</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #2d3748;
+            font-size: 42px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #718096;
+            font-size: 18px;
+        }
+        
+        .service-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 25px;
+            margin-bottom: 30px;
+        }
+        
+        .service-block {
+            background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
+            border-radius: 15px;
+            padding: 25px;
+            border: 2px solid #e2e8f0;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: transform 0.3s, box-shadow 0.3s;
+        }
+        
+        .service-block:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 12px rgba(0,0,0,0.15);
+        }
+        
+        .service-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #cbd5e0;
+        }
+        
+        .service-icon {
+            width: 60px;
+            height: 60px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-right: 15px;
+            color: white;
+            font-weight: bold;
+        }
+        
+        .service-title {
+            flex: 1;
+        }
+        
+        .service-title h2 {
+            color: #2d3748;
+            font-size: 24px;
+            margin-bottom: 5px;
+        }
+        
+        .service-title p {
+            color: #718096;
+            font-size: 14px;
+        }
+        
+        .service-details {
+            margin-top: 15px;
+        }
+        
+        .detail-section {
+            margin-bottom: 15px;
+        }
+        
+        .detail-section h3 {
+            color: #4a5568;
+            font-size: 16px;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .detail-section h3::before {
+            content: '▸';
+            margin-right: 8px;
+            color: #667eea;
+        }
+        
+        .detail-list {
+            list-style: none;
+            padding-left: 20px;
+        }
+        
+        .detail-list li {
+            color: #4a5568;
+            margin-bottom: 5px;
+            padding-left: 15px;
+            position: relative;
+        }
+        
+        .detail-list li::before {
+            content: '•';
+            position: absolute;
+            left: 0;
+            color: #667eea;
+            font-weight: bold;
+        }
+        
+        .tech-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            margin: 3px;
+            font-weight: 600;
+        }
+        
+        .icon-user { background: linear-gradient(135deg, #4299e1, #3182ce); }
+        .icon-circle { background: linear-gradient(135deg, #48bb78, #38a169); }
+        .icon-market { background: linear-gradient(135deg, #ed8936, #dd6b20); }
+        .icon-payment { background: linear-gradient(135deg, #9f7aea, #805ad5); }
+        .icon-escrow { background: linear-gradient(135deg, #f56565, #e53e3e); }
+        .icon-game { background: linear-gradient(135deg, #38b2ac, #319795); }
+        .icon-notify { background: linear-gradient(135deg, #ed64a6, #d53f8c); }
+        .icon-report { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .icon-integration { background: linear-gradient(135deg, #f6ad55, #ed8936); }
+        .icon-ai { background: linear-gradient(135deg, #fc8181, #f56565); }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+            .service-block {
+                page-break-inside: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Target Architecture Components</h1>
+            <p>Detailed Service Blocks & Responsibilities</p>
+        </div>
+        
+        <div class="service-grid">
+            <!-- User Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-user">👤</div>
+                    <div class="service-title">
+                        <h2>User Service</h2>
+                        <p>User Management & Authentication</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>User registration & authentication</li>
+                            <li>Profile management (Students, Sponsors, Vendors, Admins)</li>
+                            <li>Age verification workflow</li>
+                            <li>Persona-based access control</li>
+                            <li>Role & permission management</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>JWT-based authentication</li>
+                            <li>Multi-role support</li>
+                            <li>Secure ID generation for students</li>
+                            <li>Profile data anonymization</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                        <span class="tech-badge">JWT</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Circle Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-circle">👥</div>
+                    <div class="service-title">
+                        <h2>Circle Service</h2>
+                        <p>Sponsor Circle Management</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Sponsor circle creation & management</li>
+                            <li>Member management & invitations</li>
+                            <li>Circle-to-student assignment</li>
+                            <li>Group communication channels</li>
+                            <li>Circle activity tracking</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Multi-sponsor collaboration</li>
+                            <li>Group-only access enforcement</li>
+                            <li>Circle member roles</li>
+                            <li>Activity feed & notifications</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                        <span class="tech-badge">WebSocket</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Marketplace Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-market">🛒</div>
+                    <div class="service-title">
+                        <h2>Marketplace Service</h2>
+                        <p>Vetted Marketplace Management</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Vendor catalog management</li>
+                            <li>Product/service listings</li>
+                            <li>Real-time inventory checks</li>
+                            <li>Search & filtering</li>
+                            <li>Commission calculation (fixed %)</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Vendor verification workflow</li>
+                            <li>Inventory synchronization</li>
+                            <li>Product categorization</li>
+                            <li>Order management</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                        <span class="tech-badge">Redis</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Payment Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-payment">💳</div>
+                    <div class="service-title">
+                        <h2>Payment Service</h2>
+                        <p>Payment Processing & Transactions</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Razorpay integration</li>
+                            <li>Multi-currency support (USD, GBP, INR)</li>
+                            <li>Payment processing</li>
+                            <li>Refund handling</li>
+                            <li>Transaction history</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Webhook handling</li>
+                            <li>Payment status tracking</li>
+                            <li>Currency conversion</li>
+                            <li>Receipt generation</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">Razorpay SDK</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Escrow Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-escrow">🔒</div>
+                    <div class="service-title">
+                        <h2>Escrow Service</h2>
+                        <p>Fund Holding & Release Management</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Fund holding mechanism</li>
+                            <li>Release on purchase approval</li>
+                            <li>Balance management</li>
+                            <li>Transaction tracking</li>
+                            <li>Zero misuse guarantee</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Closed-loop spending</li>
+                            <li>End-to-end tracking</li>
+                            <li>Automatic fund release</li>
+                            <li>Audit trail</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                        <span class="tech-badge">Redis</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Gamification Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-game">🏆</div>
+                    <div class="service-title">
+                        <h2>Gamification Service</h2>
+                        <p>Impact Scoring & Leaderboards</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Impact score calculation (daily batch)</li>
+                            <li>Leaderboard management (real-time)</li>
+                            <li>Impact missions tracking</li>
+                            <li>Badges & achievements</li>
+                            <li>Circle rankings</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Hybrid/AI-based scoring</li>
+                            <li>Time spent tracking</li>
+                            <li>Money donated tracking</li>
+                            <li>Impact League competition</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">Celery</span>
+                        <span class="tech-badge">Redis</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Notification Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-notify">📧</div>
+                    <div class="service-title">
+                        <h2>Notification Service</h2>
+                        <p>Multi-Channel Notifications</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Email notifications (SendGrid)</li>
+                            <li>WhatsApp messages (Twilio)</li>
+                            <li>In-app notifications</li>
+                            <li>Push notifications (FCM)</li>
+                            <li>Preference management</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Real-time delivery</li>
+                            <li>Template management</li>
+                            <li>User preference settings</li>
+                            <li>Delivery tracking</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">Celery</span>
+                        <span class="tech-badge">SendGrid</span>
+                        <span class="tech-badge">Twilio</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Reporting Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-report">📊</div>
+                    <div class="service-title">
+                        <h2>Reporting Service</h2>
+                        <p>Analytics & Reporting</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Real-time analytics</li>
+                            <li>Dashboard data aggregation</li>
+                            <li>Export functionality</li>
+                            <li>API for corporate sponsors</li>
+                            <li>Historical reporting</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Impact metrics</li>
+                            <li>Financial reports</li>
+                            <li>Usage analytics</li>
+                            <li>Custom report generation</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">BigQuery</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                        <span class="tech-badge">FastAPI</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Integration Service -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-integration">🔌</div>
+                    <div class="service-title">
+                        <h2>Integration Service</h2>
+                        <p>Third-Party Integrations</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>External LMS integration</li>
+                            <li>Webhook management</li>
+                            <li>API gateway for third parties</li>
+                            <li>Data synchronization</li>
+                            <li>Student information systems</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>REST API clients</li>
+                            <li>Webhook retry mechanism</li>
+                            <li>Data transformation</li>
+                            <li>API key management</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">Celery</span>
+                        <span class="tech-badge">REST APIs</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- AI/ML Services -->
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-ai">🤖</div>
+                    <div class="service-title">
+                        <h2>AI/ML Services</h2>
+                        <p>Intelligence & Optimization</p>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Components</h3>
+                        <ul class="detail-list">
+                            <li>Impact Scoring Engine (Hybrid/AI)</li>
+                            <li>Learning Trajectory Analyzer</li>
+                            <li>Content Review Engine (Hybrid)</li>
+                            <li>Recommendation Engine</li>
+                            <li>Predictive Analytics</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>File upload processing</li>
+                            <li>API data ingestion</li>
+                            <li>Model training & inference</li>
+                            <li>Anonymized data insights</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">Python</span>
+                        <span class="tech-badge">TensorFlow</span>
+                        <span class="tech-badge">PyTorch</span>
+                        <span class="tech-badge">scikit-learn</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 40px; padding: 25px; background: #edf2f7; border-radius: 15px;">
+            <h3 style="color: #2d3748; margin-bottom: 15px; font-size: 24px;">Service Communication Pattern</h3>
+            <p style="color: #4a5568; line-height: 1.8; margin-bottom: 15px;">
+                All services communicate through the API Gateway using REST APIs. 
+                Asynchronous tasks are handled via Celery with Redis as the message broker. 
+                Real-time updates use WebSocket connections through the API Gateway.
+            </p>
+            <ul style="color: #4a5568; line-height: 1.8; list-style-position: inside;">
+                <li><strong>Synchronous:</strong> REST API calls for immediate responses</li>
+                <li><strong>Asynchronous:</strong> Celery tasks for background processing</li>
+                <li><strong>Real-time:</strong> WebSocket for live updates (leaderboards, notifications)</li>
+                <li><strong>Event-driven:</strong> Webhooks for external integrations</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+

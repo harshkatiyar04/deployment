@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenK Platform - Architecture Overview</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.6.1/dist/mermaid.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        
+        .header h1 {
+            color: #2d3748;
+            font-size: 42px;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            color: #718096;
+            font-size: 18px;
+        }
+        
+        .architecture-diagram {
+            background: #f7fafc;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            border: 2px solid #e2e8f0;
+        }
+        
+        .layer {
+            background: white;
+            border-radius: 10px;
+            padding: 25px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-left: 5px solid;
+        }
+        
+        .layer.presentation {
+            border-left-color: #4299e1;
+        }
+        
+        .layer.api {
+            border-left-color: #48bb78;
+        }
+        
+        .layer.optimization {
+            border-left-color: #ed8936;
+        }
+        
+        .layer.business {
+            border-left-color: #9f7aea;
+        }
+        
+        .layer.memory {
+            border-left-color: #f56565;
+        }
+        
+        .layer.integration {
+            border-left-color: #38b2ac;
+        }
+        
+        .layer-title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2d3748;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+        }
+        
+        .layer-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+            margin-right: 10px;
+        }
+        
+        .components {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .component {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            transition: transform 0.2s;
+        }
+        
+        .component:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+        
+        .arrow {
+            text-align: center;
+            font-size: 30px;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        
+        .legend {
+            background: #f7fafc;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 30px;
+        }
+        
+        .legend h3 {
+            color: #2d3748;
+            margin-bottom: 15px;
+        }
+        
+        .legend-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+        }
+        
+        @media print {
+            body {
+                background: white;
+            }
+            .container {
+                box-shadow: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ZenK Platform Architecture Overview</h1>
+            <p>Layered Architecture for Digital Adoption Ecosystem</p>
+        </div>
+        
+        <div class="architecture-diagram">
+            <!-- Presentation Layer -->
+            <div class="layer presentation">
+                <div class="layer-title">Presentation Layer</div>
+                <div class="components">
+                    <div class="component">Student Dashboard</div>
+                    <div class="component">Sponsor Dashboard</div>
+                    <div class="component">Vendor Dashboard</div>
+                    <div class="component">Admin Panel</div>
+                    <div class="component">Public Landing</div>
+                    <div class="component">Mobile PWA</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> React 18+, TypeScript, Redux Toolkit, Material-UI
+                </p>
+            </div>
+            
+            <div class="arrow">⬇️</div>
+            
+            <!-- API Gateway Layer -->
+            <div class="layer api">
+                <div class="layer-title">API Gateway & Authentication Layer</div>
+                <div class="components">
+                    <div class="component">API Gateway</div>
+                    <div class="component">Auth Service</div>
+                    <div class="component">Rate Limiting</div>
+                    <div class="component">Request Routing</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> Kong/Envoy, JWT, OAuth 2.0, Redis
+                </p>
+            </div>
+            
+            <div class="arrow">⬇️</div>
+            
+            <!-- Optimization Layer -->
+            <div class="layer optimization">
+                <div class="layer-title">Optimization Layer (AI/ML)</div>
+                <div class="components">
+                    <div class="component">Impact Scoring Engine</div>
+                    <div class="component">Learning Trajectory Analyzer</div>
+                    <div class="component">Content Review Engine</div>
+                    <div class="component">Recommendation Engine</div>
+                    <div class="component">Predictive Analytics</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> Python, FastAPI, TensorFlow/PyTorch, scikit-learn,GenAI
+                </p>
+            </div>
+            
+            <div class="arrow">⬇️</div>
+            
+            <!-- Business Logic Layer -->
+            <div class="layer business">
+                <div class="layer-title">Business Logic Layer</div>
+                <div class="components">
+                    <div class="component">User Service</div>
+                    <div class="component">Circle Service</div>
+                    <div class="component">Marketplace Service</div>
+                    <div class="component">Payment Service</div>
+                    <div class="component">Escrow Service</div>
+                    <div class="component">Gamification Service</div>
+                    <div class="component">Notification Service</div>
+                    <div class="component">Reporting Service</div>
+                    <div class="component">Integration Service</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> Python, FastAPI, GenAI, Celery, Redis
+                </p>
+            </div>
+            
+            <div class="arrow">⬇️</div>
+            
+            <!-- Memory Layer -->
+            <div class="layer memory">
+                <div class="layer-title">Memory Layer (Data Storage)</div>
+                <div class="components">
+                    <div class="component">PostgreSQL</div>
+                    <div class="component">Redis</div>
+                    <div class="component">Vector DB</div>
+                    <div class="component">Google Cloud Storage</div>
+                    <div class="component">BigQuery</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> PostgreSQL, Redis, Pinecone/Weaviate, MongoDB, GCS, BigQuery
+                </p>
+            </div>
+            
+            <div class="arrow">⬇️</div>
+            
+            <!-- Integration Layer -->
+            <div class="layer integration">
+                <div class="layer-title">Integration Layer</div>
+                <div class="components">
+                    <div class="component">Razorpay Gateway</div>
+                    <div class="component">Email Service</div>
+                    <div class="component">WhatsApp API</div>
+                    <div class="component">Push Notifications</div>
+                    <div class="component">External LMS</div>
+                    <div class="component">Webhook Handler</div>
+                </div>
+                <p style="margin-top: 15px; color: #718096; font-size: 14px;">
+                    <strong>Technology:</strong> Razorpay, SendGrid, Twilio, FCM, REST APIs
+                </p>
+            </div>
+        </div>
+        
+        <div class="legend">
+            <h3>Architecture Principles</h3>
+            <div class="legend-items">
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #4299e1;"></div>
+                    <span><strong>Presentation:</strong> User-facing interfaces</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #48bb78;"></div>
+                    <span><strong>API Gateway:</strong> Security & routing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #ed8936;"></div>
+                    <span><strong>Optimization:</strong> AI/ML processing</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #9f7aea;"></div>
+                    <span><strong>Business Logic:</strong> Core services</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #f56565;"></div>
+                    <span><strong>Memory:</strong> Data persistence</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-color" style="background: #38b2ac;"></div>
+                    <span><strong>Integration:</strong> External services</span>
+                </div>
+            </div>
+        </div>
+        
+        <div style="margin-top: 30px; padding: 20px; background: #edf2f7; border-radius: 10px;">
+            <h3 style="color: #2d3748; margin-bottom: 15px;">Key Features</h3>
+            <ul style="color: #4a5568; line-height: 1.8; list-style-position: inside;">
+                <li><strong>Microservices Architecture:</strong> Scalable, independent services</li>
+                <li><strong>AI-Powered:</strong> Impact scoring, recommendations, learning analytics</li>
+                <li><strong>Real-time Updates:</strong> Leaderboards, notifications, inventory</li>
+                <li><strong>Multi-currency Support:</strong> USD, GBP, INR via Razorpay</li>
+                <li><strong>Escrow System:</strong> Secure fund holding and release</li>
+                <li><strong>Safety First:</strong> Student anonymity, group-only access, age-appropriate protocols</li>
+                <li><strong>Cloud-Native:</strong> GCP-based, containerized, auto-scaling</li>
+            </ul>
+        </div>
+    </div>
+</body>
+</html>
+
