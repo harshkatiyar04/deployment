@@ -52,6 +52,7 @@ from app.chat.schemas import (
 from app.chat.services import manager
 from app.services.shield import shield_message_async
 from app.services.kia import generate_kia_response
+from app.services.kia_context import fetch_user_context
 from app.models.enums import Persona as UserPersonaRole
 
 logger = logging.getLogger(__name__)
@@ -145,42 +146,81 @@ async def _get_kia_persona(db: AsyncSession) -> GamifiedPersona:
 
 
 async def _process_kia_bot_response(
-    trigger_message: str, 
+    trigger_message: str,
     circle_id: str, 
     channel_id: str,
-    db_factory
+    db_factory,
+    kia_persona_id: str,
+    requesting_user_id: str,
+    is_leader: bool = False,
 ):
-    """Background task to generate and broadcast Kia's mentorship response."""
+    # Broadcast typing status
+    await manager.broadcast(
+        circle_id,
+        {
+            "type": "typing_start",
+            "payload": {"persona_id": kia_persona_id, "nickname": "Kia"},
+        },
+    )
+    
     # Wait a bit for natural feel
     await asyncio.sleep(1.5)
     
-    async with db_factory() as db:
-        # Generate response
-        response_text = await generate_kia_response(trigger_message)
-        if not response_text:
-            return
+    try:
+        async with db_factory() as db:
+            # Fetch personalized context for the requesting user (RAG)
+            user_context = await fetch_user_context(
+                user_id=requesting_user_id,
+                circle_id=circle_id,
+                db=db,
+                include_private=True,  # Always True: user is asking about themselves
+                is_leader=is_leader,  # Leader gets full member contribution access
+            )
+
+            # Generate response grounded in user's real data
+            response_text = await generate_kia_response(trigger_message, user_context=user_context)
+            if not response_text:
+                # Stop typing even if no response generated
+                await manager.broadcast(
+                    circle_id,
+                    {"type": "typing_stop", "payload": {"persona_id": kia_persona_id}},
+                )
+                return
+                
+            kia_persona = await _get_kia_persona(db)
             
-        kia_persona = await _get_kia_persona(db)
-        
-        # Persist Kia's message
-        msg = ChatMessage(
-            channel_id=channel_id,
-            gamified_persona_id=kia_persona.id,
-            content_text=response_text,
-            shield_action="allow"
-        )
-        db.add(msg)
-        await db.commit()
-        await db.refresh(msg)
-        
-        # Broadcast Kia's message
-        msg_out = await _message_to_out(msg, kia_persona)
+            # Persist Kia's message
+            msg = ChatMessage(
+                channel_id=channel_id,
+                gamified_persona_id=kia_persona.id,
+                content_text=response_text,
+                shield_action="allow"
+            )
+            db.add(msg)
+            await db.commit()
+            await db.refresh(msg)
+            
+            # Broadcast Kia's message
+            msg_out = await _message_to_out(msg, kia_persona)
+            await manager.broadcast(
+                circle_id,
+                {
+                    "type": "new_message",
+                    "payload": msg_out.model_dump(mode="json"),
+                },
+            )
+            
+            # Stop typing status
+            await manager.broadcast(
+                circle_id,
+                {"type": "typing_stop", "payload": {"persona_id": kia_persona_id}},
+            )
+    except Exception as e:
+        logger.exception(f"Kia bot response error: {e}")
+        # Always stop typing on error
         await manager.broadcast(
             circle_id,
-            {
-                "type": "new_message",
-                "payload": msg_out.model_dump(mode="json"),
-            },
+            {"type": "typing_stop", "payload": {"persona_id": kia_persona_id}},
         )
 
 
@@ -193,6 +233,9 @@ async def circle_websocket(
     ws: WebSocket,
     token: str = Query(
         ..., description="JWT auth token (browser WS cannot send headers)"
+    ),
+    role: str = Query(
+        default="sponsor", description="User role hint (sponsor or sponsor_leader)"
     ),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -209,8 +252,11 @@ async def circle_websocket(
     """
     user: Optional[SignupRequest] = await get_current_user_from_token(token, db)
     if user is None:
+        logger.warning(f"WebSocket auth failed for token: {token[:10]}...")
         await ws.close(code=4000)
         return
+
+    logger.info(f"WebSocket connecting: user={user.email}, circle={circle_id}")
 
     membership_result = await db.execute(
         select(CircleMember).where(
@@ -222,6 +268,7 @@ async def circle_websocket(
     )
     membership = membership_result.scalar_one_or_none()
     if membership is None:
+        logger.warning(f"WebSocket membership check failed: user={user.id}, circle={circle_id}")
         await ws.close(code=4003)  # not a member
         return
 
@@ -384,14 +431,19 @@ async def circle_websocket(
                     },
                 )
 
-                # ── Trigger Kia Bot for students ────────────────────────
-                if str(user.persona) == "student":
+                # ── Trigger Kia Bot on @kia mention ──
+                if "@kia" in (data.content_text or "").lower():
+                    kia_p = await _get_kia_persona(db)
+                    is_leader_user = (role == "sponsor_leader")
                     asyncio.create_task(
                         _process_kia_bot_response(
                             data.content_text or "",
                             circle_id,
                             str(data.channel_id),
-                            SessionLocal
+                            SessionLocal,
+                            str(kia_p.id),
+                            str(user.id),  # Pass requesting user's ID for RAG context
+                            is_leader=is_leader_user,
                         )
                     )
 

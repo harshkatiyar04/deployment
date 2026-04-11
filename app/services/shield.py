@@ -35,8 +35,15 @@ SELF_HARM_FAST = re.compile(
     re.IGNORECASE,
 )
 
-SOCIAL_HANDLE = re.compile(
-    r'(?:^|[\s,])(?:@|ig:|insta:|snap:|tg:)\s?[\w.]{2,30}',
+# Detects social handles ONLY when paired with off-platform keywords (e.g. "@myinsta follow me")
+# Plain in-platform @mentions like @kia or @username are intentional and must NOT be flagged.
+SOCIAL_HANDLE_RAW = re.compile(
+    r'(?:ig:|insta:|snap:|tg:)\s?[\w.]{2,30}',
+    re.IGNORECASE,
+)
+# @handle is only suspicious if followed by off-platform platform names
+SOCIAL_HANDLE_CONTEXT = re.compile(
+    r'@[\w.]{2,30}.*?(instagram|snapchat|telegram|whatsapp|facebook|twitter|tiktok|discord|ig\b)',
     re.IGNORECASE,
 )
 
@@ -135,7 +142,7 @@ async def shield_message_async(text: str) -> dict:
 
     # Primary Moderation Layer (Contextual)
     client = _get_gemini_client()
-    if client:
+    if client: 
         try:
             response = await asyncio.to_thread(
                 client.models.generate_content,
@@ -180,7 +187,7 @@ def _legacy_shield(text: str) -> dict:
     if OFF_PLATFORM_HINTS.search(text):
         return {"action": "block", "reason": "off_platform_intent", "entity": None}
 
-    if SOCIAL_HANDLE.search(text):
+    if SOCIAL_HANDLE_RAW.search(text) or SOCIAL_HANDLE_CONTEXT.search(text):
         return {"action": "warn", "reason": "social_handle_detected", "entity": "SOCIAL_HANDLE"}
 
     return {"action": "allow", "reason": None, "entity": None}

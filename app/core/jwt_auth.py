@@ -23,7 +23,7 @@ class JWTSettings(BaseSettings):
         env_file=get_env_file(), env_file_encoding="utf-8", extra="ignore"
     )
     secret_key: str = Field(default="changeme-insecure-default")
-    access_token_expire_minutes: int = Field(default=60)
+    access_token_expire_minutes: int = Field(default=10080) # Increased to 7 days
 
 
 jwt_settings = JWTSettings()
