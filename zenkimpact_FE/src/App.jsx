@@ -4,6 +4,7 @@ import { NotificationProvider } from './contexts/NotificationContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
+import SponsorCircleDashboard from './microservices/sponsor-circle/index'
 
 // Student Pages
 import Resources from './pages/Resources'
@@ -41,46 +42,49 @@ function App() {
       <NotificationProvider>
         <Router>
           <Routes>
-          <Route path="/" element={<Login />} />
-          <Route path="/login" element={<Login />} />
-          
-          {/* Home Page - For Personas and Admins */}
-          <Route path="/dashboard/home" element={<Home />} />
-          
-          {/* Dashboard */}
-          <Route path="/dashboard" element={<Dashboard />} />
-          
-          {/* Student Routes */}
-          <Route path="/dashboard/resources" element={<Resources />} />
-          <Route path="/dashboard/sessions" element={<Sessions />} />
-          <Route path="/dashboard/progress" element={<Progress />} />
-          
-          {/* Sponsor Routes */}
-          <Route path="/dashboard/circles" element={<Circles />} />
-          <Route path="/dashboard/impact-league" element={<ImpactLeague />} />
-          <Route path="/dashboard/contributions" element={<Contributions />} />
-          <Route path="/dashboard/mentoring" element={<Mentoring />} />
-          
-          {/* Supplier Routes */}
-          <Route path="/dashboard/catalog" element={<Catalog />} />
-          <Route path="/dashboard/orders" element={<Orders />} />
-          
-          {/* Admin Routes */}
-          <Route path="/dashboard/users" element={<Users />} />
-          <Route path="/dashboard/suppliers" element={<Suppliers />} />
-          <Route path="/dashboard/safety" element={<Safety />} />
-          <Route path="/dashboard/financial" element={<Financial />} />
-          <Route path="/dashboard/chat-bans" element={<ChatBans />} />
-          <Route path="/dashboard/report-queue" element={<SOSQueue />} />
-          
-          {/* Shared Routes */}
-          <Route path="/dashboard/marketplace" element={<Marketplace />} />
-          <Route path="/dashboard/analytics" element={<Analytics />} />
-          
-          {/* Chat Testing Route */}
-          <Route path="/chat-demo" element={<ChatDemo />} />
-        </Routes>
-      </Router>
+            <Route path="/" element={<Login />} />
+            <Route path="/login" element={<Login />} />
+
+            {/* Home Page - For Personas and Admins */}
+            <Route path="/dashboard/home" element={<Home />} />
+
+            {/* Dashboard */}
+            <Route path="/dashboard" element={<Dashboard />} />
+
+            {/* Student Routes */}
+            <Route path="/dashboard/resources" element={<Resources />} />
+            <Route path="/dashboard/sessions" element={<Sessions />} />
+            <Route path="/dashboard/progress" element={<Progress />} />
+
+            {/* Sponsor Routes */}
+            <Route path="/dashboard/circles" element={<Circles />} />
+            <Route path="/dashboard/impact-league" element={<ImpactLeague />} />
+            <Route path="/dashboard/contributions" element={<Contributions />} />
+            <Route path="/dashboard/mentoring" element={<Mentoring />} />
+
+            {/* Supplier Routes */}
+            <Route path="/dashboard/catalog" element={<Catalog />} />
+            <Route path="/dashboard/orders" element={<Orders />} />
+
+            {/* Admin Routes */}
+            <Route path="/dashboard/users" element={<Users />} />
+            <Route path="/dashboard/suppliers" element={<Suppliers />} />
+            <Route path="/dashboard/safety" element={<Safety />} />
+            <Route path="/dashboard/financial" element={<Financial />} />
+            <Route path="/dashboard/chat-bans" element={<ChatBans />} />
+            <Route path="/dashboard/report-queue" element={<SOSQueue />} />
+
+            {/* Shared Routes */}
+            <Route path="/dashboard/marketplace" element={<Marketplace />} />
+            <Route path="/dashboard/analytics" element={<Analytics />} />
+
+            {/* Chat Testing Route */}
+            <Route path="/chat-demo" element={<ChatDemo />} />
+
+            {/* Sponsor Circle Dashboard Microservice */}
+            <Route path="/sponsor-circle" element={<SponsorCircleDashboard />} />
+          </Routes>
+        </Router>
       </NotificationProvider>
     </PersonaProvider>
   )

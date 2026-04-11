@@ -26,6 +26,10 @@ export default function PersonaAvatar({ nickname = '?', avatarKey, isOnline = fa
   const initials = useMemo(() => {
     const cleanNick = String(nickname || '?').trim()
     if (!cleanNick) return '?'
+    
+    // Special case for Kia
+    if (cleanNick.toLowerCase() === 'kia') return 'KIA'
+
     const parts = cleanNick.split(/\s+/)
     if (parts.length > 1) {
       // e.g. "Rohit Chawla" -> "RC"
@@ -39,6 +43,8 @@ export default function PersonaAvatar({ nickname = '?', avatarKey, isOnline = fa
   }, [nickname])
 
   const colors = useMemo(() => {
+    if (nickname === 'Kia') return { bg: '#DCFCE7', text: '#14532D' } // Custom Emerald Green for Kia
+    
     const cleanNick = String(nickname || '?')
     let hash = 0
     for (let i = 0; i < cleanNick.length; i++) {
@@ -56,12 +62,12 @@ export default function PersonaAvatar({ nickname = '?', avatarKey, isOnline = fa
         className={`${sizeClasses[size]} rounded-full flex items-center justify-center font-extrabold select-none shadow-sm border border-black/5`}
         style={{ backgroundColor: colors.bg, color: colors.text }}
       >
-        {!showInitials ? (
+        {!showInitials || nickname === 'Kia' ? (
           <img
-            src={avatarKey.startsWith('http') ? avatarKey : `/avatars/${avatarKey}.png`}
+            src={nickname === 'Kia' ? '/kia-bot-avatar.png' : (avatarKey.startsWith('http') ? avatarKey : `/avatars/${avatarKey}.png`)}
             alt={nickname}
             className="w-full h-full rounded-full object-cover"
-            onError={() => setImgError(true)}
+            onError={() => nickname !== 'Kia' && setImgError(true)}
           />
         ) : (
           initials

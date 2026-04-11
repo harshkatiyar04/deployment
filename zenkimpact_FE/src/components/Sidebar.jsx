@@ -14,7 +14,8 @@ import {
   ShieldCheckIcon,
   BookOpenIcon,
   DevicePhoneMobileIcon,
-  SparklesIcon
+  SparklesIcon,
+  RectangleGroupIcon
 } from '@heroicons/react/24/outline'
 
 function Sidebar() {
@@ -36,6 +37,7 @@ function Sidebar() {
   const sponsorNavItems = [
     { path: '/dashboard/home', icon: HomeIcon, label: 'Home' },
     { path: '/dashboard', icon: SparklesIcon, label: 'Dashboard' },
+    { path: '/sponsor-circle', icon: RectangleGroupIcon, label: 'Circle Dashboard' },
     { path: '/dashboard/circles', icon: UserGroupIcon, label: 'Sponsor Circles' },
     { path: '/dashboard/impact-league', icon: TrophyIcon, label: 'Impact League' },
     { path: '/dashboard/contributions', icon: CurrencyDollarIcon, label: 'Contributions' },

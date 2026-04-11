@@ -30,7 +30,7 @@ export const ChatProvider = ({ circleId, children }) => {
       if (!res.ok) throw new Error(`Channels fetch failed: ${res.status}`)
       const data = await res.json()
       setChannels(data)
-      if (data.length > 0 && !activeChannel) {
+      if (data && data.length > 0 && !activeChannel) {
         setActiveChannel(data[0])
       }
     } catch (err) {

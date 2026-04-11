@@ -54,7 +54,7 @@ export default function MessageBubble({ message, userPersona }) {
       onMouseLeave={() => setHovered(false)}
     >
       {/* Bubble Row: Avatar + Bubble */}
-      <div className={`flex items-start gap-3 max-w-[85%] ${isOwner ? 'flex-row-reverse' : 'flex-row'}`}>
+      <div className={`flex items-start gap-3 max-w-[75%] ${isOwner ? 'flex-row-reverse' : 'flex-row'}`}>
         <div className="shrink-0 mt-0.5">
           <PersonaAvatar nickname={message.persona_nickname} avatarKey={message.avatar_key} size="md" />
         </div>
@@ -72,7 +72,7 @@ export default function MessageBubble({ message, userPersona }) {
                   isOwner
                     ? 'bg-[#FFF1E1] border border-[#F5E6CE] text-gray-800 rounded-2xl rounded-br-sm'
                     : message.persona_nickname === 'Kia'
-                      ? 'bg-[#E9F7F5] border border-[#B2DFD8] text-[#115E59] rounded-2xl rounded-bl-sm'
+                      ? 'bg-[#E9F7F5] border border-[#B2DFD8] text-[#115E59] rounded-2xl rounded-bl-sm opacity-95 transition-all'
                       : 'bg-white border border-gray-100 text-gray-800 rounded-2xl rounded-bl-sm'
                 }`}>
                   {(() => {
@@ -87,20 +87,30 @@ export default function MessageBubble({ message, userPersona }) {
                       const suggestion = parts.slice(1).join(kiaKeyword).trim()
                       
                       return (
-                        <div className="flex flex-col gap-3">
-                          {mainText && <span>{mainText}</span>}
-                          <div className="bg-white border border-[#B2DFD8] rounded-xl p-3 shadow-sm mt-1">
-                            <div className="text-[12px] font-bold text-[#0D9488] mb-1 uppercase tracking-wide">
+                        <div className="flex flex-col gap-2">
+                          {mainText && (
+                            <span className="opacity-90">
+                              {mainText.split(/(@\w+)/g).map((part, i) => 
+                                part.startsWith('@') ? <strong key={i} className="text-[#0D9488]">{part}</strong> : part
+                              )}
+                            </span>
+                          )}
+                          <div className="bg-[#DCFCE7] border border-[#BBF7D0] rounded-xl px-3 py-2 shadow-sm mt-0.5">
+                            <div className="text-[10px] font-bold text-[#115E59] mb-0.5 uppercase tracking-wide opacity-80">
                               Kia suggests:
                             </div>
-                            <div className="text-sm text-gray-700 leading-normal">
+                            <div className="text-[13px] text-[#14532D] font-medium leading-relaxed">
                               {suggestion}
                             </div>
                           </div>
                         </div>
                       )
                     }
-                    return text
+                    
+                    // Normal text mention highlighting
+                    return text.split(/(@\w+)/g).map((part, i) => 
+                      part.startsWith('@') ? <strong key={i} className="text-[#0D9488] font-bold">{part}</strong> : part
+                    )
                   })()}
                 </div>
               )}
@@ -178,8 +188,8 @@ export default function MessageBubble({ message, userPersona }) {
         </div>
       </div>
 
-      {/* Action buttons on hover */}
-      <div className={`absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 ${isOwner ? 'left-6' : 'right-6'}`}>
+      {/* Action buttons on hover (positioned to avoid bubble overlap) */}
+      <div className={`absolute top-0.5 opacity-0 group-hover:opacity-100 transition-opacity z-10 ${isOwner ? 'left-1' : 'right-1'}`}>
         {isOwner && !isDeleted && (
           <button
             id={`del-${message.id}`}

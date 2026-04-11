@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     admin_notification_to: str = Field(default="leninstark@gmail.com")
     # Content Moderation API
     gemini_api_key: Optional[str] = Field(default=None)
+    groq_api_key: Optional[str] = Field(default=None)
 
 
 settings = Settings()

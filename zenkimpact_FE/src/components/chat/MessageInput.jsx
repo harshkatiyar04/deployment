@@ -7,8 +7,10 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
 const MAX_CHARS = 2000
 
 export default function MessageInput({ userPersona, handRaised }) {
-  const { sendMessage, activeChannel, stageActive, status } = useChat()
+  const { sendMessage, activeChannel, stageActive, status, members } = useChat()
   const [text, setText] = useState('')
+  const [showMentions, setShowMentions] = useState(false)
+  const [mentionFilter, setMentionFilter] = useState('')
   const [uploading, setUploading] = useState(false)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const fileInputRef = useRef(null)
@@ -26,7 +28,20 @@ export default function MessageInput({ userPersona, handRaised }) {
   }
 
   const handleChange = (e) => {
-    setText(e.target.value.slice(0, MAX_CHARS))
+    const val = e.target.value.slice(0, MAX_CHARS)
+    setText(val)
+    
+    // Simple Mention Trigger Logic
+    const lastChar = val[e.target.selectionStart - 1]
+    const textBeforeCursor = val.slice(0, e.target.selectionStart)
+    const mentionMatch = textBeforeCursor.match(/@(\w*)$/)
+    
+    if (mentionMatch) {
+      setShowMentions(true)
+      setMentionFilter(mentionMatch[1].toLowerCase())
+    } else {
+      setShowMentions(false)
+    }
   }
 
   const handleKeyDown = (e) => {
@@ -81,7 +96,7 @@ export default function MessageInput({ userPersona, handRaised }) {
         </p>
       )}
 
-      <div className="flex items-end gap-2">
+      <div className="flex items-center gap-1">
         {/* Emoji Picker */}
         <div className="relative">
           <button
@@ -125,24 +140,74 @@ export default function MessageInput({ userPersona, handRaised }) {
           onChange={handleFileChange}
         />
 
-        {/* Input Field */}
-        <textarea
-          id="chat-message-input"
-          value={text}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          disabled={disabled}
-          rows={1}
-          placeholder={
-            stageBlocked
-              ? 'Stage is active — raise your hand to speak'
-              : activeChannel
-              ? 'Type a message to the circle...'
-              : 'Select a channel'
-          }
-          className="flex-1 resize-none rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 disabled:bg-gray-50 disabled:text-gray-400 leading-relaxed transition-all"
-          style={{ maxHeight: '120px', overflowY: 'auto' }}
-        />
+        {/* Input Field + Mentions Wrapper */}
+        <div className="flex-1 relative">
+          {/* Mention Suggestions Popup */}
+          {showMentions && (
+            <div className="absolute bottom-full left-0 mb-3 w-72 bg-white rounded-xl shadow-[0_10px_40px_rgba(0,0,0,0.15)] border border-gray-100 overflow-hidden z-[1000] animate-in slide-in-from-bottom-2 duration-200">
+              <div className="px-4 py-3 bg-gray-50 border-bottom border-gray-100 flex items-center justify-between">
+                <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Mention Member</span>
+                <span className="text-[10px] text-teal-600 font-medium bg-teal-50 px-1.5 py-0.5 rounded">@{mentionFilter || '...'}</span>
+              </div>
+              <div className="max-h-60 overflow-y-auto">
+                {[ { nickname: 'Kia', id: 'kia-bot', avatar_key: 'avatar_kia', isBot: true }, ...members]
+                  .filter(m => m.nickname.toLowerCase().includes(mentionFilter))
+                  .map((member) => (
+                    <button
+                      key={member.id || member.persona_id}
+                      type="button"
+                      onClick={() => {
+                        const beforeMention = text.slice(0, text.lastIndexOf('@'))
+                        setText(beforeMention + '@' + member.nickname + ' ')
+                        setShowMentions(false)
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-teal-50 transition-colors text-left group"
+                    >
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] text-white font-bold shrink-0 shadow-sm ${member.isBot ? 'bg-gradient-to-br from-teal-500 to-emerald-600' : 'bg-gray-300'}`}>
+                        {member.isBot ? (
+                          <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                        ) : (
+                          member.nickname.slice(0, 2).toUpperCase()
+                        )}
+                      </div>
+                      <div className="flex flex-col">
+                        <span className={`text-sm font-semibold ${member.isBot ? 'text-teal-700' : 'text-gray-700'} group-hover:text-teal-800`}>
+                          {member.nickname}
+                        </span>
+                        {member.isBot && <span className="text-[10px] text-teal-500 font-medium">AI Mentor</span>}
+                      </div>
+                    </button>
+                  ))
+                }
+                {members.filter(m => m.nickname.toLowerCase().includes(mentionFilter)).length === 0 && mentionFilter && (
+                   <div className="px-4 py-6 text-center text-gray-400 text-xs italic">
+                      No members found matching "@{mentionFilter}"
+                   </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          <textarea
+            id="chat-message-input"
+            value={text}
+            onChange={handleChange}
+            onKeyDown={handleKeyDown}
+            disabled={disabled}
+            rows={1}
+            placeholder={
+              stageBlocked
+                ? 'Stage is active — raise your hand to speak'
+                : activeChannel
+                ? 'Type a message (use @ to tag)...'
+                : 'Select a channel'
+            }
+            className="w-full resize-none rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 disabled:bg-gray-50 disabled:text-gray-400 leading-relaxed transition-all"
+            style={{ maxHeight: '120px', overflowY: 'auto' }}
+          />
+        </div>
 
         {/* Send Button */}
         <button

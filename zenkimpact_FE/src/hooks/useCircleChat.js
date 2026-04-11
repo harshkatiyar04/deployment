@@ -21,8 +21,11 @@ export function useCircleChat(circleId) {
   const [personaId, setPersonaId] = useState(null)
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [members, setMembers] = useState([])
+  const [kiaTyping, setKiaTyping] = useState(false)
 
   const wsRef = useRef(null)
+  const heartbeatTimerRef = useRef(null)
   const backoffRef = useRef(0)
   const reconnectTimerRef = useRef(null)
   const circleIdRef = useRef(circleId)
@@ -30,7 +33,17 @@ export function useCircleChat(circleId) {
   // Keep ref in sync so reconnect closure uses latest circleId
   useEffect(() => { circleIdRef.current = circleId }, [circleId])
 
+  const startHeartbeat = useCallback(() => {
+    clearInterval(heartbeatTimerRef.current)
+    heartbeatTimerRef.current = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({ type: 'ping', payload: {} }))
+      }
+    }, 30000) // 30s heartbeat
+  }, [])
+
   const scheduleReconnect = useCallback(() => {
+    clearInterval(heartbeatTimerRef.current)
     clearTimeout(reconnectTimerRef.current)
     const delay = BACKOFF_DELAYS_MS[Math.min(backoffRef.current, BACKOFF_DELAYS_MS.length - 1)]
     backoffRef.current += 1
@@ -61,6 +74,7 @@ export function useCircleChat(circleId) {
       setStatus('open')
       backoffRef.current = 0 // reset backoff on successful connect
       setWsError(null)
+      startHeartbeat()
     }
 
     ws.onclose = (event) => {
@@ -145,6 +159,17 @@ export function useCircleChat(circleId) {
           }))
           break
           
+        case 'typing_start':
+          if (envelope.payload.nickname === 'Kia') {
+            setKiaTyping(true)
+          }
+          break
+          
+        case 'typing_stop':
+          if (envelope.payload.persona_id) { // Kia's stop event sends persona_id
+            setKiaTyping(false)
+          }
+          break
 
         case 'pong':
           // no-op — connection keepalive acknowledgement
@@ -163,7 +188,10 @@ export function useCircleChat(circleId) {
 
   // Connect when circleId changes; disconnect on unmount
   useEffect(() => {
-    if (circleId) connect(circleId)
+    if (circleId) {
+      connect(circleId)
+      loadMembers()
+    }
     return () => {
       clearTimeout(reconnectTimerRef.current)
       if (wsRef.current) {
@@ -287,7 +315,9 @@ export function useCircleChat(circleId) {
       const apiHost = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
       const response = await fetch(`${apiHost}/chat/circle/${circleId}/members?token=${encodeURIComponent(token)}`)
       if (!response.ok) return
-      return await response.json()
+      const fetchedMembers = await response.json()
+      setMembers(fetchedMembers)
+      return fetchedMembers
     } catch (err) {
       console.error('[useCircleChat] Failed to load members', err)
       return []
@@ -315,5 +345,7 @@ export function useCircleChat(circleId) {
     loadHistory,
     loadMoreHistory,
     loadMembers,
+    members,
+    kiaTyping,
   }
 }

@@ -1,13 +1,15 @@
-import { useEffect, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { ChevronDownIcon } from '@heroicons/react/24/solid'
 import MessageBubble from './MessageBubble'
 import { useChat } from '../../contexts/ChatContext'
 
 export default function MessageList({ userPersona, activeChannelId }) {
-  const { messages, nudgeActive, dismissNudge, hasMore, isLoadingMore, loadMoreHistory } = useChat()
+  const { messages, nudgeActive, dismissNudge, hasMore, isLoadingMore, loadMoreHistory, kiaTyping } = useChat()
   const bottomRef = useRef(null)
   const topSentinelRef = useRef(null)
   const prevMessagesLength = useRef(0)
   const listContainerRef = useRef(null)
+  const [showScrollDown, setShowScrollDown] = useState(false)
 
   const channelMessages = activeChannelId
     ? messages.filter((m) => m.channel_id === activeChannelId)
@@ -29,20 +31,50 @@ export default function MessageList({ userPersona, activeChannelId }) {
     return () => observer.disconnect()
   }, [activeChannelId, hasMore, isLoadingMore, loadMoreHistory])
 
+  // Handle auto-scroll to bottom
   useEffect(() => {
     if (channelMessages.length > prevMessagesLength.current) {
       const isInitialLoad = prevMessagesLength.current === 0
-      const isNewMsgAtBottom = channelMessages[channelMessages.length - 1].id !== messages[messages.length - 1]?.id
-
-      if (isInitialLoad || isNewMsgAtBottom) {
+      if (isInitialLoad) {
+        // Instant scroll for first load to avoid "stopping mid-way"
+        bottomRef.current?.scrollIntoView({ behavior: 'auto' })
+      } else {
+        // Smooth scroll for new incoming messages
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
       }
     }
     prevMessagesLength.current = channelMessages.length
-  }, [channelMessages.length, messages])
+  }, [channelMessages.length])
+
+  // Track scroll position to show/hide the "Scroll Down" button
+  const handleScroll = () => {
+    if (!listContainerRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = listContainerRef.current
+    const isAtBottom = scrollHeight - scrollTop <= clientHeight + 100
+    setShowScrollDown(!isAtBottom)
+  }
+
+  const scrollToBottom = () => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
 
   return (
-    <div ref={listContainerRef} className="flex-1 overflow-y-auto flex flex-col min-h-0 relative">
+    <div 
+      ref={listContainerRef} 
+      onScroll={handleScroll}
+      className="flex-1 overflow-y-auto flex flex-col min-h-0 relative scroll-smooth"
+    >
+      {/* Scroll to Bottom Button */}
+      {showScrollDown && (
+        <button
+          onClick={scrollToBottom}
+          className="absolute bottom-4 right-6 z-50 p-2.5 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-all active:scale-95 animate-bounce"
+          title="Scroll to latest messages"
+        >
+          <ChevronDownIcon className="w-5 h-5" />
+        </button>
+      )}
+
       {nudgeActive && (
         <div
           role="alert"
@@ -71,7 +103,7 @@ export default function MessageList({ userPersona, activeChannelId }) {
         </div>
       )}
 
-      {channelMessages.length === 0 && (
+      {channelMessages.length === 0 && !kiaTyping && (
         <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
           No messages yet. Say hello!
         </div>
@@ -81,6 +113,25 @@ export default function MessageList({ userPersona, activeChannelId }) {
         {channelMessages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} userPersona={userPersona} />
         ))}
+
+        {/* Kia Typing Indicator */}
+        {kiaTyping && (
+          <div className="flex items-start gap-3 px-6 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
+             <div className="w-8 h-8 rounded-full bg-[#DCFCE7] flex items-center justify-center text-[10px] text-[#166534] font-bold shrink-0 shadow-sm border border-black/5">
+                AI
+             </div>
+             <div className="bg-[#E9F7F5] border border-[#B2DFD8] rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
+                <div className="flex items-center gap-2">
+                   <span className="text-sm font-medium text-[#115E59]">Kia is responding</span>
+                   <div className="flex gap-1">
+                      <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse" />
+                      <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse delay-75" />
+                      <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse delay-150" />
+                   </div>
+                </div>
+             </div>
+          </div>
+        )}
       </div>
 
       <div ref={bottomRef} />
