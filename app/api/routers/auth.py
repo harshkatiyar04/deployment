@@ -56,6 +56,7 @@ async def login(
     signup = res.scalar_one_or_none()
     
     if not signup:
+        logger.warning(f"Auth failure (/login): Account not found for email '{body.email}'")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -63,6 +64,7 @@ async def login(
     
     # Verify password
     if not verify_password(body.password, signup.password_hash):
+        logger.warning(f"Auth failure (/login): Incorrect password attempt for email '{body.email}'")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -126,17 +128,27 @@ async def issue_token(
     res = await db.execute(query)
     signup = res.scalar_one_or_none()
 
-    if not signup or not verify_password(body.password, signup.password_hash):
+    if not signup:
+        logger.warning(f"Auth failure (/token): Account not found for email '{body.email}'")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    if not verify_password(body.password, signup.password_hash):
+        logger.warning(f"Auth failure (/token): Incorrect password attempt for email '{body.email}'")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
     if signup.kyc_status != KycStatus.approved:
+        logger.warning(f"Auth failure (/token): User '{body.email}' blocked due to KYC status '{signup.kyc_status}'")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="KYC approval required to access chat",
         )
 
+    logger.info(f"Auth success (/token): JWT issued for '{body.email}'")
     token = create_access_token(data={"sub": signup.id})
     return TokenResponse(access_token=token)
