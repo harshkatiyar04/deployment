@@ -166,3 +166,16 @@ class WarnedMessageOut(BaseModel):
     created_at: datetime
     sender_user_id: Optional[str] = None
     circle_id: str
+
+
+class AuthLogResponse(BaseModel):
+    id: UUID
+    email: str
+    timestamp: datetime
+    status: str
+    comment: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
