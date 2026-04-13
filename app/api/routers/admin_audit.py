@@ -8,7 +8,7 @@ from app.models.auth_log import AuthAuditLog
 from app.core.jwt_auth import get_current_user
 from app.chat.schemas import AuthLogResponse
 
-router = APIRouter(prefix="/admin/audit", tags=["admin_audit"])
+router = APIRouter(prefix="/admin/chat", tags=["admin_audit"])
 
 
 @router.get("/auth-logs", response_model=List[AuthLogResponse])
