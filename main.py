@@ -13,6 +13,8 @@ app = FastAPI(title="ZENK BE")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "https://zenk-fe.vercel.app",
+        "https://zenk-portal.vercel.app",
         "https://bdb9-117-213-200-3.ngrok-free.app",
         "https://969a-112-133-220-139.ngrok-free.app",
         "https://b895-112-133-220-139.ngrok-free.app",
