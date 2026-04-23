@@ -421,6 +421,7 @@ async def _apply_promotions_to_products(db: AsyncSession, products: list[VendorP
     return output
 
 
+@router.get("/marketplace-products", response_model=list[ProductOut])
 @router.get("/marketplace/products", response_model=list[ProductOut])
 async def list_marketplace_products(
     category: Optional[str] = Query(None),
