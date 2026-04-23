@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -47,6 +48,13 @@ from app.microservices.vendor.schemas import (
 
 router = APIRouter(prefix="/vendor", tags=["vendor"])
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Simple in-memory TTL cache for the public marketplace endpoint
+# Avoids hammering Neon DB on every page load — refreshes every 5 minutes
+# ---------------------------------------------------------------------------
+_marketplace_cache: dict = {"data": None, "ts": 0.0}
+_CACHE_TTL = 5 * 60  # 5 minutes
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -431,6 +439,14 @@ async def list_marketplace_products(
     db: AsyncSession = Depends(get_db),
 ):
     """Public endpoint to list all active products for the marketplace."""
+    # Use cache for the default unfiltered request (most common case)
+    is_filtered = bool(search) or (category and category != 'All Items')
+    now = time.time()
+    
+    if not is_filtered and _marketplace_cache["data"] is not None and (now - _marketplace_cache["ts"]) < _CACHE_TTL:
+        logger.info("[Cache] Returning cached marketplace products.")
+        return _marketplace_cache["data"]
+
     q = select(VendorProduct).where(VendorProduct.is_active == True)
 
     if category and category != 'All Items':
@@ -442,7 +458,15 @@ async def list_marketplace_products(
     result = await db.execute(q)
     products = result.scalars().all()
     
-    return await _apply_promotions_to_products(db, products)
+    output = await _apply_promotions_to_products(db, products)
+    
+    # Store in cache only for unfiltered requests
+    if not is_filtered:
+        _marketplace_cache["data"] = output
+        _marketplace_cache["ts"] = now
+        logger.info(f"[Cache] Cached {len(output)} marketplace products.")
+    
+    return output
 
 
 @router.post("/products", response_model=ProductOut, status_code=status.HTTP_201_CREATED)
