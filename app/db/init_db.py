@@ -7,6 +7,7 @@ from app.db.session import engine
 # Import models so they register with Base.metadata
 from app.models import notification, signup  # noqa: F401
 import app.chat.models  # noqa: F401
+import app.microservices.vendor.models  # noqa: F401
 
 
 async def init_db() -> None:

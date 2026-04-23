@@ -46,6 +46,4 @@ def health():
 
 app.include_router(api_router)
 
-# Trigger uvicorn hot-reload
-
-
+# Trigger uvicorn hot-reload!

@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
     persona: Optional[Persona] = None  # Optional: if not provided, search across all personas
 
