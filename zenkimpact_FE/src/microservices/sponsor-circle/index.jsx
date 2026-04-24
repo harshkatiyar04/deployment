@@ -1,5 +1,5 @@
 import './sponsor-circle.css'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import SCLeftNav from './components/SCLeftNav'
 import SCMetricCards from './components/SCMetricCards'
 import SCBudgetTracker from './components/SCBudgetTracker'
@@ -14,17 +14,38 @@ import SCChatMainView from './components/SCChatMainView'
 import SCSponsorProfile from './components/SCSponsorProfile'
 import SCImpactLeague from './components/SCImpactLeague'
 import SCSettings from './components/SCSettings'
+import EducationalMarketplace from '../shared/EducationalMarketplace'
+import { Bars3Icon } from '@heroicons/react/24/outline'
 
-const TABS = ['My Profile', 'My Circle', 'Impact League', 'Statement', 'Chat & Kia']
+const TABS = ['My Profile', 'My Circle', 'Marketplace', 'Impact League', 'Statement', 'Chat & Kia']
 
 export default function SponsorCircleDashboard() {
   const [activeTab, setActiveTab] = useState('My Profile')
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
+
+  // Close menu when tab changes on mobile
+  useEffect(() => {
+    setIsMenuOpen(false)
+  }, [activeTab])
 
   return (
-    <div className="sc-root">
-      <SCLeftNav activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div className="sc-root relative">
+      <div className="sc-mobile-header">
+        <img 
+          src="/assets/zenk-logo.png" 
+          alt="ZenK Logo" 
+          style={{ height: '24px', objectFit: 'contain' }} 
+        />
+        <button onClick={() => setIsMenuOpen(true)} className="p-2 text-gray-600 bg-gray-100 rounded-md">
+          <Bars3Icon className="w-6 h-6" />
+        </button>
+      </div>
 
-      <main className={`sc-main${activeTab === 'Chat & Kia' ? ' sc-main-chat' : ''}`}>
+      {isMenuOpen && <div className="sc-mobile-overlay" onClick={() => setIsMenuOpen(false)}></div>}
+
+      <SCLeftNav activeTab={activeTab} setActiveTab={setActiveTab} isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
+
+      <main className={`sc-main${(activeTab === 'Chat & Kia' || activeTab === 'Marketplace') ? ' sc-main-chat' : ''}`}>
         <div className="sc-tabs">
           {TABS.map((tab) => (
             <button
@@ -38,13 +59,13 @@ export default function SponsorCircleDashboard() {
         </div>
 
         {activeTab === 'My Profile' && (
-          <div style={{ padding: '0 24px 24px' }}>
+          <div className="sc-content-pad">
             <SCSponsorProfile />
           </div>
         )}
 
         {activeTab === 'My Circle' && (
-          <div style={{ padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div className="sc-content-pad" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             <SCMetricCards />
             <SCBudgetTracker />
             <SCParticipation />
@@ -58,8 +79,14 @@ export default function SponsorCircleDashboard() {
         )}
 
         {activeTab === 'Impact League' && (
-          <div style={{ padding: '0 24px 24px' }}>
+          <div className="sc-content-pad">
             <SCImpactLeague />
+          </div>
+        )}
+
+        {activeTab === 'Marketplace' && (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <EducationalMarketplace isLeader={false} />
           </div>
         )}
 
@@ -70,20 +97,20 @@ export default function SponsorCircleDashboard() {
         )}
 
         {activeTab === 'Statement' && (
-          <div style={{ padding: '0 24px 24px' }}>
+          <div className="sc-content-pad">
             <SCStatementView />
           </div>
         )}
 
 
         {activeTab === 'Settings' && (
-          <div style={{ padding: '0 24px 24px' }}>
+          <div className="sc-content-pad">
             <SCSettings />
           </div>
         )}
       </main>
 
-      {activeTab !== 'Chat & Kia' && activeTab !== 'My Profile' && activeTab !== 'Settings' && <SCKiaPanel />}
+      {!['Chat & Kia', 'My Profile', 'Settings', 'Marketplace'].includes(activeTab) && <SCKiaPanel />}
     </div>
   )
 }

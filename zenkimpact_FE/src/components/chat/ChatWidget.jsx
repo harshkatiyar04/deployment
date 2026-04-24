@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ChatBubbleLeftRightIcon, XMarkIcon } from '@heroicons/react/24/outline'
 import { ChatProvider } from '../../contexts/ChatContext'
 import MessageList from './MessageList'
@@ -29,9 +30,15 @@ function WidgetInner({ circleId }) {
 }
 
 export default function ChatWidget() {
+  const location = useLocation()
   const [isOpen, setIsOpen] = useState(false)
   const [circleId, setCircleId] = useState('')
   const [activeCircleId, setActiveCircleId] = useState(null)
+  
+  // Hide widget on certain pages to avoid overlap
+  if (location.pathname === '/chat-demo') {
+    return null
+  }
   
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -42,7 +49,14 @@ export default function ChatWidget() {
     e.preventDefault()
     setAuthError('')
     try {
-      const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const getApiBase = () => {
+        if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+        if (typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('zenk'))) {
+          return 'https://deployment-production-27bd.up.railway.app';
+        }
+        return 'http://localhost:8000';
+      };
+      const apiBase = getApiBase();
       const res = await axios.post(`${apiBase}/auth/token`, {
         email: email,
         password: password
@@ -62,10 +76,10 @@ export default function ChatWidget() {
   }
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end">
+    <div className="fixed bottom-4 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end">
       {/* The Popup Window */}
       {isOpen && (
-        <div className="mb-4 w-[350px] h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col transition-all duration-300 origin-bottom-right">
+        <div className="mb-4 w-[calc(100vw-32px)] md:w-[350px] h-[70vh] md:h-[500px] bg-white rounded-2xl shadow-2xl border border-gray-200 overflow-hidden flex flex-col transition-all duration-300 origin-bottom-right">
           
           {/* Header */}
           <div className="bg-teal-600 text-white px-4 py-3 flex justify-between items-center shadow-sm z-10">

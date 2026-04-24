@@ -84,7 +84,7 @@ function QuickChips() {
 }
 
 function ChatContentWrapper({ userRole }) {
-  const { wsError, setWsError, nudgeActive, dismissNudge } = useChat()
+  const { wsError, setWsError, nudgeActive, dismissNudge, channels, activeChannel, setActiveChannel } = useChat()
   
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', background: 'var(--sc-cream)', position: 'relative', overflow: 'hidden' }}>
@@ -100,7 +100,7 @@ function ChatContentWrapper({ userRole }) {
         <div style={{ padding: '8px 12px', background: '#fee2e2', color: '#991b1b', fontSize: '11px', borderBottom: '1px solid #fca5a5', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <span><strong>Connection Error:</strong> {wsError.reason || wsError.code}</span>
           {wsError.code === 'auth_failed' && (
-            <Link to="/login" style={{ background: '#991b1b', color: 'white', padding: '2px 6px', borderRadius: '4px', textDecoration: 'none', fontWeight: 'bold', fontSize: '10px' }}>
+            <Link to="/chat-demo" style={{ background: '#991b1b', color: 'white', padding: '2px 6px', borderRadius: '4px', textDecoration: 'none', fontWeight: 'bold', fontSize: '10px' }}>
               Login
             </Link>
           )}
@@ -117,6 +117,33 @@ function ChatContentWrapper({ userRole }) {
       )}
 
       <StageBar userPersona={userRole} />
+
+      {/* Channel Switcher added inside KIA panel */}
+      {channels && channels.length > 0 && (
+        <div style={{ display: 'flex', overflowX: 'auto', gap: '8px', padding: '8px 12px', background: 'white', borderBottom: '1px solid var(--sc-border)', scrollbarWidth: 'none' }} className="sc-quick-chips">
+          {channels.map(channel => (
+            <button
+              key={channel.id}
+              onClick={() => setActiveChannel(channel)}
+              style={{
+                flexShrink: 0,
+                padding: '4px 12px',
+                borderRadius: '999px',
+                fontSize: '11px',
+                fontWeight: activeChannel?.id === channel.id ? 700 : 500,
+                background: activeChannel?.id === channel.id ? 'var(--sc-green-dark)' : 'var(--sc-cream)',
+                color: activeChannel?.id === channel.id ? 'white' : 'var(--sc-text)',
+                border: '1px solid',
+                borderColor: activeChannel?.id === channel.id ? 'var(--sc-green-dark)' : 'var(--sc-border)',
+                cursor: 'pointer'
+              }}
+            >
+              #{channel.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       <QuickChips />
       
       <div style={{ flex: 1, minHeight: 0, position: 'relative', display: 'flex', flexDirection: 'column', background: 'white' }}>
@@ -148,6 +175,7 @@ export default function SCKiaPanel() {
   const [circleId, setCircleId] = useState('481eba8f-778d-4618-8f9e-6e6b263d89a0')
   const [activeCircleId, setActiveCircleId] = useState('481eba8f-778d-4618-8f9e-6e6b263d89a0')
   const [inputVal, setInputVal] = useState('')
+  const [panelSize, setPanelSize] = useState('half') // 'compact', 'half', 'full'
 
   // Persist panel width in localStorage
   const [panelWidth, setPanelWidth] = useState(() => {
@@ -191,16 +219,25 @@ export default function SCKiaPanel() {
   }
 
   return (
-    <div className="sc-right-panel" style={{ width: panelWidth, minWidth: panelWidth, position: 'relative' }}>
+    <div className={`sc-right-panel mobile-size-${panelSize}`} style={window.innerWidth > 768 ? { width: panelWidth, minWidth: panelWidth, position: 'relative' } : {}}>
       {/* Resizer Handle */}
       <div 
+        className="sc-resizer-handle"
         style={{ position: 'absolute', left: -2, top: 0, bottom: 0, width: '6px', cursor: 'ew-resize', zIndex: 100 }}
         onMouseDown={handleMouseDown}
       />
       <div className="sc-panel-header">
         <span className="sc-panel-dot" />
         <span className="sc-panel-title">Chat &amp; Kia</span>
-        <SparklesIcon style={{ marginLeft: 'auto', width: 18, height: 18, color: '#f08c3b' }} />
+        
+        {/* Mobile Size Toggles */}
+        <div className="sc-mobile-size-toggles" style={{ marginLeft: 'auto', display: 'none', alignItems: 'center', gap: '4px' }}>
+          <button onClick={() => setPanelSize('compact')} style={{ padding: '2px 6px', fontSize: 10, borderRadius: 4, background: panelSize === 'compact' ? '#1e8e6a' : '#f4f3eb', color: panelSize === 'compact' ? 'white' : '#6b7280', border: 'none' }}>Compact</button>
+          <button onClick={() => setPanelSize('half')} style={{ padding: '2px 6px', fontSize: 10, borderRadius: 4, background: panelSize === 'half' ? '#1e8e6a' : '#f4f3eb', color: panelSize === 'half' ? 'white' : '#6b7280', border: 'none' }}>Half</button>
+          <button onClick={() => setPanelSize('full')} style={{ padding: '2px 6px', fontSize: 10, borderRadius: 4, background: panelSize === 'full' ? '#1e8e6a' : '#f4f3eb', color: panelSize === 'full' ? 'white' : '#6b7280', border: 'none' }}>Full</button>
+        </div>
+
+        <SparklesIcon style={{ marginLeft: window.innerWidth > 768 ? 'auto' : 0, width: 18, height: 18, color: '#f08c3b' }} />
       </div>
 
       <div className="sc-kia-header">

@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react'
-import { USER_PROFILE } from '../data/placeholders'
+import { USER_PROFILE, LEADER_PROFILE } from '../data/placeholders'
 import {
   TrophyIcon,
   FireIcon,
-  StarIcon,
   SparklesIcon,
   AcademicCapIcon,
   HandRaisedIcon,
@@ -11,11 +10,14 @@ import {
 } from '@heroicons/react/24/solid'
 import SCJourneyAnimation from './SCJourneyAnimation'
 import SCGraduateSpotlight from './SCGraduateSpotlight'
+import apiClient from '../../../utils/apiClient'
 
 const GLOBAL_NEWS_MOCK = [
-  { id: 1, text: "Global literacy rates reach an all-time high of 87%.", source: "UNESCO Update", time: "2m ago", image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=800&q=80", url: "https://www.unesco.org/en/education" },
-  { id: 2, text: "Tech billionaire pledges $1B to bridge the rural digital divide.", source: "Tech For Good", time: "15m ago", image: "https://images.unsplash.com/photo-1542810634-71277d95dcbb?auto=format&fit=crop&w=800&q=80", url: "https://news.google.com/search?q=philanthropy+rural+education" },
-  { id: 3, text: "Community micro-sponsorships shown to increase graduation rates by 40%.", source: "Global Education Review", time: "1h ago", image: "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=800&q=80", url: "https://news.google.com/search?q=education+micro-sponsorships" },
+  { id: 1, text: "Rural India sees 15% spike in female literacy following aggressive NGO interventions.", source: "Education Ministry", time: "2h ago", image: "https://images.unsplash.com/photo-1577896851231-70ef18881754?auto=format&fit=crop&w=800&q=80", url: "#" },
+  { id: 2, text: "Tech consortium pledges ₹50 Crore to bridge the digital divide in village schools.", source: "Tech For Good", time: "5h ago", image: "https://images.unsplash.com/photo-1542810634-71277d95dcbb?auto=format&fit=crop&w=800&q=80", url: "#" },
+  { id: 3, text: "Community micro-sponsorships via blockchain shown to increase graduation rates by 40%.", source: "Global Education Review", time: "1d ago", image: "https://images.unsplash.com/photo-1544928147-79a2dbc1f389?auto=format&fit=crop&w=800&q=80", url: "#" },
+  { id: 4, text: "Over 10,000 students receive automated scholarship disbursements through ZenK Smart Contracts.", source: "Impact Daily", time: "2d ago", image: "https://images.unsplash.com/photo-1503676260728-1c00da094a0b?auto=format&fit=crop&w=800&q=80", url: "#" },
+  { id: 5, text: "New report: Transparent donation tracking leads to 3x higher sponsor retention rates.", source: "Nonprofit Quarterly", time: "3d ago", image: "https://images.unsplash.com/photo-1529390079861-591de354faf5?auto=format&fit=crop&w=800&q=80", url: "#" }
 ]
 
 const BADGES = [
@@ -25,46 +27,42 @@ const BADGES = [
   { id: 4, title: 'Early Advocate', desc: 'Brought 2 new members to the circle', icon: HandRaisedIcon, color: '#6b21a8', bg: '#f3e8ff' },
 ]
 
-export default function SCSponsorProfile() {
+export default function SCSponsorProfile({ isLeader = false }) {
+  const PROFILE = isLeader ? LEADER_PROFILE : USER_PROFILE
+
   const [globalFeed, setGlobalFeed] = useState([])
   const [circleFeed, setCircleFeed] = useState([])
-
   const [globalIdx, setGlobalIdx] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [isPaused, setIsPaused] = useState(false)
 
-  // THE EDITORIAL CURATOR ENGINE
   const curateAndCategorize = (doc) => {
     const title = (doc.title || doc.webTitle || "").toLowerCase()
     const desc = (doc.description || doc.trailText || "").toLowerCase()
     const combined = title + " " + desc
-    
-    // 1. Strict India-Centric Rejected (Check for other countries/violence)
     const TOXIC = ['assault', 'cop', 'police', 'arrest', 'military', 'war', 'killing', 'dead', 'shooting', 'anti-ice', 'us politics', 'uk news', 'phoenix', 'london', 'pakistan', 'conflict']
     if (TOXIC.some(word => combined.includes(word))) return null
-    
-    // 2. Identify Indian Category
     let category = "General Impact"
-    if (combined.includes('donate') || combined.includes('pledge') || combined.includes('csr') || combined.includes('philanthropy')) 
+    if (combined.includes('donate') || combined.includes('pledge') || combined.includes('csr') || combined.includes('philanthropy'))
       category = "Donation Impact"
-    else if (combined.includes('scholarship') || combined.includes('grant') || combined.includes('funding') || combined.includes('fundraise')) 
+    else if (combined.includes('scholarship') || combined.includes('grant') || combined.includes('funding') || combined.includes('fundraise'))
       category = "Funding Announcements"
-    else if (combined.includes('literacy') || combined.includes('dropout') || combined.includes('enrollment') || combined.includes('gender gap') || combined.includes('stats')) 
+    else if (combined.includes('literacy') || combined.includes('dropout') || combined.includes('enrollment') || combined.includes('gender gap') || combined.includes('stats'))
       category = "Education Stats"
-    else if (combined.includes('graduate') || combined.includes('benefited') || combined.includes('milestone') || combined.includes('pm poshan') || combined.includes('success story')) 
+    else if (combined.includes('graduate') || combined.includes('benefited') || combined.includes('milestone') || combined.includes('success story'))
       category = "Success Stories"
-    else if (combined.includes('akshaya patra') || combined.includes('teach for india') || combined.includes('pratham') || combined.includes('giveindia') || combined.includes('ngo') || combined.includes('foundation')) 
+    else if (combined.includes('akshaya patra') || combined.includes('teach for india') || combined.includes('pratham') || combined.includes('giveindia') || combined.includes('ngo') || combined.includes('foundation'))
       category = "NGO/Foundation Activity"
-
-    // If it doesn't even mention India or Education strongly, reject (EDITORIAL REJECTION)
-    if (!combined.includes('india') && !combined.includes('indian')) return null
+      
+    // Relaxed filtering for demo: We require an education keyword, but we won't strictly enforce "india" 
+    // because The Guardian is primarily a UK paper and doesn't always have matching articles daily.
     if (!combined.includes('edu') && !combined.includes('school') && !combined.includes('student') && !combined.includes('literacy')) return null
-
+    
     return {
       id: doc.url || doc.webUrl || Math.random(),
       text: doc.title || doc.webTitle,
       summary: (doc.description || doc.trailText || "").split('. ').slice(0, 2).join('. ') + '.',
-      category: category,
+      category,
       source: doc.source?.name || 'The Guardian',
       time: doc.publishedAt || doc.webPublicationDate,
       image: doc.image || doc.urlToImage || doc.fields?.thumbnail || GLOBAL_NEWS_MOCK[0].image,
@@ -72,72 +70,42 @@ export default function SCSponsorProfile() {
     }
   }
 
+
+
   const fetchImpactData = async () => {
+    setIsLoading(true);
     try {
-      const gnewsKey = 'e3d9cf8ba124ee84dc994f9047b3cb80'
-      const newsApiKey = '869deb62e3ad4e98b3305acd694f49b2'
+      // For demo purposes, we exclusively use curated thematic data 
+      // instead of live political news from The Guardian.
+      const curatedItems = GLOBAL_NEWS_MOCK.map(m => ({ 
+        ...m, 
+        type: 'GLOBAL', 
+        category: 'Field Impact', 
+        summary: m.text 
+      }));
       
-      // 1. PRIMARY: GNEWS (Country: IN) - Strictly Curated
-      const gnewsQuery = encodeURIComponent('("education" OR "literacy" OR "donation" OR "scholarship") AND ("India" OR "NGO")')
-      const gnewsUrl = `https://gnews.io/api/v4/search?q=${gnewsQuery}&country=in&lang=en&apikey=${gnewsKey}`
+      // Artificial delay for smooth UI loading illusion
+      setTimeout(() => {
+        setGlobalFeed(curatedItems);
+        setIsLoading(false);
+      }, 600);
       
-      const newsRes = await fetch(gnewsUrl)
-      const newsData = await newsRes.json()
-      
-      let items = []
-      if (newsData.articles) {
-        items = newsData.articles.map(curateAndCategorize).filter(Boolean)
-      }
-
-      // 2. FALLBACK: NewsAPI (Strict Query for Indian NGOs)
-      if (items.length < 3) {
-        const fallbackQuery = encodeURIComponent('("education India" OR "scholarship India" OR "Akshaya Patra" OR "Teach For India")')
-        const fallbackUrl = `https://newsapi.org/v2/everything?q=${fallbackQuery}&language=en&sortBy=publishedAt&pageSize=20&apiKey=${newsApiKey}`
-        const fbRes = await fetch(fallbackUrl)
-        const fbData = await fbRes.json()
-        if (fbData.articles) {
-          const fbItems = fbData.articles.map(curateAndCategorize).filter(Boolean)
-          items = [...items, ...fbItems]
-        }
-      }
-      
-      // FALLBACK TO MOCK if world results fail
-      if (items.length === 0) items = GLOBAL_NEWS_MOCK.map(m => ({ ...m, type: 'GLOBAL', category: 'Education Stats', summary: m.text }))
-      
-      setGlobalFeed(items)
-
-      // 3. Local Circle Activity
-      const activityRes = await fetch('http://localhost:8000/sponsor-circle/budget')
-      const activityData = await activityRes.json()
-
-      let cItems = []
-      if (activityData.transactions) {
-        cItems = activityData.transactions.map((t, i) => ({
-          id: `act-${i}`,
-          type: 'CIRCLE',
-          text: `${t.description}: ${t.amount > 0 ? '₹' + t.amount.toLocaleString() : ''} - Impact applied.`,
-          source: t.category,
-          time: new Date().toISOString(),
-        }))
-      }
-
-      // Add high-fidelity "Charity" style simulation items
+      // 3. Fetch Circle/Pulse data (Simulated/Mocked)
+      await new Promise(resolve => setTimeout(resolve, 400));
       const SIMULATED_STORY = [
         { id: 'sim-1', type: 'CIRCLE', text: 'Ananya D. reached 90% attendance milestone! 🎓', source: 'Student Success', time: new Date().toISOString() },
         { id: 'sim-2', type: 'CIRCLE', text: 'New member joined: Rohit Chawla is now a supporter. 🤝', source: 'Circle Growth', time: new Date().toISOString() },
         { id: 'sim-3', type: 'CIRCLE', text: 'Circle achieved 74% participation this month! 🏆', source: 'Community', time: new Date().toISOString() },
       ]
-
-      cItems = [...cItems, ...SIMULATED_STORY]
-      cItems.sort(() => Math.random() - 0.5)
-      setCircleFeed(cItems)
+      setCircleFeed(SIMULATED_STORY.sort(() => Math.random() - 0.5));
 
     } catch (err) {
-      console.error("Failed to fetch impact feed:", err)
-      setGlobalFeed(GLOBAL_NEWS_MOCK.map(m => ({ ...m, type: 'GLOBAL' })))
-      setCircleFeed([])
+      console.error("Failed to fetch live impact feed:", err);
+      // Absolute fallback to mock data
+      setGlobalFeed(GLOBAL_NEWS_MOCK.map(m => ({ ...m, type: 'GLOBAL', summary: m.text })));
+      setCircleFeed([]);
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
   }
 
@@ -157,22 +125,14 @@ export default function SCSponsorProfile() {
 
   const currentNews = globalFeed.length > 0 ? globalFeed[globalIdx] : null
 
-  // Navigation handlers
-  const handlePrev = () => {
-    setGlobalIdx(prev => (prev === 0 ? globalFeed.length - 1 : prev - 1))
-  }
+  const handlePrev = () => setGlobalIdx(prev => (prev === 0 ? globalFeed.length - 1 : prev - 1))
+  const handleNext = () => setGlobalIdx(prev => (prev + 1) % globalFeed.length)
 
-  const handleNext = () => {
-    setGlobalIdx(prev => (prev + 1) % globalFeed.length)
-  }
-
-  // Live Timer Helper
   const formatTimeAgo = (dateStr) => {
-    if (!dateStr) return '';
-    if (typeof dateStr === 'string' && dateStr.includes('ago')) return dateStr;
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return dateStr;
-
+    if (!dateStr) return ''
+    if (typeof dateStr === 'string' && dateStr.includes('ago')) return dateStr
+    const date = new Date(dateStr)
+    if (isNaN(date.getTime())) return dateStr
     const diff = new Date() - date
     const mins = Math.floor(diff / 60000)
     if (mins < 60) return `${mins === 0 ? 'Just now' : mins + 'm ago'}`
@@ -181,38 +141,115 @@ export default function SCSponsorProfile() {
     return date.toLocaleDateString()
   }
 
+  const totalContribution = isLeader ? '45,000' : '60,000'
+  const circleShare = isLeader ? '36%' : '15%'
+  const circleName = isLeader ? 'Ashoka Rising Circle' : 'VIT Rising Circle'
+  const tier = isLeader ? 'Platinum Sponsor' : 'Gold Sponsor'
+  const tierColor = isLeader ? '#64748b' : '#f08c3b'
+  const tierGradient = isLeader ? 'linear-gradient(90deg, #94a3b8, #cbd5e1)' : 'linear-gradient(90deg, #f08c3b, #fcd34d)'
+  const tierPercent = isLeader ? '90%' : '75%'
+  const tierMessage = isLeader
+    ? <span>You have unlocked <strong>Platinum</strong> status and priority matching for new students.</span>
+    : <span>You are ₹15,000 away from unlocking <strong>Platinum</strong> status and priority matching for new students.</span>
+
+  const heroBg = isLeader
+    ? 'linear-gradient(135deg, #92400e 0%, #d97706 100%)'
+    : 'linear-gradient(135deg, #00694c 0%, #00d084 100%)'
+  const avatarRing = isLeader ? '#f59e0b' : '#00d084'
+
   return (
     <div className="sc-profile-view">
 
-      {/* Premium Header Banner */}
-      <div className="sc-profile-header-banner">
-        <div className="sc-profile-avatar-large">
-          {USER_PROFILE.initials}
-        </div>
-        <div className="sc-profile-header-info">
-          <h1>{USER_PROFILE.name}</h1>
-          <p className="sc-profile-header-sub">
-            {USER_PROFILE.circle} • Member since August 2025
-          </p>
-        </div>
-        <div className="sc-profile-badge-featured">
-          <SparklesIcon className="w-5 h-5 text-yellow-500" />
-          <span>Top 10% Contributor</span>
+      {/* ── NEW PREMIUM HERO BANNER ─────────────────────────────── */}
+      <div style={{
+        background: heroBg,
+        borderRadius: '16px',
+        padding: '24px',
+        marginBottom: '4px',
+        position: 'relative',
+        overflow: 'hidden',
+        animation: 'sc-slide-down 0.6s ease-out',
+      }}>
+        {/* Hex mesh SVG overlay */}
+        <svg style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', opacity: 0.07 }} xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="hex-profile" x="0" y="0" width="50" height="57.74" patternUnits="userSpaceOnUse">
+              <polygon points="25,0 50,14.43 50,43.3 25,57.74 0,43.3 0,14.43" fill="none" stroke="white" strokeWidth="1.5"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#hex-profile)"/>
+        </svg>
+
+        <div className="relative flex flex-col sm:flex-row sm:items-center gap-5">
+          {/* Top row: Avatar & Info */}
+          <div className="flex items-center gap-4 sm:gap-6 flex-1 min-w-0">
+            {/* Avatar with pulse ring */}
+            <div className="relative shrink-0">
+              <div style={{
+                position: 'absolute', inset: '-6px', borderRadius: '50%',
+                border: `2px solid ${avatarRing}`,
+                opacity: 0.5,
+                animation: 'sc-pulse-ring 2s ease-out infinite',
+              }}/>
+              <div style={{
+                width: 76, height: 76, borderRadius: '50%',
+                background: 'rgba(255,255,255,0.2)',
+                border: `3px solid ${avatarRing}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 28, fontWeight: 800, color: 'white',
+                backdropFilter: 'blur(8px)',
+              }}>
+                {PROFILE.initials}
+              </div>
+            </div>
+
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h1 className="text-[22px] font-extrabold text-white leading-tight truncate">{PROFILE.name}</h1>
+                {isLeader && (
+                  <span className="text-[10px] bg-white/20 text-white px-2 py-0.5 rounded-md font-bold tracking-wider backdrop-blur-sm">
+                    CIRCLE COORDINATOR
+                  </span>
+                )}
+              </div>
+              <p className="text-white/80 text-[13px] mt-1 mb-0.5 truncate">{PROFILE.circle}</p>
+              <p className="text-white/65 text-[12px] m-0">
+                {isLeader ? 'Coordinator' : 'Member'} since August 2025
+              </p>
+            </div>
+          </div>
+
+          {/* Top contributor pill (stack under on mobile, far right on desktop) */}
+          <div className="shrink-0 sm:ml-auto">
+            <div style={{
+              background: 'rgba(255,255,255,0.15)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(255,255,255,0.3)',
+              borderRadius: '20px',
+              padding: '6px 14px',
+              display: 'inline-flex', alignItems: 'center', gap: '6px',
+              color: 'white', fontSize: 12, fontWeight: 700,
+            }}>
+              <SparklesIcon className="w-4 h-4" />
+              Top 10% Contributor
+            </div>
+          </div>
         </div>
       </div>
 
+      {/* ── ORIGINAL CONTENT ─────────────────────────────────────── */}
       <div className="sc-profile-grid">
 
-        {/* Left Column: Stats & Contribution */}
+        {/* Left Column */}
         <div className="sc-profile-col">
 
           <div className="sc-card">
             <div className="sc-card-title">My Impact Snapshot</div>
-
             <div className="sc-profile-stats-grid">
               <div className="sc-stat-box">
                 <div className="sc-stat-label">Total Contribution</div>
-                <div className="sc-stat-val text-green">₹60,000</div>
+                <div className="sc-stat-val text-green">₹{totalContribution}</div>
               </div>
               <div className="sc-stat-box">
                 <div className="sc-stat-label">Current Streak</div>
@@ -225,55 +262,36 @@ export default function SCSponsorProfile() {
             <div className="sc-share-section">
               <div className="sc-share-header">
                 <span className="sc-share-title">My Circle Share</span>
-                <span className="sc-share-percent">15%</span>
+                <span className="sc-share-percent">{circleShare}</span>
               </div>
               <div className="sc-progress-bar">
-                <div className="sc-progress-fill sc-progress-green" style={{ width: '15%' }}></div>
+                <div className="sc-progress-fill sc-progress-green" style={{ width: circleShare }}></div>
               </div>
               <p className="sc-share-text">
-                Your contributions make up 15% of the total VIT Rising Circle fund. This translates directly to funding approx. 45 days of education per year.
+                Your contributions make up {circleShare} of the total {circleName} fund. This translates directly to funding approx. {isLeader ? '108' : '45'} days of education per year.
               </p>
             </div>
 
-            {/* Sponsorship Tier */}
             <div className="sc-share-section" style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--sc-border)' }}>
               <div className="sc-share-header">
                 <span className="sc-share-title">Sponsorship Tier</span>
-                <span className="sc-share-percent" style={{ color: '#f08c3b' }}>Gold Sponsor</span>
+                <span className="sc-share-percent" style={{ color: tierColor }}>{tier}</span>
               </div>
               <div className="sc-progress-bar">
-                <div className="sc-progress-fill" style={{ width: '75%', background: 'linear-gradient(90deg, #f08c3b, #fcd34d)' }}></div>
+                <div className="sc-progress-fill" style={{ width: tierPercent, background: tierGradient }}></div>
               </div>
-              <p className="sc-share-text">
-                You are ₹15,000 away from unlocking <strong>Platinum</strong> status and priority matching for new students.
-              </p>
+              <p className="sc-share-text">{tierMessage}</p>
             </div>
           </div>
 
           <div className="sc-news-card">
             <div className="sc-news-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span className="sc-news-title">Global Impact Radar</span>
-              <button 
-                onClick={() => {
-                  setIsLoading(true)
-                  fetchImpactData()
-                }}
+              <button
+                onClick={() => { setIsLoading(true); fetchImpactData() }}
                 className="sc-refresh-btn"
                 title="Refresh feed"
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--sc-green)',
-                  cursor: 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  fontSize: '12px',
-                  fontWeight: '600',
-                  padding: '4px 8px',
-                  borderRadius: '4px',
-                  transition: 'all 0.2s'
-                }}
+                style={{ background: 'none', border: 'none', color: 'var(--sc-green)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '12px', fontWeight: '600', padding: '4px 8px', borderRadius: '4px', transition: 'all 0.2s' }}
               >
                 <ArrowPathIcon className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
                 REFRESH RADAR
@@ -293,28 +311,10 @@ export default function SCSponsorProfile() {
                   )}
                   <div className="sc-news-content-wrapper">
                     <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                      <span style={{ 
-                        fontSize: '9px', 
-                        fontWeight: 'bold', 
-                        padding: '2px 8px', 
-                        borderRadius: '4px',
-                        background: '#00694c',
-                        color: '#ffffff',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.05em'
-                      }}>
+                      <span style={{ fontSize: '9px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '4px', background: '#00694c', color: '#ffffff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {currentNews.category || 'IMPACT NEWS'}
                       </span>
-                      <span style={{ 
-                        fontSize: '9px', 
-                        fontWeight: 'bold', 
-                        padding: '2px 8px', 
-                        borderRadius: '4px',
-                        background: '#e8f5f0',
-                        color: '#00694c',
-                      }}>
-                        INDIA
-                      </span>
+                      <span style={{ fontSize: '9px', fontWeight: 'bold', padding: '2px 8px', borderRadius: '4px', background: '#e8f5f0', color: '#00694c' }}>INDIA</span>
                     </div>
                     <h4 className="sc-news-headline" style={{ fontSize: '16px', lineHeight: '1.4', marginBottom: '8px', color: '#1a1a1a' }}>{currentNews.text}</h4>
                     <p style={{ fontSize: '13px', color: '#4a4a4a', lineHeight: '1.5', marginBottom: '12px', display: '-webkit-box', WebkitLineClamp: '2', WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
@@ -328,46 +328,24 @@ export default function SCSponsorProfile() {
                   </div>
                 </div>
               ) : (
-                <div style={{ textAlign: 'center', color: 'var(--sc-text-muted)', fontSize: '13px', padding: '16px' }}>
-                  No global news available.
-                </div>
+                <div style={{ textAlign: 'center', color: 'var(--sc-text-muted)', fontSize: '13px', padding: '16px' }}>No global news available.</div>
               )}
             </div>
             <div className="sc-news-footer" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 16px', background: 'var(--sc-cream)', borderTop: '1px solid var(--sc-border)' }}>
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
-                <button
-                  onClick={handlePrev}
-                  style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                >
-                  &larr; Prev
-                </button>
-                <button
-                  onClick={() => setIsPaused(!isPaused)}
-                  style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                >
-                  {isPaused ? '▶ Play' : '⏸ Pause'}
-                </button>
-                <button
-                  onClick={handleNext}
-                  style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                >
-                  Next &rarr;
-                </button>
+                <button onClick={handlePrev} style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>← Prev</button>
+                <button onClick={() => setIsPaused(!isPaused)} style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>{isPaused ? '▶ Play' : '⏸ Pause'}</button>
+                <button onClick={handleNext} style={{ background: 'none', border: 'none', color: 'var(--sc-text)', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}>Next →</button>
               </div>
-              {currentNews && currentNews.url && (
-                <a
-                  href={currentNews.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--sc-green-dark)', fontSize: '12px', fontWeight: '600', textDecoration: 'none' }}
-                >
-                  Read Full Story &nearr;
+              {currentNews?.url && (
+                <a href={currentNews.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--sc-green-dark)', fontSize: '12px', fontWeight: '600', textDecoration: 'none' }}>
+                  Read Full Story ↗
                 </a>
               )}
             </div>
           </div>
 
-          {/* Dedicated ZENK Circle Activity Feed */}
+          {/* ZENK Platform Pulse */}
           <div className="sc-card">
             <div className="sc-card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span>ZENK Platform Pulse</span>
@@ -398,7 +376,7 @@ export default function SCSponsorProfile() {
 
         </div>
 
-        {/* Right Column: Badges & Rewards */}
+        {/* Right Column */}
         <div className="sc-profile-col">
 
           <SCJourneyAnimation />
@@ -408,7 +386,6 @@ export default function SCSponsorProfile() {
             <p className="sc-card-desc" style={{ marginBottom: '16px' }}>
               Badges earned through consistent support and circle engagement.
             </p>
-
             <div className="sc-badges-grid">
               {BADGES.map(badge => {
                 const IconComponent = badge.icon
@@ -450,7 +427,6 @@ export default function SCSponsorProfile() {
                 </div>
               </div>
             </div>
-
           </div>
         </div>
 

@@ -49,31 +49,33 @@ export default function MessageBubble({ message, userPersona }) {
   return (
     <div
       id={`msg-${message.id}`}
-      className={`group relative px-6 py-1.5 transition-colors ${isOwner ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}
+      className={`group relative px-2 py-[2px] transition-colors ${isOwner ? 'flex flex-col items-end' : 'flex flex-col items-start'}`}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Bubble Row: Avatar + Bubble */}
-      <div className={`flex items-start gap-3 max-w-[75%] ${isOwner ? 'flex-row-reverse' : 'flex-row'}`}>
-        <div className="shrink-0 mt-0.5">
-          <PersonaAvatar nickname={message.persona_nickname} avatarKey={message.avatar_key} size="md" />
-        </div>
+      <div className={`flex items-start gap-2 max-w-[85%] ${isOwner ? 'flex-row-reverse' : 'flex-row'}`}>
+        {!isOwner && (
+          <div className="shrink-0 mt-0.5">
+            <PersonaAvatar nickname={message.persona_nickname} avatarKey={message.avatar_key} size="sm" />
+          </div>
+        )}
 
         <div className={`flex flex-col ${isOwner ? 'items-end' : 'items-start'}`}>
           {isDeleted ? (
-            <p className="text-sm text-gray-400 italic bg-gray-50 px-4 py-2 rounded-lg border border-dashed border-gray-200">
-              This message was deleted by the sender.
+            <p className="text-[13px] text-gray-400 italic bg-gray-50 px-3 py-1.5 rounded-lg border border-dashed border-gray-200">
+              Message deleted
             </p>
           ) : (
             <>
               {/* Text Bubble */}
               {message.content_text && (
-                <div className={`relative text-sm break-words whitespace-pre-wrap leading-relaxed px-4 py-2.5 shadow-sm ${
+                <div className={`relative text-[14px] break-words whitespace-pre-wrap leading-tight px-3 py-2 shadow-sm ${
                   isOwner
-                    ? 'bg-[#FFF1E1] border border-[#F5E6CE] text-gray-800 rounded-2xl rounded-br-sm'
+                    ? 'bg-[#E3F2FD] border border-blue-100 text-slate-900 rounded-2xl rounded-tr-none'
                     : message.persona_nickname === 'Kia'
-                      ? 'bg-[#E9F7F5] border border-[#B2DFD8] text-[#115E59] rounded-2xl rounded-bl-sm opacity-95 transition-all'
-                      : 'bg-white border border-gray-100 text-gray-800 rounded-2xl rounded-bl-sm'
+                      ? 'bg-[#F0FDF4] border border-[#DCFCE7] text-[#166534] rounded-2xl rounded-tl-none'
+                      : 'bg-white border border-gray-100 text-slate-900 rounded-2xl rounded-tl-none'
                 }`}>
                   {(() => {
                     const text = message.content_text
@@ -87,21 +89,17 @@ export default function MessageBubble({ message, userPersona }) {
                       const suggestion = parts.slice(1).join(kiaKeyword).trim()
                       
                       return (
-                        <div className="flex flex-col gap-2">
+                        <div className="flex flex-col gap-1.5">
                           {mainText && (
-                            <span className="opacity-90">
+                            <span className="opacity-95">
                               {mainText.split(/(@\w+)/g).map((part, i) => 
-                                part.startsWith('@') ? <strong key={i} className="text-[#0D9488]">{part}</strong> : part
+                                part.startsWith('@') ? <strong key={i} className="text-[#059669] font-bold">{part}</strong> : part
                               )}
                             </span>
                           )}
-                          <div className="bg-[#DCFCE7] border border-[#BBF7D0] rounded-xl px-3 py-2 shadow-sm mt-0.5">
-                            <div className="text-[10px] font-bold text-[#115E59] mb-0.5 uppercase tracking-wide opacity-80">
-                              Kia suggests:
-                            </div>
-                            <div className="text-[13px] text-[#14532D] font-medium leading-relaxed">
-                              {suggestion}
-                            </div>
+                          <div className="pl-2 border-l-2 border-emerald-400 py-0.5 my-0.5 text-[#15803D] italic bg-emerald-50/50 rounded-r">
+                            <span className="text-[11px] font-bold uppercase tracking-tight block not-italic opacity-70 mb-0.5">Kia Suggestion:</span>
+                            {suggestion}
                           </div>
                         </div>
                       )
@@ -109,7 +107,7 @@ export default function MessageBubble({ message, userPersona }) {
                     
                     // Normal text mention highlighting
                     return text.split(/(@\w+)/g).map((part, i) => 
-                      part.startsWith('@') ? <strong key={i} className="text-[#0D9488] font-bold">{part}</strong> : part
+                      part.startsWith('@') ? <strong key={i} className="text-blue-600 font-bold">{part}</strong> : part
                     )
                   })()}
                 </div>
@@ -170,18 +168,18 @@ export default function MessageBubble({ message, userPersona }) {
           )}
 
           {/* Meta: Name · Timestamp (BELOW the bubble) */}
-          <div className={`flex items-center gap-1.5 mt-1 px-1 ${isOwner ? 'flex-row-reverse' : 'flex-row'}`}>
-            <span className="text-[11px] font-medium text-gray-400">
+          <div className={`flex items-center gap-1 mt-0.5 px-0.5 ${isOwner ? 'flex-row-reverse' : 'flex-row'} opacity-60`}>
+            <span className="text-[10px] font-medium text-gray-500">
               {message.persona_nickname}
             </span>
-            <span className="text-[11px] text-gray-300">·</span>
-            <span className="text-[11px] text-gray-400">
-              {formatDateTime(message.created_at)}
+            <span className="text-[10px] text-gray-400">·</span>
+            <span className="text-[10px] text-gray-500">
+              {formatDateTime(message.created_at).split(',')[1]}
             </span>
             {message.shield_action === 'warn' && (
               <>
-                <span className="text-[11px] text-gray-300">·</span>
-                <span className="text-[10px] text-yellow-600 bg-yellow-50 px-1.5 py-0.5 rounded font-medium">⚠ reviewed</span>
+                <span className="text-[10px] text-gray-400">·</span>
+                <span className="text-[9px] text-yellow-600 font-bold uppercase tracking-tighter">reviewed</span>
               </>
             )}
           </div>

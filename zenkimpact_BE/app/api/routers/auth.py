@@ -2,22 +2,26 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.db.session import get_db
 from app.models.enums import KycStatus, Persona
 from app.models.signup import SignupRequest
 from app.core.security import verify_password
+from app.models.auth_log import AuthAuditLog
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
     persona: Optional[Persona] = None  # Optional: if not provided, search across all personas
 
@@ -33,7 +37,9 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")  # Brute-force protection
 async def login(
+    request: Request,
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -56,6 +62,16 @@ async def login(
     signup = res.scalar_one_or_none()
     
     if not signup:
+        logger.warning(f"Auth failure (/login): Account not found for email '{body.email}'")
+        log = AuthAuditLog(
+            email=body.email, 
+            status="FAIL_EMAIL", 
+            comment="Account not found",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(log)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -63,6 +79,16 @@ async def login(
     
     # Verify password
     if not verify_password(body.password, signup.password_hash):
+        logger.warning(f"Auth failure (/login): Incorrect password attempt for email '{body.email}'")
+        log = AuthAuditLog(
+            email=body.email, 
+            status="FAIL_PASSWORD", 
+            comment="Incorrect password",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(log)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
@@ -75,6 +101,16 @@ async def login(
         status_message = "Login successful. Your KYC is pending approval."
     elif signup.kyc_status == KycStatus.rejected:
         status_message = "Login successful. Your KYC has been rejected. Please contact support."
+    
+    log = AuthAuditLog(
+        email=body.email, 
+        status="SUCCESS", 
+        comment=f"Persona: {signup.persona}",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    db.add(log)
+    await db.commit()
     
     return LoginResponse(
         id=signup.id,
@@ -105,7 +141,9 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")  # Brute-force protection
 async def issue_token(
+    request: Request,
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -126,17 +164,64 @@ async def issue_token(
     res = await db.execute(query)
     signup = res.scalar_one_or_none()
 
-    if not signup or not verify_password(body.password, signup.password_hash):
+    if not signup:
+        logger.warning(f"Auth failure (/token): Account not found for email '{body.email}'")
+        log = AuthAuditLog(
+            email=body.email, 
+            status="FAIL_EMAIL", 
+            comment="Account not found in chat/token",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(log)
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
+
+    if not verify_password(body.password, signup.password_hash):
+        logger.warning(f"Auth failure (/token): Incorrect password attempt for email '{body.email}'")
+        log = AuthAuditLog(
+            email=body.email, 
+            status="FAIL_PASSWORD", 
+            comment="Incorrect password in chat/token",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(log)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",
         )
 
     if signup.kyc_status != KycStatus.approved:
+        logger.warning(f"Auth failure (/token): User '{body.email}' blocked due to KYC status '{signup.kyc_status}'")
+        log = AuthAuditLog(
+            email=body.email, 
+            status="FAIL_KYC", 
+            comment=f"KYC {signup.kyc_status}",
+            ip_address=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent")
+        )
+        db.add(log)
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="KYC approval required to access chat",
         )
 
+    log = AuthAuditLog(
+        email=body.email, 
+        status="SUCCESS", 
+        comment=f"Token issued for chat",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent")
+    )
+    db.add(log)
+    await db.commit()
+
+    logger.info(f"Auth success (/token): JWT issued for '{body.email}'")
     token = create_access_token(data={"sub": signup.id})
     return TokenResponse(access_token=token)

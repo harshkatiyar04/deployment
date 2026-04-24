@@ -3,7 +3,7 @@ import { XMarkIcon, CheckCircleIcon, DocumentTextIcon, ArrowPathIcon } from '@he
 import { useNotifications } from '../contexts/NotificationContext'
 import axios from 'axios'
 
-const API_BASE_URL = 'http://127.0.0.1:8000'
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 function NotificationModal({ isOpen, onClose }) {
   const { notifications, approveKYC, markAsRead, fetchNotifications, loading } = useNotifications()

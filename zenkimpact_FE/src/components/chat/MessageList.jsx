@@ -62,16 +62,16 @@ export default function MessageList({ userPersona, activeChannelId }) {
     <div 
       ref={listContainerRef} 
       onScroll={handleScroll}
-      className="flex-1 overflow-y-auto flex flex-col min-h-0 relative scroll-smooth"
+      className="flex-1 min-h-0 overflow-y-auto overscroll-contain touch-pan-y flex flex-col relative scroll-smooth pr-1 chat-custom-scrollbar"
     >
       {/* Scroll to Bottom Button */}
       {showScrollDown && (
         <button
           onClick={scrollToBottom}
-          className="absolute bottom-4 right-6 z-50 p-2.5 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-all active:scale-95 animate-bounce"
+          className="absolute bottom-4 right-4 z-50 p-2 bg-teal-600 text-white rounded-full shadow-lg hover:bg-teal-700 transition-all active:scale-95 animate-bounce"
           title="Scroll to latest messages"
         >
-          <ChevronDownIcon className="w-5 h-5" />
+          <ChevronDownIcon className="w-4 h-4" />
         </button>
       )}
 
@@ -109,21 +109,21 @@ export default function MessageList({ userPersona, activeChannelId }) {
         </div>
       )}
 
-      <div className="py-2">
+      <div className="py-1">
         {channelMessages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} userPersona={userPersona} />
         ))}
 
         {/* Kia Typing Indicator */}
         {kiaTyping && (
-          <div className="flex items-start gap-3 px-6 py-2 animate-in fade-in slide-in-from-bottom-2 duration-300">
-             <div className="w-8 h-8 rounded-full bg-[#DCFCE7] flex items-center justify-center text-[10px] text-[#166534] font-bold shrink-0 shadow-sm border border-black/5">
+          <div className="flex items-start gap-2 px-2 py-1 animate-in fade-in slide-in-from-bottom-2 duration-300">
+             <div className="w-7 h-7 rounded-full bg-[#DCFCE7] flex items-center justify-center text-[9px] text-[#166534] font-bold shrink-0 shadow-sm border border-black/5">
                 AI
              </div>
-             <div className="bg-[#E9F7F5] border border-[#B2DFD8] rounded-2xl rounded-bl-sm px-4 py-2.5 shadow-sm">
-                <div className="flex items-center gap-2">
-                   <span className="text-sm font-medium text-[#115E59]">Kia is responding</span>
-                   <div className="flex gap-1">
+             <div className="bg-[#F0FDF4] border border-[#DCFCE7] rounded-2xl rounded-tl-none px-3 py-1.5 shadow-sm">
+                <div className="flex items-center gap-1.5">
+                   <span className="text-[14px] font-medium text-[#115E59]">Kia is typing</span>
+                   <div className="flex gap-0.5">
                       <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse" />
                       <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse delay-75" />
                       <span className="w-1 h-1 bg-teal-500 rounded-full animate-pulse delay-150" />

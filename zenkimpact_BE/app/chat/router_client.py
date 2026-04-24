@@ -152,6 +152,7 @@ async def _process_kia_bot_response(
     db_factory,
     kia_persona_id: str,
     requesting_user_id: str,
+    is_leader: bool = False,
 ):
     # Broadcast typing status
     await manager.broadcast(
@@ -173,6 +174,7 @@ async def _process_kia_bot_response(
                 circle_id=circle_id,
                 db=db,
                 include_private=True,  # Always True: user is asking about themselves
+                is_leader=is_leader,  # Leader gets full member contribution access
             )
 
             # Generate response grounded in user's real data
@@ -231,6 +233,9 @@ async def circle_websocket(
     ws: WebSocket,
     token: str = Query(
         ..., description="JWT auth token (browser WS cannot send headers)"
+    ),
+    role: str = Query(
+        default="sponsor", description="User role hint (sponsor or sponsor_leader)"
     ),
     db: AsyncSession = Depends(get_db),
 ) -> None:
@@ -429,6 +434,7 @@ async def circle_websocket(
                 # ── Trigger Kia Bot on @kia mention ──
                 if "@kia" in (data.content_text or "").lower():
                     kia_p = await _get_kia_persona(db)
+                    is_leader_user = (role == "sponsor_leader")
                     asyncio.create_task(
                         _process_kia_bot_response(
                             data.content_text or "",
@@ -437,6 +443,7 @@ async def circle_websocket(
                             SessionLocal,
                             str(kia_p.id),
                             str(user.id),  # Pass requesting user's ID for RAG context
+                            is_leader=is_leader_user,
                         )
                     )
 

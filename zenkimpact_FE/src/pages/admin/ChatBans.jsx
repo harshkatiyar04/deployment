@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import axios from 'axios'
-import { ShieldExclamationIcon, TrashIcon, UserMinusIcon, ExclamationTriangleIcon, CheckCircleIcon, ClipboardDocumentListIcon, Squares2X2Icon } from '@heroicons/react/24/outline'
+import { ShieldExclamationIcon, TrashIcon, UserMinusIcon, ExclamationTriangleIcon, CheckCircleIcon, ClipboardDocumentListIcon, Squares2X2Icon, ShieldCheckIcon } from '@heroicons/react/24/outline'
 import Layout from '../../components/Layout'
 import PersonaAvatar from '../../components/chat/PersonaAvatar'
 
@@ -11,6 +11,7 @@ const TABS = [
   { key: 'reports', label: 'Reports', icon: ExclamationTriangleIcon },
   { key: 'ai', label: 'System Flagged', icon: ShieldExclamationIcon },
   { key: 'ban', label: 'Issue Ban', icon: UserMinusIcon },
+  { key: 'auth', label: 'Auth Logs', icon: ShieldCheckIcon },
   { key: 'history', label: 'Ban History', icon: TrashIcon },
   { key: 'audit', label: 'Audit Trail', icon: ClipboardDocumentListIcon },
 ]
@@ -43,6 +44,7 @@ export default function ChatBans() {
   const [activity, setActivity] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [authLogs, setAuthLogs] = useState([])
 
   const [circleId, setCircleId] = useState('')
   const [userId, setUserId] = useState('')
@@ -75,11 +77,16 @@ export default function ChatBans() {
     catch (err) { console.error('Failed to load warned messages', err) }
   }, [token])
 
+  const fetchAuthLogs = useCallback(async () => {
+    try { const res = await axios.get(`${API_BASE}/admin/chat/auth-logs`, { headers: { Authorization: `Bearer ${token}` } }); setAuthLogs(res.data) }
+    catch (err) { console.error('Failed to load auth logs', err) }
+  }, [token])
+
   const fetchData = useCallback(async () => {
     setLoading(true)
-    await Promise.all([fetchBans(), fetchReports(), fetchActivity(), fetchWarned()])
+    await Promise.all([fetchBans(), fetchReports(), fetchActivity(), fetchWarned(), fetchAuthLogs()])
     setLoading(false)
-  }, [fetchBans, fetchReports, fetchActivity, fetchWarned])
+  }, [fetchBans, fetchReports, fetchActivity, fetchWarned, fetchAuthLogs])
 
   useEffect(() => { if (token) fetchData(); else setLoading(false) }, [token, fetchData])
 
@@ -131,12 +138,12 @@ export default function ChatBans() {
       <ShieldExclamationIcon className="w-16 h-16 text-red-500 mx-auto mb-4" />
       <h2 className="text-2xl font-bold text-gray-900 mb-2">Moderation Token Required</h2>
       <p className="text-gray-600 mb-8">Please log in via Chat Demo to authenticate.</p>
-      <a href="/chat-demo" className="bg-teal-600 text-white px-6 py-3 rounded-xl font-bold hover:bg-teal-700 transition-all">Go to Chat Demo</a>
+      <a href="/chat-demo" className="bg-[#00d084] text-white px-6 py-3 rounded-xl font-bold hover:bg-[#01a76c] transition-all">Go to Chat Demo</a>
     </div>
   )
 
   /* ── Tab badge counts ────────────────────────────────────────────────── */
-  const badges = { reports: reports.length, ai: warned.length, ban: null, history: bans.length, audit: activity.length }
+  const badges = { reports: reports.length, ai: warned.length, ban: null, auth: authLogs.filter(l => l.status !== 'SUCCESS').length, history: bans.length, audit: activity.length }
 
   return (
     <Layout>
@@ -144,26 +151,26 @@ export default function ChatBans() {
 
         {/* ── Header ──────────────────────────────────────────────────── */}
         <div style={{
-          background: 'linear-gradient(135deg, #0f766e 0%, #0d9488 100%)',
+          background: 'linear-gradient(135deg, #00d084 0%, #01a76c 100%)',
           borderRadius: '16px',
-          padding: '28px 32px',
+          padding: '20px 20px',
           marginBottom: '24px',
           display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
+          flexDirection: 'column',
+          gap: '12px',
         }}>
           <div>
-            <h1 style={{ fontSize: '24px', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <ShieldExclamationIcon style={{ width: 32, height: 32, color: '#ccfbf1' }} />
+            <h1 style={{ fontSize: '20px', fontWeight: 800, color: '#fff', margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <ShieldExclamationIcon style={{ width: 28, height: 28, color: '#ccfbf1' }} />
               Safety & Content Moderation
             </h1>
-            <p style={{ color: '#ccfbf1', marginTop: '6px', fontSize: '14px' }}>Central hub for reviewing reports and managing chat access.</p>
+            <p style={{ color: '#ccfbf1', marginTop: '6px', fontSize: '13px' }}>Central hub for reviewing reports and managing chat access.</p>
           </div>
           <div style={{
             display: 'flex', alignItems: 'center', gap: '8px',
             background: 'rgba(255,255,255,0.15)', backdropFilter: 'blur(8px)',
             padding: '8px 16px', borderRadius: '12px', fontSize: '13px',
-            fontWeight: 600, color: '#bbf7d0',
+            fontWeight: 600, color: '#bbf7d0', alignSelf: 'flex-start',
           }}>
             <div style={{ width: 8, height: 8, background: '#4ade80', borderRadius: '50%' }} />
             AI Shield Active
@@ -171,7 +178,7 @@ export default function ChatBans() {
         </div>
 
         {/* ── Tab Bar ─────────────────────────────────────────────────── */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '28px' }}>
+        <div style={{ display: 'flex', gap: '10px', marginBottom: '28px', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: '4px' }}>
           {TABS.map(tab => {
             const isActive = activeTab === tab.key
             const count = badges[tab.key]
@@ -185,8 +192,8 @@ export default function ChatBans() {
                 onMouseDown={e => { e.currentTarget.style.transform = 'scale(0.95)' }}
                 onMouseUp={e => { e.currentTarget.style.transform = 'scale(1)' }}
               >
-                <tab.icon style={{ width: 18, height: 18 }} />
-                <span>{tab.label}</span>
+                <tab.icon style={{ width: 18, height: 18, flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap' }}>{tab.label}</span>
                 {count > 0 && (
                   <span style={{
                     fontSize: '11px', fontWeight: 700, padding: '1px 7px',
@@ -226,7 +233,7 @@ export default function ChatBans() {
                           <div className="flex justify-between items-start mb-4">
                             <div>
                               <p className="text-[10px] font-bold text-orange-600 uppercase tracking-widest">{new Date(report.created_at).toLocaleString()}</p>
-                              <h4 className="font-bold text-gray-900 mt-1">Sender: <span className="text-teal-600">{report.sender_nickname}</span></h4>
+                              <h4 className="font-bold text-gray-900 mt-1">Sender: <span className="text-[#00d084]">{report.sender_nickname}</span></h4>
                             </div>
                             <div className="text-right">
                               <p className="text-[10px] font-bold text-gray-400 uppercase">Reported By</p>
@@ -241,7 +248,7 @@ export default function ChatBans() {
                                 {/\.(jpg|jpeg|png|webp)$/i.test(report.media_url) ? (
                                   <img src={report.media_url.startsWith('/') ? `${API_BASE}${report.media_url}` : report.media_url} alt="reported" className="max-w-full rounded-lg border border-gray-200 shadow-sm cursor-pointer" onClick={() => window.open(report.media_url.startsWith('/') ? `${API_BASE}${report.media_url}` : report.media_url, '_blank')} />
                                 ) : (
-                                  <a href={report.media_url.startsWith('/') ? `${API_BASE}${report.media_url}` : report.media_url} target="_blank" rel="noreferrer" className="text-teal-600 font-bold text-xs">📎 View Attachment</a>
+                                  <a href={report.media_url.startsWith('/') ? `${API_BASE}${report.media_url}` : report.media_url} target="_blank" rel="noreferrer" className="text-[#00d084] font-bold text-xs">📎 View Attachment</a>
                                 )}
                               </div>
                             )}
@@ -307,7 +314,7 @@ export default function ChatBans() {
             <div style={{ borderBottom: activeTab === 'all' ? '12px solid #f8f9fa' : 'none' }}>
               {activeTab === 'all' && (
                 <div style={{ padding: '24px 24px 12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#0f766e' }}>
-                  <UserMinusIcon style={{ width: 18, height: 18, color: '#0d9488' }} />
+                  <UserMinusIcon style={{ width: 18, height: 18, color: '#00d084' }} />
                   Administrative Enforcement (Manual Ban)
                 </div>
               )}
@@ -334,6 +341,68 @@ export default function ChatBans() {
                   </form>
                   {submitError && <p className="mt-4 text-red-400 text-sm font-semibold">{submitError}</p>}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── AUTH LOGS ─────────────────────────────────────────────── */}
+          {(activeTab === 'auth' || activeTab === 'all') && (
+            <div style={{ borderBottom: activeTab === 'all' ? '12px solid #f8f9fa' : 'none' }}>
+              {activeTab === 'all' && (
+                <div style={{ padding: '24px 24px 12px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, color: '#0f766e' }}>
+                    <ShieldCheckIcon style={{ width: 18, height: 18, color: '#0d9488' }} />
+                    Authentication Integrity Trail
+                </div>
+              )}
+              <div className="p-6">
+                {authLogs.length === 0 ? (
+                  <div className="text-center py-16 text-gray-400 italic">No authentication logs recorded yet.</div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-gray-100 uppercase tracking-widest text-[10px] text-gray-400 font-bold">
+                          <th className="pb-3 px-2">Timestamp</th>
+                          <th className="pb-3 px-2">Account (Email)</th>
+                          <th className="pb-3 px-2">Status</th>
+                          <th className="pb-3 px-2">Diagnostic Comment</th>
+                          <th className="pb-3 px-2">Metadata</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {authLogs.map(log => {
+                            const isFail = log.status !== 'SUCCESS';
+                            return (
+                                <tr key={log.id} className="hover:bg-gray-50/50 transition-colors">
+                                    <td className="py-4 px-2 text-xs text-gray-500 whitespace-nowrap">
+                                        <div className="font-bold text-gray-700">{new Date(log.timestamp).toLocaleDateString()}</div>
+                                        <div>{new Date(log.timestamp).toLocaleTimeString()}</div>
+                                    </td>
+                                    <td className="py-4 px-2">
+                                        <span className="text-sm font-semibold text-emerald-600 underline underline-offset-4 decoration-emerald-100">{log.email}</span>
+                                    </td>
+                                    <td className="py-4 px-2">
+                                        <span className={`text-[10px] font-bold px-2 py-1 rounded-full border ${
+                                            log.status === 'SUCCESS' ? 'bg-green-50 text-green-700 border-green-100' : 
+                                            log.status === 'FAIL_KYC' ? 'bg-orange-50 text-orange-700 border-orange-100' :
+                                            'bg-red-50 text-red-700 border-red-100'
+                                        }`}>
+                                            {log.status}
+                                        </span>
+                                    </td>
+                                    <td className="py-4 px-2">
+                                        <p className={`text-xs ${isFail ? 'font-bold text-gray-800' : 'text-gray-500'}`}>{log.comment}</p>
+                                    </td>
+                                    <td className="py-4 px-2">
+                                        <p className="text-[10px] text-gray-400 font-mono" title={log.user_agent}>{log.ip_address || '0.0.0.0'}</p>
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -374,7 +443,7 @@ export default function ChatBans() {
                               <p className="text-[10px] text-gray-400 mt-1">{new Date(ban.created_at).toLocaleDateString()} at {new Date(ban.created_at).toLocaleTimeString()}</p>
                             </div>
                           </div>
-                          <button onClick={() => handleRevoke(ban.id)} className="group flex flex-col items-center gap-1">
+                          <button onClick={() => handleRevoke(ban.id)} className="group flex flex-col items-center gap-1 mt-4 md:mt-0">
                             <div className="p-2 bg-gray-50 group-hover:bg-red-50 text-gray-400 group-hover:text-red-600 rounded-full transition-colors border border-transparent group-hover:border-red-100">
                               <TrashIcon className="w-5 h-5" />
                             </div>
@@ -402,8 +471,8 @@ export default function ChatBans() {
                   <div style={{ textAlign: 'center', padding: '48px 0', color: '#94a3b8', fontStyle: 'italic' }}>No activity logs recorded yet.</div>
                 ) : (
                   <div>
-                    {/* Column Headers */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '160px 180px 130px 1fr', gap: '12px', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', marginBottom: '4px' }}>
+                    {/* Column Headers - hidden on mobile */}
+                    <div className="hidden md:grid" style={{ gridTemplateColumns: '160px 180px 130px 1fr', gap: '12px', padding: '12px 16px', borderBottom: '1px solid #e2e8f0', marginBottom: '4px' }}>
                       <span style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Timestamp</span>
                       <span style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Administrator</span>
                       <span style={{ fontSize: '10px', fontWeight: 800, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '1px' }}>Action Taken</span>
@@ -423,8 +492,8 @@ export default function ChatBans() {
                         : { bg: '#16a34a', text: '#fff' }
 
                       return (
-                        <div key={log.id} style={{
-                          display: 'grid', gridTemplateColumns: '160px 180px 130px 1fr',
+                        <div key={log.id} className="hidden md:grid" style={{
+                          gridTemplateColumns: '160px 180px 130px 1fr',
                           gap: '12px', padding: '16px 16px',
                           borderBottom: isLast ? 'none' : '1px solid #f1f5f9',
                           borderLeft: isLast ? '3px solid #0f766e' : '3px solid transparent',
@@ -478,6 +547,40 @@ export default function ChatBans() {
                         </div>
                       )
                     })}
+                    {/* Mobile Card Layout - visible only on mobile */}
+                    <div className="md:hidden space-y-3">
+                      {activity.map((log) => {
+                        let details = {}
+                        try { if (log.changes_json) details = typeof log.changes_json === 'string' ? JSON.parse(log.changes_json.replace(/'/g, '"')) : log.changes_json } catch { }
+                        const adminName = log.admin_email ? log.admin_email.split('@')[0] : 'System'
+                        const isBan = log.action === 'CREATE_BAN'
+                        return (
+                          <div key={`m-${log.id}`} style={{ padding: '14px', borderBottom: '1px solid #f1f5f9', borderLeft: `3px solid ${isBan ? '#dc2626' : '#16a34a'}` }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                              <span style={{ fontSize: '12px', fontWeight: 600, color: '#1e293b' }}>
+                                {log.created_at ? new Date(log.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'N/A'}
+                              </span>
+                              <span style={{
+                                display: 'inline-block', fontSize: '10px', fontWeight: 800,
+                                padding: '3px 8px', borderRadius: '4px',
+                                background: isBan ? '#dc2626' : '#16a34a', color: '#fff',
+                                textTransform: 'uppercase',
+                              }}>
+                                {isBan ? 'BAN' : 'REVOKE'}
+                              </span>
+                            </div>
+                            <p style={{ fontSize: '13px', fontWeight: 600, color: '#334155', margin: '0 0 4px' }}>By: {adminName}</p>
+                            <p style={{ fontSize: '12px', color: '#64748b', margin: 0 }}>
+                              {Object.entries(details).length > 0
+                                ? Object.entries(details).map(([k, v]) =>
+                                    k.toLowerCase().includes('reason') ? `Reason: ${String(v)}` : null
+                                  ).filter(Boolean).join('. ') || 'Action recorded'
+                                : 'No metadata'}
+                            </p>
+                          </div>
+                        )
+                      })}
+                    </div>
 
                     {/* Footer */}
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px', borderTop: '1px solid #e2e8f0', marginTop: '8px' }}>

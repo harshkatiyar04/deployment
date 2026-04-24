@@ -16,10 +16,11 @@ import {
   BuildingOfficeIcon,
   ShoppingBagIcon,
   ShieldCheckIcon,
-  ArrowsRightLeftIcon
+  ArrowsRightLeftIcon,
+  Bars3Icon
 } from '@heroicons/react/24/outline'
 
-function Header() {
+function Header({ onMenuToggle }) {
   const navigate = useNavigate()
   const { activePersona, switchPersona, getPersonaLabel } = usePersona()
   const { notifications, unreadCount, markAsRead } = useNotifications()
@@ -469,33 +470,38 @@ function Header() {
 
   return (
     <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-50">
-      <div className="px-6 py-2 flex items-center justify-between">
-        {/* Left - ZenK Logo */}
-        <div>
-          <h1
-            className="font-bold"
-            style={{
-              fontFamily: "'Oriya MN', sans-serif",
-              fontSize: '32px',
-              color: '#2563eb' // blue-600
-            }}
+      <div className="px-3 md:px-6 py-2 flex items-center justify-between">
+        {/* Left - Hamburger + ZenK Logo */}
+        <div className="flex items-center gap-2">
+          {/* Hamburger – mobile only */}
+          <button
+            onClick={onMenuToggle}
+            className="md:hidden p-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+            aria-label="Toggle menu"
           >
-            ZenK
-          </h1>
+            <Bars3Icon className="w-6 h-6" />
+          </button>
+          <img 
+            src="/assets/zenk-logo.png" 
+            alt="ZenK Logo" 
+            style={{ height: '32px', objectFit: 'contain' }} 
+            className="cursor-pointer"
+            onClick={() => navigate('/')}
+          />
         </div>
 
         {/* Right - Icons */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
           {iconButtons.map(({ id, icon: Icon, label, badge, dropdown }) => (
             <div key={id} className="relative" ref={dropdownRefs[id]}>
               <button
                 onClick={() => toggleDropdown(id)}
-                className="relative p-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
+                className="relative p-1.5 md:p-2 text-gray-700 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors duration-200"
                 aria-label={label}
               >
-                <Icon className="w-6 h-6" />
+                <Icon className="w-5 h-5 md:w-6 md:h-6" />
                 {badge && (
-                  <span className="absolute top-1 right-1 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  <span className="absolute top-0.5 right-0.5 md:top-1 md:right-1 w-4 h-4 md:w-5 md:h-5 bg-red-500 text-white text-[10px] md:text-xs font-bold rounded-full flex items-center justify-center">
                     {badge}
                   </span>
                 )}
@@ -503,7 +509,7 @@ function Header() {
 
               {/* Dropdown */}
               {activeDropdown === id && (
-                <div className="absolute right-0 mt-2 w-auto bg-white rounded-xl shadow-lg border border-gray-200 z-50">
+                <div className="absolute right-0 mt-2 w-auto max-w-[calc(100vw-24px)] bg-white rounded-xl shadow-lg border border-gray-200 z-50">
                   {dropdown}
                 </div>
               )}

@@ -1,10 +1,13 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
 import { PersonaProvider } from './contexts/PersonaContext'
 import { NotificationProvider } from './contexts/NotificationContext'
+import { CartProvider } from './contexts/CartContext'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Home from './pages/Home'
 import SponsorCircleDashboard from './microservices/sponsor-circle/index'
+import SponsorLeaderDashboard from './microservices/sponsor-leader/index'
+import VendorPortal from './microservices/vendor/index'
 
 // Student Pages
 import Resources from './pages/Resources'
@@ -22,6 +25,7 @@ import Mentoring from './pages/Mentoring'
 
 // Shared Pages
 import Marketplace from './pages/Marketplace'
+import VendorDashboardPage from './pages/VendorDashboardPage'
 import Analytics from './pages/Analytics'
 
 // Supplier Pages
@@ -40,8 +44,9 @@ function App() {
   return (
     <PersonaProvider>
       <NotificationProvider>
-        <Router>
-          <Routes>
+        <CartProvider>
+          <Router>
+            <Routes>
             <Route path="/" element={<Login />} />
             <Route path="/login" element={<Login />} />
 
@@ -76,6 +81,8 @@ function App() {
 
             {/* Shared Routes */}
             <Route path="/dashboard/marketplace" element={<Marketplace />} />
+            <Route path="/dashboard/vendor-dashboard" element={<VendorDashboardPage />} />
+            <Route path="/dashboard/vendor-portal" element={<VendorPortal />} />
             <Route path="/dashboard/analytics" element={<Analytics />} />
 
             {/* Chat Testing Route */}
@@ -83,8 +90,12 @@ function App() {
 
             {/* Sponsor Circle Dashboard Microservice */}
             <Route path="/sponsor-circle" element={<SponsorCircleDashboard />} />
-          </Routes>
-        </Router>
+
+            {/* Sponsor Leader Dashboard */}
+            <Route path="/sponsor-leader" element={<SponsorLeaderDashboard />} />
+            </Routes>
+          </Router>
+        </CartProvider>
       </NotificationProvider>
     </PersonaProvider>
   )

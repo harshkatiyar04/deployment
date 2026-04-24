@@ -195,7 +195,7 @@ export default function SCImpactLeague() {
 
         {/* --- NEW ADDITIONS TO FILL VERTICAL SPACE --- */}
         
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+        <div className="sc-league-bottom-grid">
           
           {/* 1. Student Spotlight Card */}
           <div className="sc-card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>

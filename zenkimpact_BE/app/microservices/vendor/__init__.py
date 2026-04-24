@@ -1,0 +1,1 @@
+# Vendor microservice package

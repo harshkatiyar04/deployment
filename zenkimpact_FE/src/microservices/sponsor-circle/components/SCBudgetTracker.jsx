@@ -20,7 +20,8 @@ export default function SCBudgetTracker() {
   useEffect(() => {
     async function fetchInsight() {
       try {
-        const res = await fetch('http://localhost:8000/sponsor-circle/budget-insight')
+        const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000';
+        const res = await fetch(`${apiBase}/sponsor-circle/budget-insight`)
         const data = await res.json()
         setInsight(data)
       } catch (err) {

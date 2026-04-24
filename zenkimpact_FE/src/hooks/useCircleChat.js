@@ -10,7 +10,7 @@ const WS_CLOSE_CODES = {
 
 const BACKOFF_DELAYS_MS = [1000, 2000, 4000, 8000, 16000, 30000]
 
-export function useCircleChat(circleId) {
+export function useCircleChat(circleId, userRole = 'sponsor') {
   const [status, setStatus] = useState('idle') // 'idle'|'connecting'|'open'|'closed'|'error'
   const [messages, setMessages] = useState([])
   const [handsRaised, setHandsRaised] = useState([]) // array of { persona_id, nickname, avatar_key }
@@ -63,8 +63,16 @@ export function useCircleChat(circleId) {
     }
 
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-    const host = import.meta.env.VITE_API_WS_HOST || window.location.host
-    const url = `${protocol}://${host}/ws/circle/${cid}?token=${encodeURIComponent(token)}`
+    const getWsHost = () => {
+      if (import.meta.env.VITE_API_WS_HOST) return import.meta.env.VITE_API_WS_HOST;
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+      if (hostname.includes('vercel.app') || hostname.includes('zenk') || hostname.includes('railway.app')) {
+        return 'deployment-production-27bd.up.railway.app';
+      }
+      return window.location.host;
+    };
+    const host = getWsHost();
+    const url = `${protocol}://${host}/ws/circle/${cid}?token=${encodeURIComponent(token)}&role=${encodeURIComponent(userRole)}`
 
     setStatus('connecting')
     const ws = new WebSocket(url)
@@ -257,7 +265,15 @@ export function useCircleChat(circleId) {
     if (!token) return
 
     try {
-      const apiHost = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const getApiBase = () => {
+        if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        if (hostname.includes('vercel.app') || hostname.includes('zenk') || hostname.includes('railway.app')) {
+          return 'https://deployment-production-27bd.up.railway.app';
+        }
+        return 'http://localhost:8000';
+      };
+      const apiHost = getApiBase();
       const response = await fetch(`${apiHost}/chat/messages/${channelId}?token=${encodeURIComponent(token)}&limit=50`)
       if (!response.ok) return
       const history = await response.json()
@@ -283,7 +299,15 @@ export function useCircleChat(circleId) {
         return
       }
 
-      const apiHost = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const getApiBase = () => {
+        if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        if (hostname.includes('vercel.app') || hostname.includes('zenk') || hostname.includes('railway.app')) {
+          return 'https://deployment-production-27bd.up.railway.app';
+        }
+        return 'http://localhost:8000';
+      };
+      const apiHost = getApiBase();
       const response = await fetch(`${apiHost}/chat/messages/${channelId}?token=${encodeURIComponent(token)}&before=${encodeURIComponent(before)}&limit=100`)
       if (!response.ok) return
       const olderHistory = await response.json()
@@ -312,7 +336,15 @@ export function useCircleChat(circleId) {
     if (!token) return
 
     try {
-      const apiHost = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'
+      const getApiBase = () => {
+        if (import.meta.env.VITE_API_BASE_URL) return import.meta.env.VITE_API_BASE_URL;
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
+        if (hostname.includes('vercel.app') || hostname.includes('zenk') || hostname.includes('railway.app')) {
+          return 'https://deployment-production-27bd.up.railway.app';
+        }
+        return 'http://localhost:8000';
+      };
+      const apiHost = getApiBase();
       const response = await fetch(`${apiHost}/chat/circle/${circleId}/members?token=${encodeURIComponent(token)}`)
       if (!response.ok) return
       const fetchedMembers = await response.json()

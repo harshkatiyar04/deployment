@@ -94,6 +94,18 @@ _SPONSORED_STUDENT_DATA = {
 }
 
 
+# All member contributions (LEADER-ONLY DATA — never shown to regular members)
+# TODO: Replace with: SELECT u.full_name, SUM(c.amount) FROM ZENK.contributions c JOIN ZENK.signup_requests u ON c.user_id = u.id WHERE c.circle_id = :cid GROUP BY u.id
+_ALL_MEMBER_CONTRIBUTIONS = [
+    {"name": "Rohit Chawla", "role": "Coordinator", "total_contributed": 45000, "this_month": 8000, "pct_of_total": 36},
+    {"name": "Priya Sharma", "role": "Sponsor Member", "total_contributed": 28000, "this_month": 8000, "pct_of_total": 22},
+    {"name": "Arjun Kulkarni", "role": "Sponsor Member", "total_contributed": 22000, "this_month": 10000, "pct_of_total": 18},
+    {"name": "Sneha Mehta", "role": "Mentor", "total_contributed": 15500, "this_month": 5000, "pct_of_total": 12},
+    {"name": "Vikram Patil", "role": "CSR — TCS", "total_contributed": 36000, "this_month": 0, "pct_of_total": 29},
+    {"name": "Mrs. Devika", "role": "Guardian (Parent)", "total_contributed": 4000, "this_month": 0, "pct_of_total": 3},
+]
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -103,6 +115,7 @@ async def fetch_user_context(
     circle_id: str,
     db: AsyncSession,
     include_private: bool = True,  # True = requesting user asking about themselves
+    is_leader: bool = False,  # True = Circle Leader — gets full member contribution access
 ) -> dict:
     """
     Build a personalized context dict for the requesting user.
@@ -113,6 +126,8 @@ async def fetch_user_context(
         db: Active async DB session.
         include_private: If True, includes contribution/budget data.
                          Always True when the user asks about themselves.
+        is_leader: If True, includes ALL member contribution data.
+                   This is the leader-exclusive data access layer.
 
     Returns:
         A structured dict injected into Kia's system prompt context block.
@@ -123,6 +138,9 @@ async def fetch_user_context(
 
         # 2. Get membership role
         role = await _get_member_role(user_id, circle_id, db)
+        # Override role if leader flag is set
+        if is_leader:
+            role = "coordinator"
 
         # 3. Per-user stats (scoped, privacy-safe)
         participation = _HARDCODED_PARTICIPATION.get(user_id, _DEFAULT_PARTICIPATION)
@@ -158,6 +176,16 @@ async def fetch_user_context(
         if include_private:
             contribution = _HARDCODED_CONTRIBUTIONS.get(user_id, _DEFAULT_CONTRIBUTION)
             context["my_contribution"] = contribution
+
+        # LEADER-EXCLUSIVE: Full breakdown of all member contributions
+        if is_leader:
+            context["all_member_contributions"] = _ALL_MEMBER_CONTRIBUTIONS
+            context["leader_note"] = (
+                "You are the Circle Coordinator. You have full access to all "
+                "member contributions, participation, and payment data. "
+                "When the coordinator asks about individual member contributions, "
+                "you MUST provide the data. This is authorized leader-level access."
+            )
 
         return context
 

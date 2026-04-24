@@ -71,3 +71,44 @@ export const USER_PROFILE = {
   circle: 'VIT Rising Circle',
   initials: 'HK',
 }
+
+export const LEADER_PROFILE = {
+  name: 'Rohit Chawla',
+  circle: 'Ashoka Rising Circle',
+  initials: 'RC',
+  role: 'Coordinator',
+}
+
+export const MEMBER_CONTRIBUTIONS = [
+  { name: 'Rohit Chawla', initials: 'RC', role: 'Coordinator', totalContributed: 45000, thisMonth: 8000, pct: 36, badge: 'leader', zenq: 0.95 },
+  { name: 'Priya Sharma', initials: 'PS', role: 'Sponsor Member', totalContributed: 28000, thisMonth: 8000, pct: 22, badge: '', zenq: 0.82 },
+  { name: 'Arjun Kulkarni', initials: 'AK', role: 'Sponsor Member', totalContributed: 22000, thisMonth: 10000, pct: 18, badge: '', zenq: 0.78 },
+  { name: 'Sneha Mehta', initials: 'SM', role: 'Mentor', totalContributed: 15500, thisMonth: 5000, pct: 12, badge: '', zenq: 0.71 },
+  { name: 'Vikram Patil', initials: 'VP', role: 'CSR — TCS', totalContributed: 36000, thisMonth: 0, pct: 29, badge: 'csr', zenq: 0.60 },
+  { name: 'Mrs. Devika', initials: 'MD', role: 'Guardian (Parent)', totalContributed: 4000, thisMonth: 0, pct: 3, badge: '', zenq: 0.45 },
+]
+
+export const TRANSACTION_HISTORY = [
+  { date: '12 Mar', contributor: 'Arjun Kulkarni', type: 'Deposit', typeColor: '#dcfce7', amount: 10000 },
+  { date: '28 Feb', contributor: 'TCS CSR Fund', type: 'CSR', typeColor: '#fef3c7', amount: 36000 },
+  { date: '28 Feb', contributor: 'ICICI Bank', type: 'Interest', typeColor: '#e0e7ff', amount: 4000 },
+  { date: '15 Feb', contributor: 'Priya Sharma', type: 'Deposit', typeColor: '#dcfce7', amount: 8000 },
+  { date: '10 Feb', contributor: 'Rohit Chawla', type: 'Deposit', typeColor: '#dcfce7', amount: 15000 },
+  { date: '01 Feb', contributor: 'Sneha Mehta', type: 'Deposit', typeColor: '#dcfce7', amount: 5000 },
+]
+
+export const VENDOR_PAYMENTS = [
+  { id: 1, date: '10 Mar', vendor: 'ABC School — Term 2 Fees', amount: 42000, status: 'Paid', category: 'School Fees' },
+  { id: 2, date: '05 Mar', vendor: 'Navneet Stationery Supplies', amount: 8200, status: 'Paid', category: 'Supplies' },
+  { id: 3, date: '20 Feb', vendor: 'Pearson Edu — Textbooks', amount: 12500, status: 'Paid', category: 'Books' },
+  { id: 4, date: '15 Feb', vendor: 'Uniform House', amount: 5500, status: 'Paid', category: 'Uniform' },
+  { id: 5, date: '01 Apr', vendor: 'ABC School — Term 3 Fees', amount: 42000, status: 'Pending', category: 'School Fees' },
+]
+
+export const DM_MEMBERS = [
+  { id: 'dm-ps', name: 'Priya Sharma', initials: 'PS', online: true },
+  { id: 'dm-ak', name: 'Arjun Kulkarni', initials: 'AK', online: false },
+  { id: 'dm-sm', name: 'Sneha Mehta', initials: 'SM', online: true },
+  { id: 'dm-vp', name: 'Vikram Patil', initials: 'VP', online: false },
+  { id: 'dm-md', name: 'Mrs. Devika', initials: 'MD', online: false },
+]

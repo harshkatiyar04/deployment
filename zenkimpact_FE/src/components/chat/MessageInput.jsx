@@ -104,7 +104,7 @@ export default function MessageInput({ userPersona, handRaised }) {
             type="button"
             disabled={disabled}
             onClick={() => setShowEmojiPicker((prev) => !prev)}
-            className="p-2 text-gray-400 hover:text-teal-600 disabled:opacity-40 transition-colors"
+            className="p-1.5 text-gray-400 hover:text-teal-600 disabled:opacity-40 transition-colors"
             title="Add Emoji"
           >
             <FaceSmileIcon className="w-5 h-5" />
@@ -127,7 +127,7 @@ export default function MessageInput({ userPersona, handRaised }) {
           type="button"
           disabled={disabled || uploading}
           onClick={() => fileInputRef.current?.click()}
-          className="p-2 text-gray-400 hover:text-teal-600 disabled:opacity-40 transition-colors"
+          className="p-1.5 text-gray-400 hover:text-teal-600 disabled:opacity-40 transition-colors"
           title="Attach file (image or PDF, max 5MB)"
         >
           <PaperClipIcon className="w-5 h-5" />
@@ -204,8 +204,8 @@ export default function MessageInput({ userPersona, handRaised }) {
                 ? 'Type a message (use @ to tag)...'
                 : 'Select a channel'
             }
-            className="w-full resize-none rounded-lg border border-gray-200 bg-white px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 disabled:bg-gray-50 disabled:text-gray-400 leading-relaxed transition-all"
-            style={{ maxHeight: '120px', overflowY: 'auto' }}
+            className="w-full resize-none rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-[14px] focus:outline-none focus:ring-2 focus:ring-teal-500/30 focus:border-teal-400 disabled:bg-gray-50 disabled:text-gray-400 leading-tight transition-all"
+            style={{ maxHeight: '100px', overflowY: 'auto' }}
           />
         </div>
 
@@ -215,7 +215,7 @@ export default function MessageInput({ userPersona, handRaised }) {
           type="button"
           disabled={!text.trim() || disabled}
           onClick={handleSend}
-          className="px-5 py-2.5 bg-teal-600 text-white rounded-lg text-sm font-semibold hover:bg-teal-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
+          className="px-4 py-1.5 bg-teal-600 text-white rounded-xl text-[14px] font-bold hover:bg-teal-700 disabled:bg-gray-200 disabled:text-gray-400 disabled:cursor-not-allowed transition-colors shrink-0 shadow-sm"
           title="Send (Enter)"
         >
           Send

@@ -8,14 +8,16 @@ import {
   ArrowDownTrayIcon
 } from '@heroicons/react/24/outline'
 
-export default function SCSettings() {
+export default function SCSettings({ isLeader = false }) {
   const [activeTab, setActiveTab] = useState('Notifications')
   const [toggles, setToggles] = useState({
     emailUpdates: true,
     pushMilestones: true,
     publicAmount: false,
     kiaDetailed: true,
-    autoPayEnabled: true
+    autoPayEnabled: true,
+    memberOversight: true,
+    vendorApprovalRequired: false
   })
   const [panNumber, setPanNumber] = useState('ABCDE1234F')
   const [monthlyLimit, setMonthlyLimit] = useState('5000')
@@ -30,6 +32,9 @@ export default function SCSettings() {
       { id: 'Tax Forms (80G)', icon: DocumentTextIcon },
       { id: 'Kia AI', icon: CpuChipIcon }
     ]
+    if (isLeader) {
+      tabs.push({ id: 'Leader Admin', icon: ShieldCheckIcon })
+    }
     return tabs.map(tab => (
       <button 
         key={tab.id}
@@ -174,6 +179,26 @@ export default function SCSettings() {
                   <div className="sc-setting-desc">Kia will provide comprehensive financial breakdown instead of brief summaries.</div>
                 </div>
                 <button className={`sc-toggle ${toggles.kiaDetailed ? 'active' : ''}`} onClick={() => toggleSetting('kiaDetailed')}><div className="sc-toggle-knob"></div></button>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'Leader Admin' && isLeader && (
+            <div className="sc-card">
+              <div className="sc-card-title">Coordinator Preferences</div>
+              <div className="sc-setting-row">
+                <div>
+                  <div className="sc-setting-title">Member Oversight Mode</div>
+                  <div className="sc-setting-desc">Enable detailed tracking of other members' contributions and engagement levels.</div>
+                </div>
+                <button className={`sc-toggle ${toggles.memberOversight ? 'active' : ''}`} onClick={() => toggleSetting('memberOversight')}><div className="sc-toggle-knob"></div></button>
+              </div>
+              <div className="sc-setting-row" style={{ borderBottom: 'none' }}>
+                <div>
+                  <div className="sc-setting-title">Vendor Payment Approvals</div>
+                  <div className="sc-setting-desc">Require coordinator approval before circle members can disburse funds to vendors.</div>
+                </div>
+                <button className={`sc-toggle ${toggles.vendorApprovalRequired ? 'active' : ''}`} onClick={() => toggleSetting('vendorApprovalRequired')}><div className="sc-toggle-knob"></div></button>
               </div>
             </div>
           )}
