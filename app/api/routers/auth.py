@@ -6,6 +6,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.db.session import get_db
 from app.models.enums import KycStatus, Persona
@@ -15,6 +17,7 @@ from app.models.auth_log import AuthAuditLog
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
+limiter = Limiter(key_func=get_remote_address)
 
 
 class LoginRequest(BaseModel):
@@ -34,6 +37,7 @@ class LoginResponse(BaseModel):
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")  # Brute-force protection
 async def login(
     request: Request,
     body: LoginRequest,
@@ -137,6 +141,7 @@ class TokenResponse(BaseModel):
 
 
 @router.post("/token", response_model=TokenResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("5/minute")  # Brute-force protection
 async def issue_token(
     request: Request,
     body: LoginRequest,
