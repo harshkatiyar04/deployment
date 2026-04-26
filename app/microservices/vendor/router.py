@@ -11,7 +11,10 @@ from fastapi.responses import StreamingResponse
 import csv
 import io
 from sqlalchemy import func, select, and_, extract
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.kia import generate_kia_response
+from app.services.kia_context import fetch_user_context
 
 from app.core.jwt_auth import get_current_user
 from app.db.session import get_db
@@ -25,6 +28,7 @@ from app.microservices.vendor.models import (
     RequestStatus,
     VendorSettings,
     VendorPromotion,
+    CartItem,
 )
 from app.microservices.vendor.schemas import (
     ProductCreate,
@@ -37,14 +41,23 @@ from app.microservices.vendor.schemas import (
     ProductRequestCreate,
     ProductRequestOut,
     ProductRequestStatusUpdate,
-    ProductRequestStatusUpdate,
     VendorStatsOut,
     VendorSettingsUpdate,
     VendorSettingsOut,
     VendorPromotionCreate,
     VendorPromotionOut,
     NotificationOut,
+    CartItemCreate,
+    CartItemOut,
 )
+
+from pydantic import BaseModel
+
+class DashboardBundleOut(BaseModel):
+    stats: VendorStatsOut
+    products: list[ProductOut]
+    orders: list[OrderOut]
+    requests: list[ProductRequestOut]
 
 router = APIRouter(prefix="/vendor", tags=["vendor"])
 logger = logging.getLogger(__name__)
@@ -79,64 +92,37 @@ async def get_vendor_stats(
     _require_vendor(user)
     now = datetime.now(timezone.utc)
 
-    total_products = (await db.execute(
-        select(func.count()).where(VendorProduct.vendor_id == user.id)
-    )).scalar() or 0
-
-    active_products = (await db.execute(
-        select(func.count()).where(
-            VendorProduct.vendor_id == user.id,
-            VendorProduct.is_active == True,
-        )
-    )).scalar() or 0
-
-    total_orders = (await db.execute(
-        select(func.count()).where(VendorOrder.vendor_id == user.id)
-    )).scalar() or 0
-
-    total_revenue = (await db.execute(
-        select(func.coalesce(func.sum(VendorOrder.total_amount), 0)).where(
-            VendorOrder.vendor_id == user.id,
-            VendorOrder.status == OrderStatus.delivered,
-        )
-    )).scalar() or 0.0
-
-    pending_orders = (await db.execute(
-        select(func.count()).where(
-            VendorOrder.vendor_id == user.id,
-            VendorOrder.status == OrderStatus.pending,
-        )
-    )).scalar() or 0
-
-    pending_requests = (await db.execute(
-        select(func.count()).where(
-            and_(
-                ProductRequest.vendor_id == user.id,
-                ProductRequest.status == RequestStatus.pending,
-            )
-        )
-    )).scalar() or 0
-
-    orders_this_month = (await db.execute(
-        select(func.count()).where(
-            VendorOrder.vendor_id == user.id,
-            extract("month", VendorOrder.created_at) == now.month,
-            extract("year", VendorOrder.created_at) == now.year,
-        )
-    )).scalar() or 0
-
-    revenue_this_month = (await db.execute(
-        select(func.coalesce(func.sum(VendorOrder.total_amount), 0)).where(
-            VendorOrder.vendor_id == user.id,
-            VendorOrder.status == OrderStatus.delivered,
-            extract("month", VendorOrder.created_at) == now.month,
-            extract("year", VendorOrder.created_at) == now.year,
-        )
-    )).scalar() or 0.0
-
-    # Orders by status for Doughnut chart
+    # Run scalar/count queries sequentially (SQLAlchemy AsyncSession does not support parallel ops on one connection)
+    total_products = (await db.execute(select(func.count()).where(VendorProduct.vendor_id == user.id))).scalar() or 0
+    active_products = (await db.execute(select(func.count()).where(
+        VendorProduct.vendor_id == user.id, VendorProduct.is_active == True
+    ))).scalar() or 0
+    total_orders = (await db.execute(select(func.count()).where(VendorOrder.vendor_id == user.id))).scalar() or 0
+    total_revenue = (await db.execute(select(func.coalesce(func.sum(VendorOrder.total_amount), 0)).where(
+        VendorOrder.vendor_id == user.id, VendorOrder.status == OrderStatus.delivered
+    ))).scalar() or 0.0
+    pending_orders = (await db.execute(select(func.count()).where(
+        VendorOrder.vendor_id == user.id, VendorOrder.status == OrderStatus.pending
+    ))).scalar() or 0
+    pending_requests = (await db.execute(select(func.count()).where(
+        and_(ProductRequest.vendor_id == user.id, ProductRequest.status == RequestStatus.pending)
+    ))).scalar() or 0
+    orders_this_month = (await db.execute(select(func.count()).where(
+        VendorOrder.vendor_id == user.id,
+        extract("month", VendorOrder.created_at) == now.month,
+        extract("year", VendorOrder.created_at) == now.year,
+    ))).scalar() or 0
+    revenue_this_month = (await db.execute(select(func.coalesce(func.sum(VendorOrder.total_amount), 0)).where(
+        VendorOrder.vendor_id == user.id,
+        VendorOrder.status == OrderStatus.delivered,
+        extract("month", VendorOrder.created_at) == now.month,
+        extract("year", VendorOrder.created_at) == now.year,
+    ))).scalar() or 0.0
+    
     orders_by_status_query = await db.execute(
-        select(VendorOrder.status, func.count()).where(VendorOrder.vendor_id == user.id).group_by(VendorOrder.status)
+        select(VendorOrder.status, func.count())
+        .where(VendorOrder.vendor_id == user.id)
+        .group_by(VendorOrder.status)
     )
     orders_by_status = {status.value: count for status, count in orders_by_status_query.all()}
 
@@ -206,6 +192,27 @@ async def get_vendor_stats(
         unread_notifications=unread_notifications,
     )
 
+
+@router.get("/dashboard-bundle", response_model=DashboardBundleOut)
+async def get_dashboard_bundle(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Fetch stats, products, orders, and requests in a single roundtrip."""
+    _require_vendor(user)
+    
+    # Execute sequentially to avoid asyncpg InterfaceError (one operation at a time on single connection)
+    stats = await get_vendor_stats(db=db, user=user)
+    products = await list_products(category=None, search=None, limit=50, offset=0, db=db, user=user)
+    orders = await list_orders(status_filter=None, limit=50, offset=0, db=db, user=user)
+    requests = await list_requests(status_filter=None, limit=50, offset=0, db=db, user=user)
+    
+    return DashboardBundleOut(
+        stats=stats,
+        products=products,
+        orders=orders,
+        requests=requests
+    )
 
 # ── Promotions ───────────────────────────────────────────────────────────────
 
@@ -444,9 +451,11 @@ async def list_marketplace_products(
     now = time.time()
     
     if not is_filtered and _marketplace_cache["data"] is not None and (now - _marketplace_cache["ts"]) < _CACHE_TTL:
+        # Check if we should force a refresh (e.g. if we suspect stale inactive products)
         logger.info("[Cache] Returning cached marketplace products.")
         return _marketplace_cache["data"]
 
+    # CRITICAL: We MUST filter by is_active == True for the public marketplace
     q = select(VendorProduct).where(VendorProduct.is_active == True)
 
     if category and category != 'All Items':
@@ -464,7 +473,7 @@ async def list_marketplace_products(
     if not is_filtered:
         _marketplace_cache["data"] = output
         _marketplace_cache["ts"] = now
-        logger.info(f"[Cache] Cached {len(output)} marketplace products.")
+        logger.info(f"[Cache] Updated cache with {len(output)} active products.")
     
     return output
 
@@ -552,7 +561,11 @@ async def list_orders(
 ):
     """List orders for the authenticated vendor."""
     _require_vendor(user)
-    q = select(VendorOrder).where(VendorOrder.vendor_id == user.id)
+    q = (
+        select(VendorOrder, VendorProduct.name)
+        .join(VendorProduct, VendorOrder.product_id == VendorProduct.id, isouter=True)
+        .where(VendorOrder.vendor_id == user.id)
+    )
 
     if status_filter:
         try:
@@ -563,18 +576,109 @@ async def list_orders(
 
     q = q.order_by(VendorOrder.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(q)
-    orders = result.scalars().all()
+    rows = result.all()  # Each row is (VendorOrder, product_name)
 
     out = []
-    for o in orders:
-        prod_result = await db.execute(
-            select(VendorProduct.name).where(VendorProduct.id == o.product_id)
-        )
-        product_name = prod_result.scalar_one_or_none()
-        order_dict = OrderOut.model_validate(o).model_dump()
+    for order, product_name in rows:
+        order_dict = OrderOut.model_validate(order).model_dump()
         order_dict["product_name"] = product_name
         out.append(OrderOut(**order_dict))
     return out
+
+
+# ── Cart Management ──────────────────────────────────────────────────────────
+
+@router.get("/cart", response_model=list[CartItemOut])
+async def get_cart(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Retrieve all items in the user's shopping cart."""
+    res = await db.execute(
+        select(CartItem)
+        .options(selectinload(CartItem.product))
+        .where(CartItem.user_id == user.id)
+        .order_by(CartItem.created_at.desc())
+    )
+    return res.scalars().all()
+
+
+@router.post("/cart", response_model=CartItemOut)
+async def add_to_cart(
+    item: CartItemCreate,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Add an item to the cart or update quantity if it already exists."""
+    # Check if item already exists in the same cart type
+    stmt = select(CartItem).options(selectinload(CartItem.product)).where(
+        CartItem.user_id == user.id,
+        CartItem.product_id == item.product_id,
+        CartItem.cart_type == item.cart_type
+    )
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+
+    if existing:
+        existing.quantity += item.quantity
+        existing.comment = item.comment or existing.comment
+        await db.commit()
+        # No need for refresh here as we already have product loaded
+        return existing
+
+    new_item = CartItem(
+        user_id=user.id,
+        product_id=item.product_id,
+        quantity=item.quantity,
+        cart_type=item.cart_type,
+        comment=item.comment
+    )
+    db.add(new_item)
+    await db.commit()
+    
+    # Reload with product relationship
+    res = await db.execute(
+        select(CartItem)
+        .options(selectinload(CartItem.product))
+        .where(CartItem.id == new_item.id)
+    )
+    return res.scalar_one()
+
+
+@router.delete("/cart/{cart_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_from_cart(
+    cart_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Remove a specific item from the cart."""
+    stmt = select(CartItem).where(CartItem.id == cart_id, CartItem.user_id == user.id)
+    res = await db.execute(stmt)
+    item = res.scalar_one_or_none()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+
+    await db.delete(item)
+    await db.commit()
+    return None
+
+
+@router.delete("/cart", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_cart_items(
+    cart_type: Optional[str] = Query(None, pattern="^(personal|student)$"),
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Clear the user's cart (optionally filtered by type)."""
+    from sqlalchemy import delete
+    stmt = delete(CartItem).where(CartItem.user_id == user.id)
+    if cart_type:
+        stmt = stmt.where(CartItem.cart_type == cart_type)
+    
+    await db.execute(stmt)
+    await db.commit()
+    return None
 
 
 @router.post("/orders/checkout", response_model=list[OrderOut], status_code=status.HTTP_201_CREATED)
@@ -779,12 +883,16 @@ async def list_requests(
     user: SignupRequest = Depends(get_current_user),
 ):
     """List product requests. Vendors see requests assigned to them; others see their own."""
+    # Join with SignupRequest to get requester's name in one go
+    from app.models.signup import SignupRequest as User
+    q = select(ProductRequest, User.full_name).join(User, ProductRequest.requester_id == User.id, isouter=True)
+
     if user.persona == Persona.vendor:
-        q = select(ProductRequest).where(
+        q = q.where(
             (ProductRequest.vendor_id == user.id) | (ProductRequest.vendor_id == None)
         )
     else:
-        q = select(ProductRequest).where(ProductRequest.requester_id == user.id)
+        q = q.where(ProductRequest.requester_id == user.id)
 
     if status_filter:
         try:
@@ -795,15 +903,12 @@ async def list_requests(
 
     q = q.order_by(ProductRequest.created_at.desc()).limit(limit).offset(offset)
     result = await db.execute(q)
-    requests = result.scalars().all()
+    rows = result.all() # (ProductRequest, requester_name)
 
     out = []
-    for r in requests:
-        req_dict = ProductRequestOut.model_validate(r).model_dump()
-        user_result = await db.execute(
-            select(SignupRequest.full_name).where(SignupRequest.id == r.requester_id)
-        )
-        req_dict["requester_name"] = user_result.scalar_one_or_none()
+    for req, requester_name in rows:
+        req_dict = ProductRequestOut.model_validate(req).model_dump()
+        req_dict["requester_name"] = requester_name
         out.append(ProductRequestOut(**req_dict))
     return out
 
@@ -1073,4 +1178,65 @@ async def mark_notification_read(
     await db.commit()
     await db.refresh(notif)
     return notif
+
+
+@router.get("/kia-recommendation")
+async def get_kia_marketplace_recommendation(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """
+    Generate a personalized recommendation from Kia for the marketplace.
+    """
+    print(f"FETCHING KIA RECOMMENDATION FOR USER: {user.email}")
+    
+    # Pre-set fallback in case of any error
+    fallback_recommendation = (
+        "Based on the current curriculum, I recommend looking at the Class 9 Science Exemplar "
+        "and NCERT Maths textbooks. These are foundational for Ananya's upcoming ZQA assessment."
+    )
+    
+    try:
+        # 1. Fetch user context
+        circle_id = "ashoka-rising" 
+        
+        try:
+            from app.chat.models import CircleMember
+            res = await db.execute(select(CircleMember.circle_id).where(CircleMember.user_id == str(user.id)).limit(1))
+            real_circle_id = res.scalar()
+            if real_circle_id:
+                circle_id = real_circle_id
+        except Exception:
+            pass
+
+        context = await fetch_user_context(str(user.id), circle_id, db, is_leader=True)
+        
+        # 2. Get some top products from the DB to give Kia more context
+        from app.microservices.vendor.models import VendorProduct
+        result = await db.execute(select(VendorProduct).limit(10))
+        products = result.scalars().all()
+        product_list = [f"{p.name} (Category: {p.category}, Student Price: ₹{p.student_price})" for p in products]
+        
+        # 3. Add products to context
+        context["marketplace_products"] = product_list
+        
+        # 4. Generate response
+        prompt = (
+            "Generate a single, short, proactive recommendation for the educational marketplace "
+            "based on the sponsored student's progress and the circle's budget. "
+            "Mention 1-2 specific items from the provided list or category types that would help the student right now. "
+            "Keep it under 3 sentences."
+        )
+        
+        recommendation = await generate_kia_response(
+            message_text=prompt,
+            user_context=context,
+            channel="PROACTIVE_TRIGGER"
+        )
+        
+        return {"recommendation": recommendation or fallback_recommendation}
+        
+    except Exception as e:
+        print(f"ERROR IN KIA RECOMMENDATION: {e}")
+        return {"recommendation": fallback_recommendation}
 

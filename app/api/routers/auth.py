@@ -34,6 +34,8 @@ class LoginResponse(BaseModel):
     mobile: str
     kyc_status: KycStatus
     message: str
+    access_token: Optional[str] = None
+    token_type: Optional[str] = "bearer"
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
@@ -111,6 +113,10 @@ async def login(
     )
     db.add(log)
     await db.commit()
+
+    # Issue JWT Token
+    from app.core.jwt_auth import create_access_token
+    token = create_access_token(data={"sub": signup.id})
     
     return LoginResponse(
         id=signup.id,
@@ -120,6 +126,8 @@ async def login(
         mobile=signup.mobile,
         kyc_status=signup.kyc_status,
         message=status_message,
+        access_token=token,
+        token_type="bearer"
     )
 
 
