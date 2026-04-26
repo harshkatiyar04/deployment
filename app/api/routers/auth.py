@@ -30,7 +30,7 @@ class LoginResponse(BaseModel):
     id: str
     persona: Persona
     full_name: str
-    email: EmailStr
+    email: str
     mobile: str
     kyc_status: KycStatus
     message: str
