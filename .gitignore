@@ -5,18 +5,30 @@
 venv/
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 .pytest_cache/
 .mypy_cache/
+
+# Testing and Artifacts
+err.txt
+bandit_report.txt
+test_*.py
+AGENTS.md
+GEMINI.md
 
 # OS
 .DS_Store
 
-# IDE
+# IDE & Assistant Workspace
 .idea/
 .vscode/
 *.swp
 *.swo
-
-.env
 .claude
 .mcp.json
+.opencode.json
+.code-review-graph/
+.cursorrules
+.windsurfrules
+

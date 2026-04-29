@@ -53,6 +53,7 @@ from app.chat.services import manager
 from app.services.shield import shield_message_async
 from app.services.kia import generate_kia_response
 from app.services.kia_context import fetch_user_context
+from app.services.kia_corporate import generate_corporate_response, fetch_corporate_context
 from app.models.enums import Persona as UserPersonaRole
 
 logger = logging.getLogger(__name__)
@@ -153,6 +154,8 @@ async def _process_kia_bot_response(
     kia_persona_id: str,
     requesting_user_id: str,
     is_leader: bool = False,
+    role: str = "sponsor",
+    email: str = "",
 ):
     # Broadcast typing status
     await manager.broadcast(
@@ -168,17 +171,23 @@ async def _process_kia_bot_response(
     
     try:
         async with db_factory() as db:
-            # Fetch personalized context for the requesting user (RAG)
-            user_context = await fetch_user_context(
-                user_id=requesting_user_id,
-                circle_id=circle_id,
-                db=db,
-                include_private=True,  # Always True: user is asking about themselves
-                is_leader=is_leader,  # Leader gets full member contribution access
-            )
-
-            # Generate response grounded in user's real data
-            response_text = await generate_kia_response(trigger_message, user_context=user_context)
+            if role == "corporate":
+                user_context = await fetch_corporate_context(
+                    user_id=requesting_user_id,
+                    email=email,
+                    db=db
+                )
+                response_text = await generate_corporate_response(trigger_message, user_context=user_context)
+            else:
+                user_context = await fetch_user_context(
+                    user_id=requesting_user_id,
+                    circle_id=circle_id,
+                    db=db,
+                    include_private=True,
+                    is_leader=is_leader,
+                )
+                response_text = await generate_kia_response(trigger_message, user_context=user_context)
+                
             if not response_text:
                 # Stop typing even if no response generated
                 await manager.broadcast(
@@ -224,6 +233,46 @@ async def _process_kia_bot_response(
         )
 
 
+async def _get_or_create_corporate_circle(user: SignupRequest, db: AsyncSession) -> tuple[str, str]:
+    """Returns (circle_id, channel_id) for a corporate user's private Kia chat."""
+    circle_name = f"Corporate Kia - {user.id}"
+    
+    circle_res = await db.execute(select(SponsorCircle).where(SponsorCircle.name == circle_name))
+    circle = circle_res.scalars().first()
+    
+    if not circle:
+        circle = SponsorCircle(name=circle_name, description="Private corporate Kia channel")
+        db.add(circle)
+        await db.flush()
+        
+        member = CircleMember(circle_id=circle.id, user_id=user.id, role="sponsor_leader")
+        db.add(member)
+        
+        channel = ChatChannel(circle_id=circle.id, name="kia-strategy", channel_type="persistent")
+        db.add(channel)
+        await db.flush()
+        
+        # Add a welcome message from Kia
+        kia_persona = await _get_kia_persona(db)
+        if kia_persona:
+            welcome_msg = ChatMessage(
+                channel_id=channel.id,
+                gamified_persona_id=kia_persona.id,
+                content_text="Hello! I am Kia, your AI CSR Strategy Assistant. Welcome to your corporate dashboard. I can help you analyze your portfolio, compare impact circles, and optimize your ZenQ score. How can I assist you today?",
+                shield_action="allow"
+            )
+            db.add(welcome_msg)
+
+        await db.commit()
+        await db.refresh(circle)
+        await db.refresh(channel)
+        return circle.id, channel.id
+    
+    channel_res = await db.execute(select(ChatChannel).where(ChatChannel.circle_id == circle.id))
+    channel = channel_res.scalars().first()
+    return circle.id, channel.id
+
+
 # WebSocket endpoint
 
 
@@ -255,6 +304,12 @@ async def circle_websocket(
         logger.warning(f"WebSocket auth failed for token: {token[:10]}...")
         await ws.close(code=4000)
         return
+
+    if circle_id == "corporate-kia":
+        if user.persona.value != "corporate":
+            await ws.close(code=4003)
+            return
+        circle_id, _ = await _get_or_create_corporate_circle(user, db)
 
     logger.info(f"WebSocket connecting: user={user.email}, circle={circle_id}")
 
@@ -444,6 +499,8 @@ async def circle_websocket(
                             str(kia_p.id),
                             str(user.id),  # Pass requesting user's ID for RAG context
                             is_leader=is_leader_user,
+                            role=role,
+                            email=user.email,
                         )
                     )
 
@@ -629,6 +686,11 @@ async def list_channels(
     user = await get_current_user_from_token(token, db)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    if circle_id == "corporate-kia":
+        if user.persona.value != "corporate":
+            raise HTTPException(status_code=403, detail="Corporate role required for Kia chat")
+        circle_id, _ = await _get_or_create_corporate_circle(user, db)
 
     # Verify membership
     membership = await db.execute(
@@ -933,6 +995,11 @@ async def list_circle_members(
     user = await get_current_user_from_token(token, db)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    if circle_id == "corporate-kia":
+        if user.persona.value != "corporate":
+            raise HTTPException(status_code=403, detail="Corporate role required")
+        circle_id, _ = await _get_or_create_corporate_circle(user, db)
 
     # Verify membership
     membership_check = await db.execute(
