@@ -1,5 +1,23 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import CircleChatPanel from './CircleChatPanel';
+
+const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+/* ── tiny helper ──────────────────────────────────────────────────────────── */
+async function kiaChat(message, isScenario = false) {
+  const token = localStorage.getItem('access_token');
+  const res = await fetch(`${API_BASE}/corporate/kia-chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ message, is_scenario: isScenario }),
+  });
+  if (!res.ok) throw new Error(`Kia API ${res.status}`);
+  const data = await res.json();
+  return data.response;
+}
 
 export default function CorpKiaStrategy({ 
   profile, 
@@ -12,12 +30,61 @@ export default function CorpKiaStrategy({
   const [activeCircleChat, setActiveCircleChat] = useState(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
   
+  /* ── Scenario Planner state ─────────────────────────────────────────────── */
+  const [scenarioInput, setScenarioInput] = useState('');
+  const [scenarioOutput, setScenarioOutput] = useState('');
+  const [isScenarioLoading, setIsScenarioLoading] = useState(false);
+
+  const handleModelScenario = async (text) => {
+    const msg = text || scenarioInput;
+    if (!msg.trim()) return;
+    setScenarioOutput('');
+    setIsScenarioLoading(true);
+    try {
+      const reply = await kiaChat(msg, true);
+      setScenarioOutput(reply);
+    } catch (e) {
+      setScenarioOutput('⚠ Kia is temporarily unavailable. Please try again.');
+      console.error(e);
+    } finally {
+      setIsScenarioLoading(false);
+    }
+  };
+
+  /* ── Kia Strategy Chat state ────────────────────────────────────────────── */
+  const [kiaMsgs, setKiaMsgs] = useState([
+    { role: 'kia', text: "Hello! I've prepared your strategy brief above. I'm ready to answer any questions about your portfolio, help draft communications to circle leaders, or run what-if scenarios." }
+  ]);
+  const [kiaChatInput, setKiaChatInput] = useState('');
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const chatEndRef = useRef(null);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [kiaMsgs]);
+
+  const handleKiaChatSend = async (text) => {
+    const msg = text || kiaChatInput;
+    if (!msg.trim()) return;
+    setKiaChatInput('');
+    setKiaMsgs(prev => [...prev, { role: 'user', text: msg }]);
+    setIsChatLoading(true);
+    try {
+      const reply = await kiaChat(msg, false);
+      setKiaMsgs(prev => [...prev, { role: 'kia', text: reply }]);
+    } catch (e) {
+      setKiaMsgs(prev => [...prev, { role: 'kia', text: '⚠ Sorry, I could not process that. Please try again.' }]);
+      console.error(e);
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  /* ── Strategy regeneration ──────────────────────────────────────────────── */
   const handleRegenerate = async () => {
     try {
       setIsRegenerating(true);
       const token = localStorage.getItem('access_token');
-      // The API call to force refresh. Note: usually we'd have this in the hook, but for now we can do a direct fetch and then onRefresh
-      const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
       await fetch(`${API_BASE}/corporate/kia-strategy-brief?force_refresh=true`, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -126,7 +193,7 @@ export default function CorpKiaStrategy({
           <h3 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: '#888', margin: 0 }}>
             CORPORATE CSR GOALS
           </h3>
-          <button className="c-btn-secondary" style={{ padding: '4px 12px', fontSize: 12 }}>+ Add Goal</button>
+          <button className="c-btn-secondary" style={{ padding: '4px 12px', fontSize: 12 }} onClick={() => alert('Add Goal functionality coming soon.')}>+ Add Goal</button>
         </div>
 
         <div style={{ display: 'flex', gap: 16 }}>
@@ -148,7 +215,7 @@ export default function CorpKiaStrategy({
         </div>
       </div>
 
-      {/* ── Section 4: Scenario Planner ────────────────────────────────────── */}
+      {/* ── Section 4: Scenario Planner (LIVE) ─────────────────────────────── */}
       <div className="c-card" style={{ marginBottom: 24, background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)', border: '1px solid #e2e8f0' }}>
         <h3 style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: 1, color: '#64748b', margin: '0 0 16px 0' }}>
           KIA SCENARIO PLANNER
@@ -156,15 +223,65 @@ export default function CorpKiaStrategy({
         <p style={{ fontSize: 13, color: '#475569', marginBottom: 16 }}>
           Ask Kia to project the impact of hypothetical CSR decisions on your Corporate ZenQ.
         </p>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
           {['Add ₹50K to top circle', 'Enroll 50 more employees', 'Fund a new circle in Delhi'].map(chip => (
-            <button key={chip} className="corp-kia-chip" style={{ background: '#fff', border: '1px solid #cbd5e1' }}>{chip}</button>
+            <button 
+              key={chip} 
+              className="corp-kia-chip" 
+              style={{ background: '#fff', border: '1px solid #cbd5e1', cursor: 'pointer' }}
+              onClick={() => { setScenarioInput(chip); handleModelScenario(chip); }}
+              disabled={isScenarioLoading}
+            >
+              {chip}
+            </button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: 12 }}>
-          <input type="text" className="c-input" placeholder="What if we..." style={{ flex: 1, background: '#fff' }} />
-          <button className="c-btn c-btn-primary">Model Scenario</button>
+          <input 
+            type="text" 
+            className="c-input" 
+            placeholder="What if we..." 
+            style={{ flex: 1, background: '#fff' }} 
+            value={scenarioInput}
+            onChange={e => setScenarioInput(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleModelScenario()}
+            disabled={isScenarioLoading}
+          />
+          <button 
+            className="c-btn c-btn-primary" 
+            onClick={() => handleModelScenario()}
+            disabled={isScenarioLoading}
+            style={{ opacity: isScenarioLoading ? 0.7 : 1 }}
+          >
+            {isScenarioLoading ? 'Modeling...' : 'Model Scenario'}
+          </button>
         </div>
+
+        {/* Scenario Output */}
+        {(isScenarioLoading || scenarioOutput) && (
+          <div style={{ 
+            marginTop: 16, 
+            padding: 16, 
+            background: '#fff', 
+            border: '1px solid #a7f3d0', 
+            borderRadius: 8,
+            borderLeft: '4px solid #10B981'
+          }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#065f46', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 20, height: 20, borderRadius: '50%', background: '#10B981', color: '#fff', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 700 }}>K</span>
+              Kia Scenario Analysis
+            </div>
+            {isScenarioLoading ? (
+              <div style={{ fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>
+                ⏳ Kia is analyzing your scenario using your corporate context...
+              </div>
+            ) : (
+              <div style={{ fontSize: 13, color: '#1e293b', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
+                {scenarioOutput}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Section 5: ZenK Circle Chat ──────────────────────────────────────── */}
@@ -181,7 +298,7 @@ export default function CorpKiaStrategy({
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-          {circlesPerf?.map(circle => (
+          {circlesPerf?.circles?.map(circle => (
             <button 
               key={circle.circle_name}
               className={`c-btn ${activeCircleChat?.circle_name === circle.circle_name ? 'c-btn-primary' : 'c-btn-secondary'}`}
@@ -195,7 +312,7 @@ export default function CorpKiaStrategy({
 
         {activeCircleChat ? (
           <div style={{ border: '1px solid #e8e8e4', borderRadius: 8, overflow: 'hidden' }}>
-            <CircleChatPanel circle={activeCircleChat} onClose={() => setActiveCircleChat(null)} />
+            <CircleChatPanel circle={activeCircleChat} onClose={() => setActiveCircleChat(null)} inline={true} />
           </div>
         ) : (
           <div style={{ padding: 32, textAlign: 'center', background: '#fcfcfc', border: '1px dashed #e8e8e4', borderRadius: 8, color: '#888' }}>
@@ -204,36 +321,88 @@ export default function CorpKiaStrategy({
         )}
       </div>
 
-      {/* ── Section 6: Kia Conversational ────────────────────────────────────── */}
-      <div className="c-card" style={{ marginTop: 24, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 400 }}>
+      {/* ── Section 6: Kia Strategy Chat (LIVE) ──────────────────────────────── */}
+      <div className="c-card" style={{ marginTop: 24, padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: 480 }}>
         <div style={{ padding: '16px 20px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div className="corp-kia-avatar-circle" style={{ width: 32, height: 32 }}>
-            <img src="/kia-bot-avatar.png" alt="Kia" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-          </div>
+          <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700 }}>K</div>
           <div>
             <h3 style={{ margin: 0, fontSize: 14, color: '#1e293b' }}>Kia Strategy Chat</h3>
-            <div style={{ fontSize: 12, color: '#64748b' }}>Deep dive into your portfolio strategy</div>
-          </div>
-        </div>
-        <div style={{ flex: 1, padding: 20, overflowY: 'auto', background: '#fff' }}>
-          <div className="c-chat-msg system">
-            <div className="c-chat-msg-bubble" style={{ background: '#f1f5f9', color: '#334155', border: 'none' }}>
-              Hello! I've prepared your strategy brief above. I'm ready to answer any questions about your portfolio, help draft communications to circle leaders, or run what-if scenarios.
+            <div style={{ fontSize: 12, color: '#64748b' }}>
+              {isChatLoading ? '● Kia is typing...' : 'Deep dive into your portfolio strategy'}
             </div>
           </div>
         </div>
+
+        {/* Messages */}
+        <div style={{ flex: 1, padding: 20, overflowY: 'auto', background: '#fff', display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {kiaMsgs.map((m, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: m.role === 'user' ? 'row-reverse' : 'row', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{
+                width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                background: m.role === 'kia' ? '#10b981' : '#3b82f6',
+                color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 11, fontWeight: 700
+              }}>
+                {m.role === 'kia' ? 'K' : 'Y'}
+              </div>
+              <div style={{
+                maxWidth: '75%',
+                background: m.role === 'kia' ? '#f1f5f9' : '#e0f2fe',
+                padding: '10px 14px',
+                borderRadius: 8,
+                fontSize: 13,
+                color: '#1e293b',
+                lineHeight: 1.55,
+                whiteSpace: 'pre-wrap'
+              }}>
+                {m.text}
+              </div>
+            </div>
+          ))}
+
+          {isChatLoading && (
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#10b981', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>K</div>
+              <div style={{ background: '#f1f5f9', padding: '10px 14px', borderRadius: 8, fontSize: 13, color: '#64748b', fontStyle: 'italic' }}>
+                Thinking...
+              </div>
+            </div>
+          )}
+          <div ref={chatEndRef} />
+        </div>
+
+        {/* Input area */}
         <div style={{ padding: 16, borderTop: '1px solid #e2e8f0', background: '#f8fafc' }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
             {['Explain Priority 1', 'Compare my circles', 'Draft employee email'].map(chip => (
-              <button key={chip} style={{ padding: '4px 12px', fontSize: 12, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 12, color: '#475569', cursor: 'pointer' }}>
+              <button 
+                key={chip} 
+                onClick={() => handleKiaChatSend(chip)}
+                disabled={isChatLoading}
+                style={{ padding: '4px 12px', fontSize: 12, background: '#fff', border: '1px solid #cbd5e1', borderRadius: 12, color: '#475569', cursor: 'pointer', opacity: isChatLoading ? 0.5 : 1 }}>
                 {chip}
               </button>
             ))}
           </div>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <input type="text" className="c-input" placeholder="Message Kia about your strategy..." style={{ flex: 1 }} />
-            <button className="c-btn c-btn-primary">Send</button>
-          </div>
+          <form onSubmit={e => { e.preventDefault(); handleKiaChatSend(); }} style={{ display: 'flex', gap: 12 }}>
+            <input 
+              type="text" 
+              className="c-input" 
+              placeholder="Message Kia about your strategy..." 
+              style={{ flex: 1 }} 
+              value={kiaChatInput}
+              onChange={e => setKiaChatInput(e.target.value)}
+              disabled={isChatLoading}
+            />
+            <button 
+              type="submit"
+              className="c-btn c-btn-primary" 
+              disabled={isChatLoading}
+              style={{ opacity: isChatLoading ? 0.7 : 1 }}
+            >
+              Send
+            </button>
+          </form>
         </div>
       </div>
 

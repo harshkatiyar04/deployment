@@ -8,6 +8,7 @@ import CorpCirclePerf from './CorpCirclePerf';
 import CorpEmployees from './CorpEmployees';
 import CorpCSRAccount from './CorpCSRAccount';
 import CorpCertification from './CorpCertification';
+import CorpKiaStrategy from './CorpKiaStrategy';
 import { ChatProvider } from '../../../contexts/ChatContext';
 import MessageList from '../../../components/chat/MessageList';
 import MessageInput from '../../../components/chat/MessageInput';

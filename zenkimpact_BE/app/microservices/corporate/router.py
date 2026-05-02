@@ -572,6 +572,50 @@ async def get_corporate_goals(
     return []
 
 
+# ── Kia Chat & Scenario Planner (Live LLM) ───────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBase
+
+class _KiaChatRequest(_PydanticBase):
+    message: str
+    is_scenario: bool = False
+
+@router.post("/kia-chat")
+async def kia_chat(
+    body: _KiaChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Send a message to Kia (strategy chat or scenario planner)."""
+    _require_corporate(user)
+
+    from app.services.kia_corporate import fetch_corporate_context, generate_corporate_response
+
+    context = await fetch_corporate_context(user.id, user.email, db)
+
+    if body.is_scenario:
+        prompt = (
+            "The corporate user is asking you to MODEL A SCENARIO. "
+            "Analyse the hypothetical situation they describe, estimate the "
+            "likely change to their Corporate ZenQ score, and provide concrete "
+            "recommendations. Use numbers from the Corporate Context. "
+            "Be concise but data-rich.\n\n"
+            f"User's scenario: \"{body.message}\""
+        )
+    else:
+        prompt = body.message
+
+    reply = await generate_corporate_response(prompt, context)
+
+    if not reply:
+        raise HTTPException(
+            status_code=502,
+            detail="Kia is temporarily unable to respond. Please try again.",
+        )
+
+    return {"response": reply}
+
+
 # ── Impact Certification Exports ──────────────────────────────────────────────
 
 async def _get_profile_or_404(user_id, db):
