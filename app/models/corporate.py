@@ -23,6 +23,7 @@ class CorporateProfile(Base):
     hq_city: Mapped[str] = mapped_column(String(100), nullable=False)
     partner_since: Mapped[str] = mapped_column(String(50), nullable=False, default="Apr 2024")
     csr_schedule: Mapped[str] = mapped_column(String(255), nullable=False, default="CSR Schedule VII — Item (ii): Education")
+    brand_color: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="#0284C7")
 
     # KPIs
     corporate_zenq: Mapped[float] = mapped_column(Float, nullable=False, default=78.4)
@@ -41,3 +42,15 @@ class CorporateProfile(Base):
     top_contributors: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     spend_by_category: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     transactions: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+
+    # Employee engagement enrichment
+    volunteers: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    employee_circles: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    engagement_schemes: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    department_breakdown: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    monthly_hours: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    kia_engagement_insight: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
+    active_this_month: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    avg_hours_per_employee: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    zenq_lift_from_staff: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+

@@ -1,5 +1,8 @@
 """Corporate CSR Dashboard — FastAPI Router."""
+import csv
+import io
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,9 +17,11 @@ from app.microservices.corporate.schemas import (
     AllocationResponse, CircleAllocation,
     CirclePerformanceResponse, CirclePerformanceRow,
     EmployeeEngagementResponse, EngagementMetric, TopContributor,
+    EmployeeCircle, EngagementScheme, DepartmentEngagement,
     CSRAccountResponse, CSRTransaction,
     ReallocationRequest, ReallocationResponse,
 )
+
 
 router = APIRouter(prefix="/corporate", tags=["Corporate CSR Dashboard"])
 
@@ -45,7 +50,10 @@ async def get_corporate_profile(
     profile = result.scalar_one_or_none()
     
     if not profile:
-        if "corporate2" in user.email.lower() or "hcl" in user.email.lower():
+        if "corporate2" in user.email.lower():
+            company_name = "ICICI Bank"
+            company_initials = "ICICI"
+        elif "hcl" in user.email.lower():
             company_name = "HCL Foundation"
             company_initials = "HCL"
         else:
@@ -57,6 +65,7 @@ async def get_corporate_profile(
             company_name=company_name,
             company_initials=company_initials,
             hq_city="Mumbai" if company_initials == "TCS" else "Noida",
+            brand_color="#E31E24" if company_initials == "ICICI" else "#004B98",
             total_csr_deployed=100000,
             unallocated=20000,
             fy_label="FY 2025-26",
@@ -129,6 +138,7 @@ async def get_corporate_profile(
         hq_city=profile.hq_city,
         partner_since=profile.partner_since,
         csr_schedule=profile.csr_schedule,
+        brand_color=profile.brand_color,
         badges=badges_list,
         corporate_zenq=profile.corporate_zenq,
         total_csr_deployed=profile.total_csr_deployed,
@@ -374,6 +384,81 @@ async def get_circles_performance(
     return CirclePerformanceResponse(
         circles=circles,
         summary=summary,
+        platform_pool_amount=int(profile.total_csr_deployed * 0.1) if profile else 10000,
+        platform_pool_pct=10,
+        national_avg_zenq=76.2,
+        total_circles_benefitting=47
+    )
+
+
+# ── Live ZenQ Polling ─────────────────────────────────────────────────────────
+
+@router.get("/circles-performance/live")
+async def get_live_circle_performance(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Lightweight endpoint for 30s polling of live ZenQ scores."""
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+
+    if not profile or not profile.circle_performance:
+        return {"circles": []}
+        
+    # In a real app, this might query an active events stream.
+    # Here we simulate minor live fluctuations for demo purposes.
+    import random
+    live_data = []
+    for c in profile.circle_performance:
+        base_score = float(c.get("zenq_score", 0))
+        # Small +/- 0.5 fluctuation to simulate real-time live data
+        fluctuation = round(random.uniform(-0.5, 0.5), 1)
+        live_data.append({
+            "circle_name": c.get("circle_name"),
+            "live_zenq": min(100.0, max(0.0, base_score + fluctuation))
+        })
+        
+    return {"circles": live_data}
+
+
+# ── PDF Impact Report ─────────────────────────────────────────────────────────
+
+from fastapi.responses import StreamingResponse
+from app.microservices.corporate.pdf_report import generate_impact_report
+
+@router.get("/impact-report/{circle_name}")
+async def download_impact_report(
+    circle_name: str,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Generates a professional multi-section PDF impact report for a circle."""
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    circle_data = next(
+        (c for c in (profile.circle_performance or [])
+         if c.get("circle_name") == circle_name), None
+    )
+    if not circle_data:
+        raise HTTPException(status_code=404, detail="Circle not found in your portfolio")
+
+    profile_info = {"company_name": profile.company_name}
+    buffer = generate_impact_report(profile_info, circle_data)
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=ZenK_Impact_{circle_name.replace(' ', '_')}.pdf"
+        },
     )
 
 
@@ -389,52 +474,57 @@ async def get_employee_engagement(
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
+    # Default monthly hours
+    default_monthly_hours = [
+        {"month": "Apr", "hours": 32}, {"month": "May", "hours": 38},
+        {"month": "Jun", "hours": 41}, {"month": "Jul", "hours": 44},
+        {"month": "Aug", "hours": 48}, {"month": "Sep", "hours": 52},
+        {"month": "Oct", "hours": 58}, {"month": "Nov", "hours": 62},
+        {"month": "Dec", "hours": 65}, {"month": "Jan", "hours": 70},
+        {"month": "Feb", "hours": 74}, {"month": "Mar", "hours": 84},
+    ]
+
     if not profile:
-        total_enrolled = 12
-        active_this_month = 9
-        circles_participating = 2
-        avg_hours_per_employee = 6.5
-        metrics = [
-            EngagementMetric(label="Total Enrolled", value="12", delta="+3 this FY", trend="up"),
-            EngagementMetric(label="Active This Month", value="9", delta="+2 vs last month", trend="up"),
-            EngagementMetric(label="Avg Hours/Employee", value="6.5h", delta="-0.5h vs last month", trend="down"),
-            EngagementMetric(label="Volunteer Hours Total", value="78h", delta="+12h this month", trend="up"),
-        ]
-        top_contributors = [
-            TopContributor(name="Priya Sharma", initials="PS", department="Engineering", hours=14, impact_score=92),
-            TopContributor(name="Arjun Mehta", initials="AM", department="HR", hours=12, impact_score=88),
-            TopContributor(name="Divya Nair", initials="DN", department="Finance", hours=11, impact_score=84),
-            TopContributor(name="Rahul Joshi", initials="RJ", department="Product", hours=9, impact_score=81),
-            TopContributor(name="Sneha Kapoor", initials="SK", department="Sales", hours=8, impact_score=79),
-        ]
-        monthly_hours = [
-            {"month": "Apr", "hours": 32}, {"month": "May", "hours": 38}, {"month": "Jun", "hours": 41},
-            {"month": "Jul", "hours": 44}, {"month": "Aug", "hours": 48}, {"month": "Sep", "hours": 52},
-            {"month": "Oct", "hours": 58}, {"month": "Nov", "hours": 62}, {"month": "Dec", "hours": 65},
-            {"month": "Jan", "hours": 70}, {"month": "Feb", "hours": 74}, {"month": "Mar", "hours": 78},
-        ]
-    else:
-        total_enrolled = profile.employees_engaged
-        active_this_month = 9
-        circles_participating = profile.circles_funded
-        avg_hours_per_employee = 6.5
-        metrics = [EngagementMetric(**m) for m in (profile.engagement_metrics or [])]
-        top_contributors = [TopContributor(**c) for c in (profile.top_contributors or [])]
-        monthly_hours = [
-            {"month": "Apr", "hours": 32}, {"month": "May", "hours": 38}, {"month": "Jun", "hours": 41},
-            {"month": "Jul", "hours": 44}, {"month": "Aug", "hours": 48}, {"month": "Sep", "hours": 52},
-            {"month": "Oct", "hours": 58}, {"month": "Nov", "hours": 62}, {"month": "Dec", "hours": 65},
-            {"month": "Jan", "hours": 70}, {"month": "Feb", "hours": 74}, {"month": "Mar", "hours": 78},
-        ]
+        return EmployeeEngagementResponse(
+            total_enrolled=12, active_this_month=9, circles_participating=2,
+            avg_hours_per_employee=6.5, zenq_lift_from_staff=8.2,
+            metrics=[
+                EngagementMetric(label="Volunteers Active", value="12", delta="+3 this FY", trend="up"),
+                EngagementMetric(label="Hours Contributed", value="84 hrs", delta="This FY", trend="up"),
+                EngagementMetric(label="Employee Circles Formed", value="2", delta="Co-funded by TCS", trend="up"),
+                EngagementMetric(label="ZenQ Lift from Staff", value="+8.2", delta="Added to Corp ZenQ", trend="up"),
+            ],
+            top_contributors=[
+                TopContributor(name="Priya Sharma", initials="PS", department="Engineering", hours=14, impact_score=92, badge="gold"),
+                TopContributor(name="Arjun Mehta", initials="AM", department="HR", hours=12, impact_score=88, badge="silver"),
+                TopContributor(name="Divya Nair", initials="DN", department="Finance", hours=11, impact_score=84, badge="bronze"),
+                TopContributor(name="Rahul Joshi", initials="RJ", department="Product", hours=9, impact_score=81),
+                TopContributor(name="Sneha Kapoor", initials="SK", department="Sales", hours=8, impact_score=79),
+            ],
+            monthly_hours=default_monthly_hours,
+        )
+
+    metrics = [EngagementMetric(**m) for m in (profile.engagement_metrics or [])]
+    top_contributors = [TopContributor(**c) for c in (profile.top_contributors or [])]
+    volunteers = [TopContributor(**v) for v in (profile.volunteers or [])]
+    employee_circles = [EmployeeCircle(**ec) for ec in (profile.employee_circles or [])]
+    engagement_schemes = [EngagementScheme(**s) for s in (profile.engagement_schemes or [])]
+    department_breakdown = [DepartmentEngagement(**d) for d in (profile.department_breakdown or [])]
 
     return EmployeeEngagementResponse(
-        total_enrolled=total_enrolled,
-        active_this_month=active_this_month,
-        circles_participating=circles_participating,
-        avg_hours_per_employee=avg_hours_per_employee,
+        total_enrolled=profile.employees_engaged,
+        active_this_month=profile.active_this_month or 9,
+        circles_participating=profile.circles_funded,
+        avg_hours_per_employee=profile.avg_hours_per_employee or 6.5,
+        zenq_lift_from_staff=profile.zenq_lift_from_staff or 8.2,
         metrics=metrics,
         top_contributors=top_contributors,
-        monthly_hours=monthly_hours,
+        monthly_hours=profile.monthly_hours or default_monthly_hours,
+        volunteers=volunteers,
+        employee_circles=employee_circles,
+        engagement_schemes=engagement_schemes,
+        department_breakdown=department_breakdown,
+        kia_insight=profile.kia_engagement_insight,
     )
 
 
@@ -506,3 +596,122 @@ async def get_kia_recommendation(
     return {
         "recommendation": response or "I'm currently unable to generate a recommendation. Please try again later."
     }
+
+
+# ── Impact Certification Exports ──────────────────────────────────────────────
+
+async def _get_profile_or_404(user_id, db):
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user_id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    if not profile:
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
+    return profile
+
+
+@router.get("/impact/certificate")
+async def download_certificate(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Generate and stream a ZenQ Impact Certificate PDF."""
+    _require_corporate(user)
+    profile = await _get_profile_or_404(user.id, db)
+    from app.microservices.corporate.pdf_report import generate_corporate_certificate
+    buf = generate_corporate_certificate(profile.__dict__)
+    company_slug = (profile.company_name or "corporate").replace(" ", "_")
+    filename = f"ZenQ_Certificate_{company_slug}_FY2025-26.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/impact/annual-report")
+async def download_annual_report(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Generate and stream an Annual Report Insert PDF."""
+    _require_corporate(user)
+    profile = await _get_profile_or_404(user.id, db)
+    from app.microservices.corporate.pdf_report import generate_annual_report_insert
+    buf = generate_annual_report_insert(profile.__dict__)
+    company_slug = (profile.company_name or "corporate").replace(" ", "_")
+    filename = f"ZenQ_Annual_Report_{company_slug}_FY2025-26.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/impact/brsr-docs")
+async def download_brsr_docs(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Generate and stream BRSR & Schedule VII compliance PDF."""
+    _require_corporate(user)
+    profile = await _get_profile_or_404(user.id, db)
+    from app.microservices.corporate.pdf_report import generate_brsr_docs
+    buf = generate_brsr_docs(profile.__dict__)
+    company_slug = (profile.company_name or "corporate").replace(" ", "_")
+    filename = f"ZenQ_BRSR_Docs_{company_slug}_FY2025-26.pdf"
+    return StreamingResponse(
+        buf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/impact/brsr-export")
+async def export_brsr_csv(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Generate and stream BRSR metrics as a CSV file."""
+    _require_corporate(user)
+    profile = await _get_profile_or_404(user.id, db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    writer.writerow(["ZenK BRSR Data Export — FY 2025-26"])
+    writer.writerow([])
+    writer.writerow(["Company", profile.company_name or "—"])
+    writer.writerow(["Corporate ZenQ Score", profile.corporate_zenq or "—"])
+    writer.writerow(["Impact Tier", profile.impact_tier or "—"])
+    writer.writerow(["Total CSR Deployed (₹)", profile.total_csr_deployed or 0])
+    writer.writerow(["Unallocated Balance (₹)", profile.unallocated or 0])
+    writer.writerow(["Circles Funded", profile.circles_funded or 0])
+    writer.writerow(["Employees Engaged", profile.employees_engaged or 0])
+    writer.writerow(["Schedule VII Item", "Item (ii): Education"])
+    writer.writerow([])
+
+    writer.writerow(["--- Circle Allocations ---"])
+    writer.writerow(["Circle Name", "Allocation (%)", "Amount (₹)", "ZenQ Score", "Status"])
+    for c in (profile.circle_allocations or []):
+        writer.writerow([
+            c.get("circle_name", ""), c.get("allocation_pct", ""),
+            c.get("amount", ""), c.get("zenq_score", ""), c.get("status", ""),
+        ])
+    writer.writerow([])
+
+    writer.writerow(["--- Transactions ---"])
+    writer.writerow(["Date", "Description", "Category", "Amount (₹)", "Type"])
+    for t in (profile.transactions or []):
+        writer.writerow([
+            t.get("date", ""), t.get("description", ""), t.get("category", ""),
+            t.get("amount", ""), t.get("type", ""),
+        ])
+
+    output.seek(0)
+    company_slug = (profile.company_name or "corporate").replace(" ", "_")
+    filename = f"ZenQ_BRSR_Export_{company_slug}_FY2025-26.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

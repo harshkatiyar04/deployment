@@ -17,6 +17,7 @@ class CorporateProfileResponse(BaseModel):
     hq_city: str
     partner_since: str
     csr_schedule: str
+    brand_color: str = "#0284C7"
     badges: list[CorporateBadge]
     # KPI strip
     corporate_zenq: float
@@ -69,6 +70,15 @@ class AllocationResponse(BaseModel):
 
 # ── Circle Performance ────────────────────────────────────────────────────────
 
+class CircleMilestone(BaseModel):
+    month: str
+    event: str
+
+class CircleVolunteer(BaseModel):
+    name: str
+    initials: str
+    hours_per_month: float
+
 class CirclePerformanceRow(BaseModel):
     circle_name: str
     leader: str
@@ -80,11 +90,28 @@ class CirclePerformanceRow(BaseModel):
     students: int
     monthly_trend: list[float]
     status: str
+    # New rich fields
+    kia_insight: Optional[str] = None
+    zenq_start: float = 60.0
+    fund_utilised_pct: int = 75
+    next_disbursement: Optional[str] = None
+    volunteers: list[dict] = []
+    milestones: list[dict] = []
+    risk_flag: Optional[str] = None
+    predicted_zenq_by_fy_end: Optional[float] = None
+    student_zqa: Optional[float] = None
+    allocation_amount: Optional[int] = None
+    allocation_pct: Optional[int] = None
+    color: str = "#00D4BE"
 
 
 class CirclePerformanceResponse(BaseModel):
     circles: list[CirclePerformanceRow]
     summary: str
+    platform_pool_amount: int = 0
+    platform_pool_pct: int = 10
+    national_avg_zenq: float = 76.2
+    total_circles_benefitting: int = 47
 
 
 # ── Employee Engagement ───────────────────────────────────────────────────────
@@ -102,6 +129,36 @@ class TopContributor(BaseModel):
     department: str
     hours: int
     impact_score: float
+    circle: Optional[str] = None
+    zenq_contribution: Optional[float] = None
+    badge: Optional[str] = None  # "gold" | "silver" | "bronze"
+
+
+class EmployeeCircle(BaseModel):
+    name: str
+    employees: int
+    company_match: int
+    zenq: float
+    rank: int
+    fund: int
+
+
+class EngagementScheme(BaseModel):
+    icon: str
+    title: str
+    description: str
+    participants: int
+    total_matched: Optional[int] = None
+    zenq_uplift: Optional[float] = None
+    status: str
+    extra: Optional[str] = None
+
+
+class DepartmentEngagement(BaseModel):
+    department: str
+    employees: int
+    active: int
+    hours: int
 
 
 class EmployeeEngagementResponse(BaseModel):
@@ -109,9 +166,15 @@ class EmployeeEngagementResponse(BaseModel):
     active_this_month: int
     circles_participating: int
     avg_hours_per_employee: float
+    zenq_lift_from_staff: float = 0.0
     metrics: list[EngagementMetric]
     top_contributors: list[TopContributor]
     monthly_hours: list[dict]
+    volunteers: list[TopContributor] = []
+    employee_circles: list[EmployeeCircle] = []
+    engagement_schemes: list[EngagementScheme] = []
+    department_breakdown: list[DepartmentEngagement] = []
+    kia_insight: Optional[str] = None
 
 
 # ── CSR Account ───────────────────────────────────────────────────────────────
