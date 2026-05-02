@@ -184,17 +184,39 @@ class CSRTransaction(BaseModel):
     description: str
     category: str
     amount: int
-    type: str  # "credit" | "debit"
+    type: str  # "credit" | "debit" | "interest"
     circle: Optional[str] = None
+    running_balance: Optional[int] = None
+    reference: Optional[str] = None
+
+
+class UpcomingDisbursement(BaseModel):
+    circle_name: str
+    amount: int
+    due_date: str
+    status: str  # "scheduled" | "pending_approval" | "disbursed"
+    tranche: str
 
 
 class CSRAccountResponse(BaseModel):
     total_deployed: int
     total_received: int
     balance: int
+    committed: int = 0
+    allocated: int = 0
+    unallocated: int = 0
     fy_label: str
+    account_number: str = "ZNK-CORP-0000-00"
+    mandate_amount: int = 0
+    mandate_used_pct: float = 0.0
+    escrow_interest_earned: int = 0
+    compliance_status: str = "on_track"  # "on_track" | "at_risk" | "overdue"
     spend_by_category: list[dict]
     transactions: list[CSRTransaction]
+    upcoming_disbursements: list[UpcomingDisbursement] = []
+    monthly_burn: list[dict] = []  # [{month, amount}]
+    alerts: list[str] = []
+
 
 
 # ── Reallocation ──────────────────────────────────────────────────────────────

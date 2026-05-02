@@ -18,7 +18,7 @@ from app.microservices.corporate.schemas import (
     CirclePerformanceResponse, CirclePerformanceRow,
     EmployeeEngagementResponse, EngagementMetric, TopContributor,
     EmployeeCircle, EngagementScheme, DepartmentEngagement,
-    CSRAccountResponse, CSRTransaction,
+    CSRAccountResponse, CSRTransaction, UpcomingDisbursement,
     ReallocationRequest, ReallocationResponse,
 )
 
@@ -540,41 +540,104 @@ async def get_csr_account(
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
+    # ── Default rich mock data ─────────────────────────────────────────────────
     if not profile:
-        total_deployed = 100000
-        total_received = 100000
-        balance = 20000
-        fy_label = "FY 2025-26"
+        total_received = 1200000
+        committed      = 900000
+        allocated      = 820000
+        total_deployed = 820000
+        balance        = 300000
+        unallocated    = 300000
+        mandate_amount = 1200000
+        fy_label       = "FY 2025-26"
+        account_number = "ZNK-CORP-1234-TC"
+
         spend_by_category = [
-            {"category": "Student Circles", "amount": 80000, "color": "#00D4BE"},
-            {"category": "Platform Fee", "amount": 10000, "color": "#F6C343"},
-            {"category": "Unallocated", "amount": 20000, "color": "#4e4635"},
+            {"category": "Student Circles",   "amount": 720000, "color": "#4A72F5"},
+            {"category": "Platform Fee",      "amount": 100000, "color": "#F6C343"},
+            {"category": "Escrow Interest",   "amount":   2400, "color": "#0CBEAA"},
+            {"category": "Unallocated",       "amount": 300000, "color": "#e8e8e4"},
         ]
-        transactions = [
-            CSRTransaction(date="Mar 20, 2026", description="Ashoka Rising Circle — Q4 Tranche", category="Circle Fund", amount=15000, type="debit", circle="Ashoka Rising Circle"),
-            CSRTransaction(date="Mar 10, 2026", description="Udaan Bangalore — Q4 Tranche", category="Circle Fund", amount=5000, type="debit", circle="Udaan Bangalore"),
-            CSRTransaction(date="Feb 28, 2026", description="CSR Disbursement", category="Inflow", amount=100000, type="credit"),
-            CSRTransaction(date="Jan 15, 2026", description="Platform Service Fee Q3", category="Platform Fee", amount=2500, type="debit"),
-            CSRTransaction(date="Dec 20, 2025", description="Ashoka Rising Circle — Q3 Tranche", category="Circle Fund", amount=15000, type="debit", circle="Ashoka Rising Circle"),
-            CSRTransaction(date="Dec 10, 2025", description="Udaan Bangalore — Q3 Tranche", category="Circle Fund", amount=5000, type="debit", circle="Udaan Bangalore"),
-            CSRTransaction(date="Nov 5, 2025", description="Ashoka Rising Circle — Q2 Tranche", category="Circle Fund", amount=15000, type="debit", circle="Ashoka Rising Circle"),
-            CSRTransaction(date="Oct 1, 2025", description="Platform Service Fee Q2", category="Platform Fee", amount=2500, type="debit"),
+
+        monthly_burn = [
+            {"month": "Apr", "amount": 20000}, {"month": "May", "amount": 25000},
+            {"month": "Jun", "amount": 30000}, {"month": "Jul", "amount": 20000},
+            {"month": "Aug", "amount": 35000}, {"month": "Sep", "amount": 10000},
+            {"month": "Oct", "amount": 28000}, {"month": "Nov", "amount": 15000},
+            {"month": "Dec", "amount": 40000}, {"month": "Jan", "amount": 22000},
+            {"month": "Feb", "amount": 18000}, {"month": "Mar", "amount": 2400},
         ]
+
+        # Transactions with running balance pre-computed
+        raw_txns = [
+            {"date": "1 Apr 25",  "type": "credit",   "description": "Annual CSR commitment — FY26",    "category": "Top-up",       "amount": 1200000, "circle": None,                   "running_balance": 1200000, "reference": "NEFT/TCS/2025/001"},
+            {"date": "2 Apr 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q1 tranche","category": "Allocation",   "amount": 20000,   "circle": "Ashoka Rising Circle", "running_balance": 1180000, "reference": "ALLOC/ARC/Q1"},
+            {"date": "2 Apr 25",  "type": "debit",    "description": "Udaan Bangalore — Q1 tranche",    "category": "Allocation",   "amount": 7000,    "circle": "Udaan Bangalore",      "running_balance": 1173000, "reference": "ALLOC/UB/Q1"},
+            {"date": "5 Apr 25",  "type": "debit",    "description": "Platform fee (10% of commitment)","category": "Platform Fee", "amount": 10000,   "circle": None,                   "running_balance": 1163000, "reference": "FEE/2025/Q1"},
+            {"date": "1 Jul 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q2 tranche","category": "Allocation",  "amount": 20000,   "circle": "Ashoka Rising Circle", "running_balance": 1143000, "reference": "ALLOC/ARC/Q2"},
+            {"date": "1 Jul 25",  "type": "debit",    "description": "Udaan Bangalore — Q2 tranche",    "category": "Allocation",   "amount": 5500,    "circle": "Udaan Bangalore",      "running_balance": 1137500, "reference": "ALLOC/UB/Q2"},
+            {"date": "1 Oct 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q3 tranche","category": "Allocation",  "amount": 10000,   "circle": "Ashoka Rising Circle", "running_balance": 1127500, "reference": "ALLOC/ARC/Q3"},
+            {"date": "1 Oct 25",  "type": "debit",    "description": "Udaan Bangalore — Q3 tranche",    "category": "Allocation",   "amount": 6500,    "circle": "Udaan Bangalore",      "running_balance": 1121000, "reference": "ALLOC/UB/Q3"},
+            {"date": "24 Nov 25", "type": "interest", "description": "C.C. Escrow interest credited",  "category": "Interest",     "amount": 2400,    "circle": None,                   "running_balance": 1123400, "reference": "INT/2025/NOV"},
+            {"date": "1 Mar 26",  "type": "debit",    "description": "Ashoka Rising Circle — Q4 partial","category": "Allocation",  "amount": 2400,    "circle": "Ashoka Rising Circle", "running_balance": 1121000, "reference": "ALLOC/ARC/Q4P"},
+        ]
+        transactions = [CSRTransaction(**t) for t in raw_txns]
+
+        upcoming_disbursements = [
+            UpcomingDisbursement(circle_name="Ashoka Rising Circle", amount=20000, due_date="Apr 1, 2026", status="scheduled",        tranche="Q1 FY26-27"),
+            UpcomingDisbursement(circle_name="Udaan Bangalore",      amount=7500,  due_date="Apr 1, 2026", status="pending_approval",  tranche="Q1 FY26-27"),
+            UpcomingDisbursement(circle_name="ZenK Platform Fee",    amount=12000, due_date="Apr 5, 2026", status="scheduled",        tranche="Annual Fee"),
+        ]
+
+        alerts = [
+            "₹3,00,000 unallocated — Q4 FY26 allocation deadline is Apr 1, 2026 (30 days away).",
+            "₹2,400 escrow interest was credited to your account on 24 Nov 2025.",
+            "Annual MCA compliance filing due by Sep 30, 2026. You are currently on track.",
+        ]
+        compliance_status = "on_track"
+        escrow_interest_earned = 2400
+        mandate_used_pct = round((total_deployed / mandate_amount) * 100, 1)
+
     else:
-        total_deployed = profile.total_csr_deployed
-        total_received = profile.total_csr_deployed
-        balance = profile.unallocated
-        fy_label = profile.fy_label
+        total_deployed  = profile.total_csr_deployed
+        total_received  = profile.total_csr_deployed
+        committed       = profile.total_csr_deployed
+        allocated       = profile.total_csr_deployed - (profile.unallocated or 0)
+        balance         = profile.unallocated or 0
+        unallocated     = profile.unallocated or 0
+        mandate_amount  = profile.total_csr_deployed
+        fy_label        = profile.fy_label or "FY 2025-26"
+        account_number  = f"ZNK-CORP-{profile.id:04d}-TC"
         spend_by_category = list(profile.spend_by_category or [])
-        transactions = [CSRTransaction(**t) for t in (profile.transactions or [])]
+        raw_txns        = profile.transactions or []
+        transactions    = [CSRTransaction(**t) for t in raw_txns]
+        upcoming_disbursements = [
+            UpcomingDisbursement(**d) for d in (profile.upcoming_disbursements or [])
+        ]
+        monthly_burn    = profile.monthly_burn or []
+        alerts          = profile.alerts or []
+        compliance_status = "on_track"
+        escrow_interest_earned = 0
+        mandate_used_pct = round((total_deployed / mandate_amount) * 100, 1) if mandate_amount else 0.0
 
     return CSRAccountResponse(
         total_deployed=total_deployed,
         total_received=total_received,
         balance=balance,
+        committed=committed,
+        allocated=allocated,
+        unallocated=unallocated,
         fy_label=fy_label,
+        account_number=account_number,
+        mandate_amount=mandate_amount,
+        mandate_used_pct=mandate_used_pct,
+        escrow_interest_earned=escrow_interest_earned,
+        compliance_status=compliance_status,
         spend_by_category=spend_by_category,
         transactions=transactions,
+        upcoming_disbursements=upcoming_disbursements,
+        monthly_burn=monthly_burn,
+        alerts=alerts,
     )
 
 # ── Kia Inline Strategy ───────────────────────────────────────────────────────
