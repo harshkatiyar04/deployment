@@ -10,13 +10,29 @@ export const usePersona = () => {
   return context
 }
 
+const getDefaultSubtype = (type) => {
+  const defaults = {
+    student: 'university',
+    sponsor: 'individual',
+    supplier: 'service',
+    admin: null
+  }
+  return defaults[type] || null
+}
+
 export const PersonaProvider = ({ children }) => {
-  const [activePersona, setActivePersona] = useState({
-    type: 'sponsor', // 'student', 'sponsor', 'supplier', 'admin'
-    subtype: 'individual', // For sponsors: 'corporate', 'individual', 'ngo'
-    // For students: 'primary', 'secondary', 'university'
-    // For suppliers: 'service', 'product'
-  })
+  const [activePersona, setActivePersona] = useState(() => {
+    const isAdminSession = sessionStorage.getItem('isAdmin') === 'true';
+    const savedPersona = sessionStorage.getItem('zenk_persona');
+    
+    if (isAdminSession) return { type: 'admin', subtype: null };
+    if (savedPersona) return { type: savedPersona, subtype: getDefaultSubtype(savedPersona) };
+    
+    return {
+      type: 'sponsor',
+      subtype: 'individual',
+    };
+  });
 
   const switchPersona = (type, subtype = null) => {
     setActivePersona({
@@ -25,15 +41,6 @@ export const PersonaProvider = ({ children }) => {
     })
   }
 
-  const getDefaultSubtype = (type) => {
-    const defaults = {
-      student: 'university',
-      sponsor: 'individual',
-      supplier: 'service',
-      admin: null
-    }
-    return defaults[type] || null
-  }
 
   const getPersonaLabel = () => {
     const { type, subtype } = activePersona

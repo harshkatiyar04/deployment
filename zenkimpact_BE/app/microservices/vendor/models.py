@@ -286,3 +286,41 @@ class VendorPromotion(Base):
     )
     
     vendor = relationship("SignupRequest")
+
+
+# ── Cart Item ───────────────────────────────────────────────────────────────
+
+class CartItem(Base):
+    """An item in a user's shopping cart."""
+
+    __tablename__ = "cart_items"
+    __table_args__ = (
+        Index("ix_cart_items_user_id", "user_id"),
+        {"schema": "ZENK"},
+    )
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4())
+    )
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    product_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.vendor_products.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    
+    quantity: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    cart_type: Mapped[str] = mapped_column(String(20), nullable=False, default="personal") # 'personal' or 'student'
+    comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False
+    )
+
+    # Relationships
+    product = relationship("VendorProduct")
+    user = relationship("SignupRequest", foreign_keys=[user_id])

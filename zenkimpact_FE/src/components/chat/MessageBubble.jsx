@@ -82,8 +82,23 @@ export default function MessageBubble({ message, userPersona }) {
                     const kiaKeyword = "Kia suggests:"
                     const lowerText = text.toLowerCase()
                     const lowerKeyword = kiaKeyword.toLowerCase()
+                    const isKia = message.persona_nickname === 'Kia'
+
+                    const parseMessageText = (txt) => {
+                      if (!txt) return null;
+                      const tokenRegex = /(\*\*.*?\*\*|@\w+)/g;
+                      return txt.split(tokenRegex).map((part, i) => {
+                        if (part.startsWith('**') && part.endsWith('**')) {
+                          return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+                        }
+                        if (part.startsWith('@')) {
+                          return <strong key={i} className={isKia ? "text-[#059669] font-bold" : "text-blue-600 font-bold"}>{part}</strong>;
+                        }
+                        return part;
+                      });
+                    };
                     
-                    if (message.persona_nickname === 'Kia' && lowerText.includes(lowerKeyword)) {
+                    if (isKia && lowerText.includes(lowerKeyword)) {
                       const parts = text.split(new RegExp(kiaKeyword, 'i'))
                       const mainText = parts[0].trim()
                       const suggestion = parts.slice(1).join(kiaKeyword).trim()
@@ -92,23 +107,19 @@ export default function MessageBubble({ message, userPersona }) {
                         <div className="flex flex-col gap-1.5">
                           {mainText && (
                             <span className="opacity-95">
-                              {mainText.split(/(@\w+)/g).map((part, i) => 
-                                part.startsWith('@') ? <strong key={i} className="text-[#059669] font-bold">{part}</strong> : part
-                              )}
+                              {parseMessageText(mainText)}
                             </span>
                           )}
                           <div className="pl-2 border-l-2 border-emerald-400 py-0.5 my-0.5 text-[#15803D] italic bg-emerald-50/50 rounded-r">
                             <span className="text-[11px] font-bold uppercase tracking-tight block not-italic opacity-70 mb-0.5">Kia Suggestion:</span>
-                            {suggestion}
+                            {parseMessageText(suggestion)}
                           </div>
                         </div>
                       )
                     }
                     
-                    // Normal text mention highlighting
-                    return text.split(/(@\w+)/g).map((part, i) => 
-                      part.startsWith('@') ? <strong key={i} className="text-blue-600 font-bold">{part}</strong> : part
-                    )
+                    // Normal text mention & markdown highlighting
+                    return parseMessageText(text);
                   })()}
                 </div>
               )}

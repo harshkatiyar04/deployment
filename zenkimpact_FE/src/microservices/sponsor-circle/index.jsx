@@ -15,9 +15,10 @@ import SCSponsorProfile from './components/SCSponsorProfile'
 import SCImpactLeague from './components/SCImpactLeague'
 import SCSettings from './components/SCSettings'
 import EducationalMarketplace from '../shared/EducationalMarketplace'
+import VendorDashboardView from '../shared/VendorDashboardView'
 import { Bars3Icon } from '@heroicons/react/24/outline'
 
-const TABS = ['My Profile', 'My Circle', 'Marketplace', 'Impact League', 'Statement', 'Chat & Kia']
+const TABS = ['My Profile', 'My Circle', 'Marketplace', 'Circle Orders', 'Impact League', 'Statement', 'Chat & Kia']
 
 export default function SponsorCircleDashboard() {
   const [activeTab, setActiveTab] = useState('My Profile')
@@ -45,7 +46,7 @@ export default function SponsorCircleDashboard() {
 
       <SCLeftNav activeTab={activeTab} setActiveTab={setActiveTab} isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
-      <main className={`sc-main${(activeTab === 'Chat & Kia' || activeTab === 'Marketplace') ? ' sc-main-chat' : ''}`}>
+      <main className={`sc-main${(activeTab === 'Chat & Kia' || activeTab === 'Marketplace' || activeTab === 'Circle Orders') ? ' sc-main-chat' : ''}`}>
         <div className="sc-tabs">
           {TABS.map((tab) => (
             <button
@@ -90,6 +91,12 @@ export default function SponsorCircleDashboard() {
           </div>
         )}
 
+        {activeTab === 'Circle Orders' && (
+          <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <VendorDashboardView />
+          </div>
+        )}
+
         {activeTab === 'Chat & Kia' && (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <SCChatMainView circleId="481eba8f-778d-4618-8f9e-6e6b263d89a0" userRole="sponsor" />
@@ -110,7 +117,7 @@ export default function SponsorCircleDashboard() {
         )}
       </main>
 
-      {!['Chat & Kia', 'My Profile', 'Settings', 'Marketplace'].includes(activeTab) && <SCKiaPanel />}
+      {!['Chat & Kia', 'My Profile', 'Settings', 'Marketplace', 'Circle Orders'].includes(activeTab) && <SCKiaPanel />}
     </div>
   )
 }

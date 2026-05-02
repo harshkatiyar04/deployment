@@ -1,0 +1,209 @@
+/* ── Enhanced CSR Dashboard Styles (Light Theme) ────────────────────────── */
+.csr-grid {
+  display: grid;
+  gap: 24px;
+}
+.csr-grid-top {
+  grid-template-columns: 1fr;
+}
+@media(min-width: 1024px) {
+  .csr-grid-top { grid-template-columns: 3fr 1fr; }
+}
+
+.csr-card {
+  background: #ffffff;
+  border: 1px solid #e8e8e4;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02);
+  position: relative;
+  overflow: hidden;
+}
+
+.csr-stat-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.csr-stat-box {
+  background: #f8f9fa;
+  padding: 16px 12px;
+  border-radius: 8px;
+  border: 1px solid #e8e8e4;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.csr-stat-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #6c757d;
+  letter-spacing: 0px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.csr-stat-value {
+  font-size: 22px;
+  font-weight: bold;
+  color: #1a1a1a;
+  white-space: nowrap;
+  letter-spacing: -0.5px;
+}
+
+.csr-alert-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff3cd;
+  border: 1px solid #ffeeba;
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  color: #856404;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.csr-mandate-track {
+  width: 100%;
+  height: 8px;
+  background: #e9ecef;
+  border-radius: 4px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+.csr-mandate-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4A72F5, #0CBEAA);
+  border-radius: 4px;
+  transition: width 1s ease-in-out;
+}
+
+.csr-charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 24px;
+  margin-top: 24px;
+}
+@media(min-width: 1024px) {
+  .csr-charts-grid { grid-template-columns: 1fr 2fr; }
+}
+
+.csr-table-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.csr-search-input {
+  background: #fff;
+  border: 1px solid #dcdcdc;
+  color: #333;
+  padding: 8px 16px;
+  border-radius: 8px;
+  width: 250px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.csr-search-input:focus {
+  border-color: #4A72F5;
+  box-shadow: 0 0 0 3px rgba(74, 114, 245, 0.1);
+}
+
+.csr-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.csr-table th {
+  text-align: left;
+  padding: 12px 16px;
+  color: #6c757d;
+  font-weight: 600;
+  font-size: 13px;
+  border-bottom: 1px solid #e8e8e4;
+  text-transform: uppercase;
+}
+.csr-table td {
+  padding: 16px;
+  color: #333;
+  font-size: 14px;
+  border-bottom: 1px solid #f4f4f0;
+}
+.csr-table tr:hover td {
+  background: #fdfdfd;
+}
+
+.csr-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.csr-badge.credit { background: #e6f8f6; color: #0CBEAA; }
+.csr-badge.debit { background: #fce8e8; color: #F54A4A; }
+.csr-badge.interest { background: #fff8e6; color: #F0A500; }
+
+.csr-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+.csr-page-btn {
+  background: #fff;
+  border: 1px solid #dcdcdc;
+  color: #333;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-weight: 500;
+}
+.csr-page-btn:hover:not(:disabled) {
+  background: #f0f4ff;
+  border-color: #4A72F5;
+  color: #4A72F5;
+}
+.csr-page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: #f8f9fa;
+}
+.csr-page-btn.active {
+  background: #4A72F5;
+  border-color: #4A72F5;
+  color: #fff;
+}
+
+.csr-btn-primary {
+  background: linear-gradient(135deg, #4A72F5 0%, #2A52D5 100%);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.csr-btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(74, 114, 245, 0.3);
+}
+
+.csr-btn-secondary {
+  background: #fff;
+  color: #4A72F5;
+  border: 1px solid #4A72F5;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.csr-btn-secondary:hover {
+  background: #f0f4ff;
+}

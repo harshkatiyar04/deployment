@@ -1,4 +1,5 @@
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.base import Base
 from app.db.config import db_settings
@@ -64,5 +65,11 @@ async def init_db() -> None:
         await conn.execute(text(function_sql))
         await conn.execute(text(drop_trigger_sql))
         await conn.execute(text(create_trigger_sql))
+
+    # Run enum migrations (must be outside the transaction above)
+    from app.db.migrations.migration_004_add_corporate_persona import run_migration as migration_004
+    from app.db.session import SessionLocal
+    async with SessionLocal() as session:
+        await migration_004(session)
 
 

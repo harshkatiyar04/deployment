@@ -65,12 +65,20 @@ function Sidebar({ isOpen, onClose }) {
     { path: '/chat-demo', icon: ChatBubbleLeftRightIcon, label: 'Chat Demo' }
   ]
 
-  // Admin Navigation Items
+  // Admin Navigation Items (Super Admin - See Everything)
   const adminNavItems = [
     { path: '/dashboard/home', icon: HomeIcon, label: 'Home' },
     { path: '/dashboard', icon: SparklesIcon, label: 'Dashboard' },
+    { path: '/sponsor-circle', icon: RectangleGroupIcon, label: 'Circle Dashboard' },
+    { path: '/sponsor-leader', icon: ShieldCheckIcon, label: 'Leader Dashboard' },
     { path: '/dashboard/users', icon: UsersIcon, label: 'Users' },
-    { path: '/dashboard/circles', icon: UserGroupIcon, label: 'Circles' },
+    { path: '/dashboard/circles', icon: UserGroupIcon, label: 'Sponsor Circles' },
+    { path: '/dashboard/impact-league', icon: TrophyIcon, label: 'Impact League' },
+    { path: '/dashboard/contributions', icon: CurrencyDollarIcon, label: 'Contributions' },
+    { path: '/dashboard/mentoring', icon: ChatBubbleLeftRightIcon, label: 'Mentoring' },
+    { path: '/dashboard/marketplace', icon: ShoppingBagIcon, label: 'Marketplace' },
+    { path: '/dashboard/vendor-dashboard', icon: BuildingStorefrontIcon, label: 'Vendor Dashboard' },
+    { path: '/dashboard/vendor-portal', icon: BuildingStorefrontIcon, label: 'Vendor Portal' },
     { path: '/dashboard/suppliers', icon: BuildingStorefrontIcon, label: 'Suppliers' },
     { path: '/dashboard/safety', icon: ShieldCheckIcon, label: 'Safety' },
     { path: '/dashboard/financial', icon: CurrencyDollarIcon, label: 'Financial' },

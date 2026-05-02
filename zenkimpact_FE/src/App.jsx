@@ -8,6 +8,7 @@ import Home from './pages/Home'
 import SponsorCircleDashboard from './microservices/sponsor-circle/index'
 import SponsorLeaderDashboard from './microservices/sponsor-leader/index'
 import VendorPortal from './microservices/vendor/index'
+import CorporateDashboard from './microservices/corporate/index'
 
 // Student Pages
 import Resources from './pages/Resources'
@@ -93,6 +94,9 @@ function App() {
 
             {/* Sponsor Leader Dashboard */}
             <Route path="/sponsor-leader" element={<SponsorLeaderDashboard />} />
+
+            {/* Corporate CSR Dashboard */}
+            <Route path="/corporate-dashboard" element={<CorporateDashboard />} />
             </Routes>
           </Router>
         </CartProvider>

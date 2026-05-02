@@ -251,3 +251,23 @@ class NotificationOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+    
+
+# ── Cart Schemas ─────────────────────────────────────────────────────────────
+
+class CartItemCreate(BaseModel):
+    product_id: str
+    quantity: int = Field(1, ge=1)
+    cart_type: str = Field("personal", pattern="^(personal|student)$")
+    comment: Optional[str] = None
+
+class CartItemOut(BaseModel):
+    id: str
+    product_id: str
+    product: ProductOut
+    quantity: int
+    cart_type: str
+    comment: Optional[str] = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}

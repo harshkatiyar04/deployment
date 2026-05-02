@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import apiClient from '../../utils/apiClient';
 import {
   ShoppingBagIcon,
@@ -52,12 +52,57 @@ export default function VendorDashboardView() {
     }
   };
   
+  const [liveOrders, setLiveOrders] = useState([]);
+  const [liveRequests, setLiveRequests] = useState([]);
+  const [liveKPIs, setLiveKPIs] = useState({
+    totalOrders: 0,
+    circleSpent: 0,
+    personalSpent: 0,
+    pendingRequests: 0,
+    circleBalance: 45000 // Example mock balance
+  });
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [ordersRes, reqsRes] = await Promise.all([
+          apiClient.get('/vendor/my-orders'),
+          apiClient.get('/vendor/requests')
+        ]);
+        const orders = ordersRes || [];
+        const requests = reqsRes || [];
+        
+        setLiveOrders(orders);
+        setLiveRequests(requests);
+        
+        const circleSpent = orders.filter(o => o.order_type === 'student').reduce((sum, order) => sum + (order.total_amount || 0), 0);
+        const personalSpent = orders.filter(o => o.order_type === 'personal').reduce((sum, order) => sum + (order.total_amount || 0), 0);
+        const pendingReqsCount = requests.filter(r => r.status === 'pending').length;
+        
+        setLiveKPIs(prev => ({
+          ...prev,
+          totalOrders: orders.length,
+          circleSpent,
+          personalSpent,
+          pendingRequests: pendingReqsCount
+        }));
+      } catch (err) {
+        console.error('Failed to fetch dashboard data:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
   const kpiCards = [
-    { title: 'Total Orders', value: '142', icon: ShoppingBagIcon, color: 'blue', change: '+12%' },
-    { title: 'Revenue (CSR Fund)', value: '₹45,200', icon: CurrencyDollarIcon, color: 'green', change: '+8%' },
-    { title: 'Active Products', value: '18', icon: BuildingStorefrontIcon, color: 'purple' },
-    { title: 'ZenK Rating', value: '4.7', icon: ChartBarIcon, color: 'yellow' }
+    { title: 'Total Orders', value: liveKPIs.totalOrders.toString(), icon: ShoppingBagIcon, color: 'blue' },
+    { title: 'Circle Spent', value: `₹${liveKPIs.circleSpent.toLocaleString()}`, icon: CurrencyDollarIcon, color: 'emerald' },
+    { title: 'Personal Spent', value: `₹${liveKPIs.personalSpent.toLocaleString()}`, icon: CurrencyDollarIcon, color: 'orange' },
+    { title: 'Pending Requests', value: liveKPIs.pendingRequests.toString(), icon: BuildingStorefrontIcon, color: 'purple' },
   ];
+
 
   return (
     <div className="flex flex-col min-h-0 bg-[#f8fafc] overflow-y-auto w-full">
@@ -67,12 +112,9 @@ export default function VendorDashboardView() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
           <div>
             <div className="flex items-center gap-3 mb-1">
-              <h1 className="text-2xl font-bold text-gray-900">Vendor Management</h1>
-              <span className="flex items-center gap-1 text-xs uppercase tracking-wider font-bold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200">
-                <CheckBadgeIcon className="w-4 h-4" /> ZenK Verified Vendor
-              </span>
+              <h1 className="text-2xl font-bold text-gray-900">Circle Orders & Requests</h1>
             </div>
-            <p className="text-gray-600">Manage your educational marketplace products and circle orders.</p>
+            <p className="text-gray-600">Manage your circle's educational marketplace purchases and product requests.</p>
           </div>
           <div className="flex gap-3">
             <button 
@@ -80,12 +122,6 @@ export default function VendorDashboardView() {
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-colors flex items-center justify-center"
             >
               Request Custom Product
-            </button>
-            <button 
-              onClick={() => setActiveModal({ title: 'Add New Product', content: 'The product listing wizard will open here to guide you through adding educational items.' })}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 rounded-lg font-bold text-sm shadow-sm transition-colors flex items-center justify-center gap-2"
-            >
-              Add New Product
             </button>
           </div>
         </div>
@@ -108,98 +144,218 @@ export default function VendorDashboardView() {
                     <Icon className="w-5 h-5" />
                   </div>
                 </div>
-                <p className="text-2xl font-bold text-gray-900 mb-1">{card.value}</p>
+                <p className="text-2xl font-bold text-gray-900 mb-1">{isLoading ? '...' : card.value}</p>
                 {card.change && <p className="text-xs font-medium text-emerald-600">{card.change} from last month</p>}
               </div>
             );
           })}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Recent Orders */}
-          <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="text-lg font-bold text-gray-900">Recent Orders</h2>
-              <button onClick={() => setActiveModal({ title: 'All Orders', content: 'Full historical order database view goes here, with filtering and exports.' })} className="text-sm font-bold text-emerald-600 hover:text-emerald-700">View All</button>
-            </div>
-            <div className="divide-y divide-gray-100">
-              {mockOrders.map(order => (
-                <div key={order.id} className="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4 hover:bg-gray-50 transition-colors">
-                  <div>
-                    <div className="flex items-center gap-3 mb-1">
-                      <span className="font-mono text-sm font-bold text-gray-500">{order.id}</span>
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${order.status === 'Processing' ? 'bg-orange-100 text-orange-700' : order.status === 'Shipped' ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                        {order.status}
-                      </span>
-                    </div>
-                    <p className="font-bold text-gray-900 text-sm mb-1">{order.item}</p>
-                    <p className="text-xs text-gray-500">{order.buyer} • {order.date}</p>
-                  </div>
-                  <div className="flex items-center justify-between sm:flex-col sm:items-end gap-2">
-                    <p className="font-bold text-lg text-gray-900">{order.amount}</p>
-                    <button 
-                      onClick={() => setActiveModal({ title: `Order ${order.id}`, content: `Order management view for ${order.item}. You can update tracking info or contact the buyer here.` })}
-                      className="text-xs font-bold text-gray-600 border border-gray-200 bg-white hover:bg-gray-50 px-3 py-1.5 rounded-lg shadow-sm"
-                    >
-                      Manage order
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
+         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+           
+           {/* Recent Circle Orders */}
+           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-emerald-50/30">
+               <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                 <h2 className="text-sm font-bold text-gray-900 uppercase tracking-tight">Recent Circle Orders</h2>
+               </div>
+               <button 
+                 onClick={() => {
+                   const orders = liveOrders.filter(o => o.order_type === 'student');
+                   const modalContent = orders.length === 0 ? 
+                     <p>No circle order history found.</p> : 
+                     <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                       {orders.map(order => (
+                         <div key={order.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                           <div className="flex justify-between items-start mb-2">
+                             <div>
+                               <span className="font-mono text-xs font-bold text-gray-500 mr-2">#{order.id.substring(0, 8).toUpperCase()}</span>
+                               <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${order.status === 'processing' ? 'bg-orange-100 text-orange-700' : order.status === 'shipped' ? 'bg-blue-100 text-blue-700' : order.status === 'delivered' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'}`}>
+                                 {order.status}
+                               </span>
+                             </div>
+                             <span className="font-bold text-gray-900">₹{order.total_amount}</span>
+                           </div>
+                           <p className="text-sm font-bold text-gray-800">{order.product_name || 'Educational Item'}</p>
+                           <p className="text-xs text-gray-500 mt-1">{new Date(order.created_at).toLocaleDateString()} • {order.buyer_name}</p>
+                         </div>
+                       ))}
+                     </div>;
+                   setActiveModal({ title: 'Circle Order History', content: modalContent });
+                 }} 
+                 className="text-[11px] font-bold text-emerald-600 hover:text-emerald-700 uppercase"
+               >
+                 View All
+               </button>
+             </div>
+             <div className="divide-y divide-gray-100">
+               {isLoading ? (
+                 <div className="p-8 text-center text-gray-500 text-xs">Loading orders...</div>
+               ) : liveOrders.filter(o => o.order_type === 'student').length === 0 ? (
+                 <div className="p-8 text-center text-gray-400 text-xs italic">No circle orders yet.</div>
+               ) : (
+                 liveOrders.filter(o => o.order_type === 'student').slice(0, 4).map(order => (
+                   <div key={order.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                     <div className="min-w-0">
+                       <p className="font-bold text-gray-900 text-xs truncate mb-0.5">{order.product_name || 'Educational Item'}</p>
+                       <p className="text-[10px] text-gray-500 truncate">{order.buyer_name} • {new Date(order.created_at).toLocaleDateString()}</p>
+                     </div>
+                     <div className="flex flex-col items-end shrink-0 ml-2">
+                       <p className="font-bold text-sm text-gray-900">₹{order.total_amount}</p>
+                       <span className={`text-[9px] font-bold uppercase tracking-tighter ${order.status === 'delivered' ? 'text-emerald-600' : 'text-orange-500'}`}>{order.status}</span>
+                     </div>
+                   </div>
+                 ))
+               )}
+             </div>
+           </div>
 
-          {/* Quick Actions & Status */}
-          <div className="space-y-6">
-            <div className="bg-emerald-600 rounded-xl shadow-sm p-6 text-white relative overflow-hidden">
-               <div className="absolute -right-6 -top-6 text-emerald-500 opacity-30">
-                 <TruckIcon className="w-32 h-32" />
+           {/* Recent Personal Purchases */}
+           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-orange-50/30">
+               <div className="flex items-center gap-2">
+                 <div className="w-2 h-2 rounded-full bg-orange-500"></div>
+                 <h2 className="text-sm font-bold text-gray-900 uppercase tracking-tight">Recent Personal Purchases</h2>
+               </div>
+               <button 
+                 onClick={() => {
+                   const orders = liveOrders.filter(o => o.order_type === 'personal');
+                   const modalContent = orders.length === 0 ? 
+                     <p>No personal purchase history found.</p> : 
+                     <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                       {orders.map(order => (
+                         <div key={order.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                           <div className="flex justify-between items-start mb-2">
+                             <div>
+                               <span className="font-mono text-xs font-bold text-gray-500 mr-2">#{order.id.substring(0, 8).toUpperCase()}</span>
+                               <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${order.status === 'processing' ? 'bg-orange-100 text-orange-700' : order.status === 'shipped' ? 'bg-blue-100 text-blue-700' : order.status === 'delivered' ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-700'}`}>
+                                 {order.status}
+                               </span>
+                             </div>
+                             <span className="font-bold text-gray-900">₹{order.total_amount}</span>
+                           </div>
+                           <p className="text-sm font-bold text-gray-800">{order.product_name || 'Educational Item'}</p>
+                           <p className="text-xs text-gray-500 mt-1">{new Date(order.created_at).toLocaleDateString()} • {order.buyer_name}</p>
+                         </div>
+                       ))}
+                     </div>;
+                   setActiveModal({ title: 'Personal Purchase History', content: modalContent });
+                 }} 
+                 className="text-[11px] font-bold text-orange-600 hover:text-orange-700 uppercase"
+               >
+                 View All
+               </button>
+             </div>
+             <div className="divide-y divide-gray-100">
+               {isLoading ? (
+                 <div className="p-8 text-center text-gray-500 text-xs">Loading orders...</div>
+               ) : liveOrders.filter(o => o.order_type === 'personal').length === 0 ? (
+                 <div className="p-8 text-center text-gray-400 text-xs italic">No personal purchases yet.</div>
+               ) : (
+                 liveOrders.filter(o => o.order_type === 'personal').slice(0, 4).map(order => (
+                   <div key={order.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                     <div className="min-w-0">
+                       <p className="font-bold text-gray-900 text-xs truncate mb-0.5">{order.product_name || 'Educational Item'}</p>
+                       <p className="text-[10px] text-gray-500 truncate">{order.buyer_name} • {new Date(order.created_at).toLocaleDateString()}</p>
+                     </div>
+                     <div className="flex flex-col items-end shrink-0 ml-2">
+                       <p className="font-bold text-sm text-gray-900">₹{order.total_amount}</p>
+                       <span className={`text-[9px] font-bold uppercase tracking-tighter ${order.status === 'delivered' ? 'text-emerald-600' : 'text-orange-500'}`}>{order.status}</span>
+                     </div>
+                   </div>
+                 ))
+               )}
+             </div>
+           </div>
+         </div>
+
+         {/* Third row for Requests and Status */}
+         <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="bg-blue-600 rounded-xl shadow-sm p-6 text-white relative overflow-hidden">
+               <div className="absolute -right-6 -top-6 text-blue-500 opacity-30">
+                 <BuildingStorefrontIcon className="w-32 h-32" />
                </div>
                <div className="relative z-10">
-                 <h3 className="text-lg font-bold mb-2">Fast Delivery Promise</h3>
-                 <p className="text-emerald-50 text-sm leading-relaxed mb-4">You have maintained a 98% on-time delivery rate. Keep it up to retain your "Fast delivery" profile badge.</p>
+                 <h3 className="text-lg font-bold mb-2">Recent Custom Requests</h3>
+                 <div className="space-y-3 mb-4">
+                   {isLoading ? (
+                     <p className="text-blue-100 text-sm">Loading requests...</p>
+                   ) : liveRequests.length === 0 ? (
+                     <p className="text-blue-50 text-sm leading-relaxed">You have 0 pending custom product requests. Vendors usually respond within 24 hours.</p>
+                   ) : (
+                     liveRequests.slice(0, 3).map(req => (
+                       <div key={req.id} className="flex items-center justify-between bg-blue-700/50 rounded-lg p-2.5">
+                         <div>
+                           <p className="text-white font-bold text-sm truncate max-w-[150px]">{req.title}</p>
+                           <p className="text-blue-200 text-xs">{new Date(req.created_at).toLocaleDateString()}</p>
+                         </div>
+                         <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
+                           {req.status}
+                         </span>
+                       </div>
+                     ))
+                   )}
+                 </div>
                  <button 
-                   onClick={() => setActiveModal({ title: 'Performance Metrics', content: 'Detailed breakdown of delivery times, cancellations, and SLA tracking.' })}
-                   className="bg-white text-emerald-700 text-sm font-bold px-4 py-2 rounded-lg shadow-sm hover:bg-emerald-50 transition-colors w-full"
+                   onClick={() => {
+                     const modalContent = liveRequests.length === 0 ? 
+                       <p>No request history found.</p> : 
+                       <div className="space-y-3 max-h-96 overflow-y-auto pr-2">
+                         {liveRequests.map(req => (
+                           <div key={req.id} className="bg-white border border-gray-200 rounded-lg p-3 shadow-sm">
+                             <div className="flex justify-between items-start mb-2">
+                               <h4 className="font-bold text-gray-900">{req.title}</h4>
+                               <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${req.status === 'pending' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                                 {req.status}
+                               </span>
+                             </div>
+                             <p className="text-xs text-gray-600 mb-1"><strong>Category:</strong> {req.category} | <strong>Qty:</strong> {req.quantity_needed}</p>
+                             <p className="text-xs text-gray-500 italic">Submitted on {new Date(req.created_at).toLocaleDateString()}</p>
+                           </div>
+                         ))}
+                       </div>;
+                     
+                     setActiveModal({ title: 'Request History', content: modalContent });
+                   }}
+                   className="bg-white text-blue-700 text-sm font-bold px-4 py-2 rounded-lg shadow-sm hover:bg-blue-50 transition-colors w-full"
                  >
-                   Review Shipping Metrics
+                   View All Requests
                  </button>
                </div>
             </div>
 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-              <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wider">Inventory Alerts</h3>
+              <h3 className="text-sm font-bold text-gray-900 mb-4 uppercase tracking-wider">Circle Notifications</h3>
               
               <div className="space-y-4">
                 <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-red-500 mt-1.5 flex-shrink-0"></div>
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 mt-1.5 flex-shrink-0"></div>
                   <div>
-                    <p className="text-sm font-bold text-gray-900 mb-0.5">School Bag, 15L</p>
-                    <p className="text-xs text-gray-500">Out of stock. 3 students have this in their wishlist.</p>
+                    <p className="text-sm font-bold text-gray-900 mb-0.5">Order Delivered</p>
+                    <p className="text-xs text-gray-500">Premium Stationery Pack has been delivered to Ashoka Rising circle.</p>
                   </div>
                 </div>
                 
                 <div className="flex items-start gap-3">
-                  <div className="w-2 h-2 rounded-full bg-orange-400 mt-1.5 flex-shrink-0"></div>
+                  <div className="w-2 h-2 rounded-full bg-blue-400 mt-1.5 flex-shrink-0"></div>
                   <div>
-                    <p className="text-sm font-bold text-gray-900 mb-0.5">Class 9 Science</p>
-                    <p className="text-xs text-gray-500">Low stock (4 remaining). High demand expected this week.</p>
+                    <p className="text-sm font-bold text-gray-900 mb-0.5">Monthly Fund Renewed</p>
+                    <p className="text-xs text-gray-500">Your CSR fund allocation for May has been credited.</p>
                   </div>
                 </div>
               </div>
               
               <button 
-                onClick={() => setActiveModal({ title: 'Inventory Sync', content: 'Inventory sync initiated. Pulling latest numbers from your connected ERP...' })}
-                className="mt-5 text-sm font-bold text-emerald-600 hover:text-emerald-700 w-full text-center border border-emerald-100 bg-emerald-50 py-2 rounded-lg transition-colors"
+                onClick={() => setActiveModal({ title: 'All Notifications', content: 'Full notification inbox goes here.' })}
+                className="mt-5 text-sm font-bold text-blue-600 hover:text-blue-700 w-full text-center border border-blue-100 bg-blue-50 py-2 rounded-lg transition-colors"
               >
-                Update Inventory
+                View All Notifications
               </button>
             </div>
           </div>
 
-        </div>
-      </div>
+
 
       {activeModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/50 backdrop-blur-sm shadow-2xl transition-opacity animate-in fade-in">
@@ -312,6 +468,7 @@ export default function VendorDashboardView() {
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 }

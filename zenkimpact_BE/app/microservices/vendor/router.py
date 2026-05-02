@@ -11,7 +11,10 @@ from fastapi.responses import StreamingResponse
 import csv
 import io
 from sqlalchemy import func, select, and_, extract
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.services.kia import generate_kia_response
+from app.services.kia_context import fetch_user_context
 
 from app.core.jwt_auth import get_current_user
 from app.db.session import get_db
@@ -25,6 +28,7 @@ from app.microservices.vendor.models import (
     RequestStatus,
     VendorSettings,
     VendorPromotion,
+    CartItem,
 )
 from app.microservices.vendor.schemas import (
     ProductCreate,
@@ -37,13 +41,14 @@ from app.microservices.vendor.schemas import (
     ProductRequestCreate,
     ProductRequestOut,
     ProductRequestStatusUpdate,
-    ProductRequestStatusUpdate,
     VendorStatsOut,
     VendorSettingsUpdate,
     VendorSettingsOut,
     VendorPromotionCreate,
     VendorPromotionOut,
     NotificationOut,
+    CartItemCreate,
+    CartItemOut,
 )
 
 from pydantic import BaseModel
@@ -581,6 +586,101 @@ async def list_orders(
     return out
 
 
+# ── Cart Management ──────────────────────────────────────────────────────────
+
+@router.get("/cart", response_model=list[CartItemOut])
+async def get_cart(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Retrieve all items in the user's shopping cart."""
+    res = await db.execute(
+        select(CartItem)
+        .options(selectinload(CartItem.product))
+        .where(CartItem.user_id == user.id)
+        .order_by(CartItem.created_at.desc())
+    )
+    return res.scalars().all()
+
+
+@router.post("/cart", response_model=CartItemOut)
+async def add_to_cart(
+    item: CartItemCreate,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Add an item to the cart or update quantity if it already exists."""
+    # Check if item already exists in the same cart type
+    stmt = select(CartItem).options(selectinload(CartItem.product)).where(
+        CartItem.user_id == user.id,
+        CartItem.product_id == item.product_id,
+        CartItem.cart_type == item.cart_type
+    )
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+
+    if existing:
+        existing.quantity += item.quantity
+        existing.comment = item.comment or existing.comment
+        await db.commit()
+        # No need for refresh here as we already have product loaded
+        return existing
+
+    new_item = CartItem(
+        user_id=user.id,
+        product_id=item.product_id,
+        quantity=item.quantity,
+        cart_type=item.cart_type,
+        comment=item.comment
+    )
+    db.add(new_item)
+    await db.commit()
+    
+    # Reload with product relationship
+    res = await db.execute(
+        select(CartItem)
+        .options(selectinload(CartItem.product))
+        .where(CartItem.id == new_item.id)
+    )
+    return res.scalar_one()
+
+
+@router.delete("/cart/{cart_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_from_cart(
+    cart_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Remove a specific item from the cart."""
+    stmt = select(CartItem).where(CartItem.id == cart_id, CartItem.user_id == user.id)
+    res = await db.execute(stmt)
+    item = res.scalar_one_or_none()
+    
+    if not item:
+        raise HTTPException(status_code=404, detail="Cart item not found")
+
+    await db.delete(item)
+    await db.commit()
+    return None
+
+
+@router.delete("/cart", status_code=status.HTTP_204_NO_CONTENT)
+async def clear_cart_items(
+    cart_type: Optional[str] = Query(None, pattern="^(personal|student)$"),
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Clear the user's cart (optionally filtered by type)."""
+    from sqlalchemy import delete
+    stmt = delete(CartItem).where(CartItem.user_id == user.id)
+    if cart_type:
+        stmt = stmt.where(CartItem.cart_type == cart_type)
+    
+    await db.execute(stmt)
+    await db.commit()
+    return None
+
+
 @router.post("/orders/checkout", response_model=list[OrderOut], status_code=status.HTTP_201_CREATED)
 async def checkout_cart(
     body: CartCheckoutRequest,
@@ -1078,4 +1178,65 @@ async def mark_notification_read(
     await db.commit()
     await db.refresh(notif)
     return notif
+
+
+@router.get("/kia-recommendation")
+async def get_kia_marketplace_recommendation(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """
+    Generate a personalized recommendation from Kia for the marketplace.
+    """
+    print(f"FETCHING KIA RECOMMENDATION FOR USER: {user.email}")
+    
+    # Pre-set fallback in case of any error
+    fallback_recommendation = (
+        "Based on the current curriculum, I recommend looking at the Class 9 Science Exemplar "
+        "and NCERT Maths textbooks. These are foundational for Ananya's upcoming ZQA assessment."
+    )
+    
+    try:
+        # 1. Fetch user context
+        circle_id = "ashoka-rising" 
+        
+        try:
+            from app.chat.models import CircleMember
+            res = await db.execute(select(CircleMember.circle_id).where(CircleMember.user_id == str(user.id)).limit(1))
+            real_circle_id = res.scalar()
+            if real_circle_id:
+                circle_id = real_circle_id
+        except Exception:
+            pass
+
+        context = await fetch_user_context(str(user.id), circle_id, db, is_leader=True)
+        
+        # 2. Get some top products from the DB to give Kia more context
+        from app.microservices.vendor.models import VendorProduct
+        result = await db.execute(select(VendorProduct).limit(10))
+        products = result.scalars().all()
+        product_list = [f"{p.name} (Category: {p.category}, Student Price: ₹{p.student_price})" for p in products]
+        
+        # 3. Add products to context
+        context["marketplace_products"] = product_list
+        
+        # 4. Generate response
+        prompt = (
+            "Generate a single, short, proactive recommendation for the educational marketplace "
+            "based on the sponsored student's progress and the circle's budget. "
+            "Mention 1-2 specific items from the provided list or category types that would help the student right now. "
+            "Keep it under 3 sentences."
+        )
+        
+        recommendation = await generate_kia_response(
+            message_text=prompt,
+            user_context=context,
+            channel="PROACTIVE_TRIGGER"
+        )
+        
+        return {"recommendation": recommendation or fallback_recommendation}
+        
+    except Exception as e:
+        print(f"ERROR IN KIA RECOMMENDATION: {e}")
+        return {"recommendation": fallback_recommendation}
 

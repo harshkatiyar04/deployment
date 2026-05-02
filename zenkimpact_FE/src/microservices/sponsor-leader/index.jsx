@@ -22,7 +22,7 @@ import EducationalMarketplace from '../shared/EducationalMarketplace'
 import VendorDashboardView from '../shared/VendorDashboardView'
 import { Bars3Icon } from '@heroicons/react/24/outline'
 
-const TABS = ['My Profile', 'My Circle', 'Marketplace', 'Vendor Dashboard', 'Member Contributions', 'Vendor Payments', 'Impact League', 'School Comm', 'Statement', 'Chat & Kia']
+const TABS = ['My Profile', 'My Circle', 'Marketplace', 'Circle Orders', 'Member Contributions', 'Vendor Payments', 'Impact League', 'School Comm', 'Statement', 'Chat & Kia']
 
 export default function SponsorLeaderDashboard() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -52,7 +52,7 @@ export default function SponsorLeaderDashboard() {
 
       <SCLeftNav activeTab={activeTab} setActiveTab={setActiveTab} isLeader={true} isOpen={isMenuOpen} onClose={() => setIsMenuOpen(false)} />
 
-      <main className={`sc-main${(activeTab === 'Chat & Kia' || activeTab === 'School Comm' || activeTab === 'Marketplace' || activeTab === 'Vendor Dashboard') ? ' sc-main-chat' : ''}`}>
+      <main className={`sc-main${(activeTab === 'Chat & Kia' || activeTab === 'School Comm' || activeTab === 'Marketplace' || activeTab === 'Circle Orders') ? ' sc-main-chat' : ''}`}>
         <div className="sc-tabs">
           {TABS.map((tab) => (
             <button
@@ -121,7 +121,7 @@ export default function SponsorLeaderDashboard() {
           </div>
         )}
 
-        {activeTab === 'Vendor Dashboard' && (
+        {activeTab === 'Circle Orders' && (
           <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
             <VendorDashboardView />
           </div>
@@ -140,7 +140,7 @@ export default function SponsorLeaderDashboard() {
         )}
       </main>
 
-      {!['Chat & Kia', 'My Profile', 'Settings', 'School Comm', 'Marketplace', 'Vendor Dashboard'].includes(activeTab) && <SCKiaPanel />}
+      {!['Chat & Kia', 'My Profile', 'Settings', 'School Comm', 'Marketplace', 'Circle Orders'].includes(activeTab) && <SCKiaPanel />}
     </div>
   )
 }

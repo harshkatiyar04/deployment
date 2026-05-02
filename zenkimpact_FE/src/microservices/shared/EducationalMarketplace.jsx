@@ -40,6 +40,8 @@ export default function EducationalMarketplace({ isLeader = false }) {
   const [modalProduct, setModalProduct] = useState(null);
   const [purchaseType, setPurchaseType] = useState('student');
   const [commentText, setCommentText] = useState('');
+  const [sortBy, setSortBy] = useState('Recommended');
+  const [kiaRecommendation, setKiaRecommendation] = useState('');
 
 
   // Checkout State
@@ -154,10 +156,27 @@ export default function EducationalMarketplace({ isLeader = false }) {
     }, 2000);
   };
 
-  const handleBuyClick = (product, type) => {
+  useEffect(() => {
+    const fetchKiaRecommendation = async () => {
+      try {
+        const response = await apiClient.get('/vendor/kia-recommendation');
+        if (response.data && response.data.recommendation) {
+          setKiaRecommendation(response.data.recommendation);
+        } else {
+          setKiaRecommendation("Kia is currently analyzing your student's needs. Please check back in a moment.");
+        }
+      } catch (err) {
+        console.error('Failed to fetch Kia recommendation:', err);
+        setKiaRecommendation("Kia's smart recommendations are temporarily unavailable. Focus on the high-priority items listed below.");
+      }
+    };
+    fetchKiaRecommendation();
+  }, []);
+
+  const handleBuyClick = async (product, purchaseType = 'student', comment = '') => {
     setModalProduct(product);
-    setPurchaseType(type);
-    setCommentText('');
+    setPurchaseType(purchaseType);
+    setCommentText(comment);
     setShowAddModal(true);
   };
 
@@ -177,6 +196,18 @@ export default function EducationalMarketplace({ isLeader = false }) {
     if (searchTerm && !p.name.toLowerCase().includes(searchTerm.toLowerCase())) return false;
     if (filters.inStock && p.outOfStock) return false;
     return true;
+  }).sort((a, b) => {
+    if (sortBy === 'Price: Low to High') {
+      const priceA = a.studentPrice || a.memberPrice;
+      const priceB = b.studentPrice || b.memberPrice;
+      return priceA - priceB;
+    }
+    if (sortBy === 'Price: High to Low') {
+      const priceA = a.studentPrice || a.memberPrice;
+      const priceB = b.studentPrice || b.memberPrice;
+      return priceB - priceA;
+    }
+    return 0; // 'Recommended' - default order
   });
 
   return (
@@ -372,7 +403,7 @@ export default function EducationalMarketplace({ isLeader = false }) {
              <div className="absolute left-0 top-0 bottom-0 w-1 bg-emerald-500"></div>
              <div className="w-6 h-6 rounded-md bg-emerald-600 text-white flex items-center justify-center font-bold text-xs flex-shrink-0 mt-0.5">K</div>
              <p className="text-sm text-emerald-900 leading-relaxed">
-               <span className="font-bold">Kia recommends for Ananya D. (Class 9):</span> Based on the upcoming ZQA assessment in April, the Class 9 Science Exemplar and NCERT Maths textbooks are high priority. The study table and lamp would improve her study environment at home — eligible for student purchase from the circle fund.
+               <span className="font-bold">Kia recommends for Ananya D. (Class 9):</span> {kiaRecommendation || 'Loading smart recommendation...'}
              </p>
           </div>
 
@@ -380,7 +411,11 @@ export default function EducationalMarketplace({ isLeader = false }) {
             <p className="text-sm text-gray-500 font-medium">Showing <span className="font-bold text-gray-900">{filteredProducts.length}</span> items</p>
             <div className="flex items-center gap-2">
               <label className="text-xs font-bold text-gray-400 uppercase">Sort:</label>
-              <select className="text-sm font-medium bg-white border border-gray-200 rounded-lg py-1.5 px-3 focus:outline-none focus:border-emerald-500 shadow-sm cursor-pointer">
+              <select 
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="text-sm font-medium bg-white border border-gray-200 rounded-lg py-1.5 px-3 focus:outline-none focus:border-emerald-500 shadow-sm cursor-pointer"
+              >
                 <option>Recommended</option>
                 <option>Price: Low to High</option>
                 <option>Price: High to Low</option>
@@ -671,6 +706,12 @@ export default function EducationalMarketplace({ isLeader = false }) {
                   {checkoutError && (
                     <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm font-bold border border-red-200">
                       {checkoutError}
+                    </div>
+                  )}
+                  {sessionStorage.getItem('isAdmin') === 'true' && !sessionStorage.getItem('zenk_token') && (
+                    <div className="bg-amber-50 text-amber-700 p-3 rounded-lg text-xs font-bold border border-amber-200 flex items-center gap-2">
+                      <SparklesIcon className="w-5 h-5" />
+                      <span>Note: You are in Admin Demo Mode. Checkout requires a real account token. Please login with a registered email to test full payment flow.</span>
                     </div>
                   )}
                   <div>

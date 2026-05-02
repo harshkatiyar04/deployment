@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react';
+import apiClient from '../utils/apiClient';
 
 const CartContext = createContext();
 
@@ -13,53 +14,85 @@ export const useCart = () => {
 export const CartProvider = ({ children }) => {
   const [studentCart, setStudentCart] = useState([]);
   const [personalCart, setPersonalCart] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  // Mock member metadata to simulate who added it
-  const currentMember = {
-    id: 'u-101',
-    name: 'Ananya D.',
-    role: 'Member'
-  };
+  const fetchCart = async () => {
+    const token = sessionStorage.getItem('zenk_token') || localStorage.getItem('zenk_token');
+    if (!token) return;
 
-  const addToStudentCart = (product, comment) => {
-    setStudentCart(prev => [
-      ...prev,
-      {
-        cartId: `sc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        product,
-        addedBy: currentMember,
-        comment: comment,
-        addedAt: new Date().toISOString()
-      }
-    ]);
-  };
+    try {
+      setIsLoading(true);
+      const data = await apiClient.get('/vendor/cart');
+      const mapCartItem = (item) => ({
+        cartId: item.id,
+        product: {
+          ...item.product,
+          image: item.product.image_url,
+          studentPrice: item.product.student_price,
+          memberPrice: item.product.discounted_price || item.product.price
+        },
+        comment: item.comment,
+        addedAt: item.created_at
+      });
 
-  const addToPersonalCart = (product) => {
-    setPersonalCart(prev => [
-      ...prev,
-      {
-        cartId: `pc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        product,
-        addedBy: currentMember,
-        addedAt: new Date().toISOString()
-      }
-    ]);
-  };
-
-  const removeFromCart = (cartId, type) => {
-    if (type === 'student') {
-      setStudentCart(prev => prev.filter(item => item.cartId !== cartId));
-    } else {
-      setPersonalCart(prev => prev.filter(item => item.cartId !== cartId));
+      const studentItems = data.filter(item => item.cart_type === 'student').map(mapCartItem);
+      const personalItems = data.filter(item => item.cart_type === 'personal').map(mapCartItem);
+      setStudentCart(studentItems);
+      setPersonalCart(personalItems);
+    } catch (err) {
+      console.error("Fetch Cart Error:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const clearCart = (type) => {
-    if (type === 'student') setStudentCart([]);
-    if (type === 'personal') setPersonalCart([]);
-    if (type === 'all') {
-      setStudentCart([]);
-      setPersonalCart([]);
+  useEffect(() => {
+    fetchCart();
+  }, []);
+
+  const addToStudentCart = async (product, comment) => {
+    try {
+      await apiClient.post('/vendor/cart', {
+        product_id: product.id,
+        quantity: 1,
+        cart_type: 'student',
+        comment: comment
+      });
+      fetchCart();
+    } catch (err) {
+      console.error("Add to Student Cart Error:", err);
+    }
+  };
+
+  const addToPersonalCart = async (product) => {
+    try {
+      await apiClient.post('/vendor/cart', {
+        product_id: product.id,
+        quantity: 1,
+        cart_type: 'personal'
+      });
+      fetchCart();
+    } catch (err) {
+      console.error("Add to Personal Cart Error:", err);
+    }
+  };
+
+  const removeFromCart = async (cartId, type) => {
+    try {
+      await apiClient.delete(`/vendor/cart/${cartId}`);
+      fetchCart();
+    } catch (err) {
+      console.error("Remove from Cart Error:", err);
+    }
+  };
+
+  const clearCart = async (type) => {
+    try {
+      const query = type !== 'all' ? `?cart_type=${type}` : '';
+      await apiClient.delete(`/vendor/cart${query}`);
+      fetchCart();
+    } catch (err) {
+      console.error("Clear Cart Error:", err);
     }
   };
 
@@ -72,7 +105,8 @@ export const CartProvider = ({ children }) => {
     addToPersonalCart,
     removeFromCart,
     clearCart,
-    cartTotalCount
+    cartTotalCount,
+    isLoading
   };
 
   return (

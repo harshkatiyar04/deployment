@@ -35,7 +35,7 @@ function Login() {
     setIsLoggingIn(true)
     try {
       const API_BASE = getApiBase();
-      const res = await fetch(`${API_BASE}/auth/token`, {
+      const res = await fetch(`${API_BASE}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: username, password }),
@@ -48,11 +48,24 @@ function Login() {
       }
 
       if (data.access_token) {
-        // sessionStorage: cleared when browser tab closes (safer than localStorage)
         sessionStorage.setItem('zenk_token', data.access_token);
-        sessionStorage.setItem('isAdmin', 'false')
-        sessionStorage.setItem('zenk_persona', 'vendor')
-        navigate('/dashboard/vendor-portal');
+        localStorage.setItem('access_token', data.access_token);  // for corporate hook
+        localStorage.setItem('chat_token', data.access_token);    // for chat websocket auth
+        sessionStorage.setItem('isAdmin', 'false');
+        sessionStorage.setItem('zenk_persona', data.persona);
+
+        // Dynamic Redirection based on Persona
+        if (data.persona === 'corporate') {
+          navigate('/corporate-dashboard');
+        } else if (data.persona === 'vendor') {
+          navigate('/dashboard/vendor-portal');
+        } else if (data.persona === 'sponsor') {
+          navigate('/dashboard/home');
+        } else if (data.persona === 'student') {
+          navigate('/dashboard/resources');
+        } else {
+          navigate('/dashboard/home');
+        }
       }
     } catch (err) {
       setLoginError('Cannot connect to server. Please check your connection.')

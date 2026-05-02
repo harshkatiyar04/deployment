@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import { PaperAirplaneIcon, PaperClipIcon, FaceSmileIcon } from '@heroicons/react/24/outline'
 import EmojiPicker from 'emoji-picker-react'
 import { useChat } from '../../contexts/ChatContext'
@@ -18,6 +18,20 @@ export default function MessageInput({ userPersona, handRaised }) {
   const stageBlocked = stageActive && userPersona === 'student' && !handRaised
   const wsConnected = status === 'open'
   const disabled = stageBlocked || !wsConnected || !activeChannel
+  useEffect(() => {
+    const handleFillPrompt = (e) => {
+      setText(e.detail)
+      setTimeout(() => {
+        const input = document.getElementById('chat-message-input')
+        if (input) {
+          input.focus()
+          // Optional: trigger a subtle shake animation or highlight if needed
+        }
+      }, 50)
+    }
+    window.addEventListener('fillKiaPrompt', handleFillPrompt)
+    return () => window.removeEventListener('fillKiaPrompt', handleFillPrompt)
+  }, [])
 
   const handleSend = () => {
     const trimmed = text.trim()
