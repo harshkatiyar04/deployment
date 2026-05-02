@@ -21,6 +21,9 @@ export function useCorporateData(fy = '2025-26') {
   const [circlesPerf, setCirclesPerf] = useState(null);
   const [employees, setEmployees] = useState(null);
   const [csrAccount, setCsrAccount] = useState(null);
+  const [strategyBrief, setStrategyBrief] = useState(null);
+  const [peerBenchmarks, setPeerBenchmarks] = useState(null);
+  const [goals, setGoals] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -29,20 +32,26 @@ export function useCorporateData(fy = '2025-26') {
     setError(null);
     try {
       const headers = getAuthHeaders();
-      const [profRes, zenqRes, allocRes, perfRes, empRes, csrRes] = await Promise.all([
+      const [profRes, zenqRes, allocRes, perfRes, empRes, csrRes, briefRes, peerRes, goalsRes] = await Promise.all([
         fetch(`${API_BASE}/corporate/profile`, { headers }),
         fetch(`${API_BASE}/corporate/zenq-overview?fy=${fiscalYear}`, { headers }),
         fetch(`${API_BASE}/corporate/allocations`, { headers }),
         fetch(`${API_BASE}/corporate/circles-performance`, { headers }),
         fetch(`${API_BASE}/corporate/employees`, { headers }),
         fetch(`${API_BASE}/corporate/csr-account`, { headers }),
+        fetch(`${API_BASE}/corporate/kia-strategy-brief`, { headers }),
+        fetch(`${API_BASE}/corporate/peer-benchmark`, { headers }),
+        fetch(`${API_BASE}/corporate/corporate-goals`, { headers }),
       ]);
 
       if (!profRes.ok) throw new Error('Unauthorized or session expired');
 
-      const [profData, zenqData, allocData, perfData, empData, csrData] = await Promise.all([
+      const [profData, zenqData, allocData, perfData, empData, csrData, briefData, peerData, goalsData] = await Promise.all([
         profRes.json(), zenqRes.json(), allocRes.json(),
         perfRes.json(), empRes.json(), csrRes.json(),
+        briefRes.ok ? briefRes.json() : null,
+        peerRes.ok ? peerRes.json() : null,
+        goalsRes.ok ? goalsRes.json() : null,
       ]);
 
       setProfile(profData);
@@ -51,6 +60,9 @@ export function useCorporateData(fy = '2025-26') {
       setCirclesPerf(perfData);
       setEmployees(empData);
       setCsrAccount(csrData);
+      setStrategyBrief(briefData);
+      setPeerBenchmarks(peerData);
+      setGoals(goalsData);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -72,6 +84,7 @@ export function useCorporateData(fy = '2025-26') {
 
   return {
     profile, zenqOverview, allocations, circlesPerf, employees, csrAccount,
+    strategyBrief, peerBenchmarks, goals,
     loading, error, refresh: fetchAll, reallocate,
   };
 }

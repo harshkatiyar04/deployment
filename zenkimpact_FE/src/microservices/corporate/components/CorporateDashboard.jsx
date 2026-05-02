@@ -122,7 +122,11 @@ export default function CorporateDashboard() {
   }, [activeTab]);
 
   const [fy, setFy] = useState('2025-26');
-  const { profile, zenqOverview, allocations, circlesPerf, employees, csrAccount, loading, error, refresh, reallocate } = useCorporateData(fy);
+  const { 
+    profile, zenqOverview, allocations, circlesPerf, employees, csrAccount, 
+    strategyBrief, peerBenchmarks, goals,
+    loading, error, refresh, reallocate 
+  } = useCorporateData(fy);
 
   const handleLogout = () => {
     localStorage.removeItem('access_token');
@@ -296,12 +300,14 @@ export default function CorporateDashboard() {
 
           {!loading && activeTab === 'impact' && <CorpCertification profile={profile} />}
           {!loading && activeTab === 'kia' && (
-            <div className="c-coming-soon">
-              <h3>Kia AI Strategy Assistant</h3>
-              <p>
-                Kia will provide personalized recommendations on fund allocation, circle selection, and CSR strategy optimization based on your ZenQ data.
-              </p>
-            </div>
+            <CorpKiaStrategy 
+              profile={profile} 
+              strategyBrief={strategyBrief} 
+              peerBenchmarks={peerBenchmarks} 
+              goals={goals} 
+              circlesPerf={circlesPerf}
+              onRefresh={() => refresh(fy)} 
+            />
           )}
         </div>
 

@@ -479,6 +479,98 @@ async def get_kia_recommendation(
         "recommendation": response or "I'm currently unable to generate a recommendation. Please try again later."
     }
 
+from datetime import datetime
+
+@router.get("/kia-strategy-brief", response_model=dict)
+async def get_kia_strategy_brief(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+    force_refresh: bool = False
+):
+    _require_corporate(user)
+    
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    # Check if we have a recent brief
+    now_str = datetime.utcnow().isoformat()
+    brief = profile.strategy_brief or {}
+    
+    if not force_refresh and brief and brief.get("priorities"):
+        return brief
+        
+    # Generate new brief
+    from app.services.kia_corporate import fetch_corporate_context, generate_strategy_brief
+    context = await fetch_corporate_context(user.id, user.email, db)
+    priorities = await generate_strategy_brief(context)
+    
+    if priorities:
+        new_brief = {
+            "generated_at": now_str,
+            "priorities": priorities
+        }
+        profile.strategy_brief = new_brief
+        flag_modified(profile, "strategy_brief")
+        await db.commit()
+        return new_brief
+        
+    return {
+        "generated_at": now_str,
+        "priorities": [
+            {
+                "title": "Strategy engine offline",
+                "body": "Kia is currently unable to generate your strategy brief. Please try again.",
+                "urgency": "medium"
+            }
+        ]
+    }
+
+@router.get("/peer-benchmark", response_model=list)
+async def get_peer_benchmarks(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    
+    # In a real app, query all CorporateProfiles, sort by zenq.
+    # For MVP, mock realistic data and insert the user in the middle.
+    
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    user_zenq = profile.corporate_zenq if profile else 78.4
+    user_name = profile.company_name if profile else "Your Company"
+    
+    benchmarks = [
+        {"rank": 1, "label": "Corporate A", "sector": "Technology sector", "zenq": 88.2, "is_you": False},
+        {"rank": 2, "label": "Corporate B", "sector": "FMCG sector", "zenq": 83.1, "is_you": False},
+        {"rank": 3, "label": user_name, "sector": "You", "zenq": user_zenq, "is_you": True},
+        {"rank": 4, "label": "Corporate C", "sector": "Banking", "zenq": 72.0, "is_you": False},
+        {"rank": 5, "label": "Corporate D", "sector": "Pharma", "zenq": 65.3, "is_you": False},
+    ]
+    
+    return benchmarks
+
+@router.get("/corporate-goals", response_model=list)
+async def get_corporate_goals(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if profile and profile.corporate_goals:
+        return profile.corporate_goals
+        
+    return []
+
 
 # ── Impact Certification Exports ──────────────────────────────────────────────
 
