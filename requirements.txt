@@ -86,3 +86,4 @@ weasel==0.4.3
 websockets==14.2
 wrapt==2.1.2
 
+reportlab
