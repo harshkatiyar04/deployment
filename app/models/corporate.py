@@ -45,6 +45,10 @@ class CorporateProfile(Base):
     monthly_burn: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     alerts: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     upcoming_disbursements: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    corporate_goals: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    strategy_brief: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, default=dict)
+
+    industry_sector: Mapped[str] = mapped_column(String(100), nullable=False, default="Technology sector")
 
     # Employee engagement enrichment
     volunteers: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)

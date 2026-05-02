@@ -99,3 +99,46 @@ async def generate_corporate_response(trigger_message: str, user_context: dict) 
     except Exception as e:
         logger.error(f"corporate_kia: Error generating response: {e}")
         return None
+
+import json
+
+async def generate_strategy_brief(user_context: dict) -> Optional[list]:
+    """Generate 3 priority action items based on corporate data."""
+    try:
+        system_prompt = _build_corporate_system_prompt(user_context)
+        system_prompt += "\nRespond ONLY in valid JSON. No markdown formatting. Return an object with a 'priorities' array."
+        
+        prompt = """Based on the provided Corporate Context, generate exactly 3 prioritized action items to improve the Corporate ZenQ score and maximize social impact.
+        
+RESPONSE FORMAT (JSON ONLY):
+{
+  "priorities": [
+    {
+      "title": "Short title (e.g. Reach Platinum by Jun 2026)",
+      "body": "1-2 sentences of actionable advice with numbers",
+      "urgency": "high" | "medium" | "low"
+    }
+  ]
+}
+"""
+        
+        response = await _call_llm(
+            system_prompt=system_prompt,
+            user_message=prompt,
+            max_tokens=1024,
+            temperature=0.3,
+            response_format={"type": "json_object"}
+        )
+        
+        if response:
+            try:
+                data = json.loads(response)
+                return data.get("priorities", [])
+            except json.JSONDecodeError:
+                logger.error("generate_strategy_brief returned invalid JSON: %s", response)
+                return None
+                
+        return None
+    except Exception as e:
+        logger.error(f"corporate_kia: Error generating strategy brief: {e}")
+        return None

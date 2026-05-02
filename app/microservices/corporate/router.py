@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.session import get_db
 from app.core.jwt_auth import get_current_user
@@ -412,6 +413,52 @@ async def get_csr_account(
         alerts=alerts,
     )
 
+@router.post("/csr-account/disbursements", response_model=CSRAccountResponse)
+async def add_disbursement(
+    payload: UpcomingDisbursement,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Corporate profile not found")
+        
+    disbursements = getattr(profile, "upcoming_disbursements", []) or []
+    disbursements.append(payload.model_dump())
+    profile.upcoming_disbursements = disbursements
+    
+    flag_modified(profile, "upcoming_disbursements")
+    await db.commit()
+    
+    return await get_csr_account(db, user)
+
+@router.delete("/csr-account/disbursements/{index}", response_model=CSRAccountResponse)
+async def delete_disbursement(
+    index: int,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Corporate profile not found")
+        
+    disbursements = getattr(profile, "upcoming_disbursements", []) or []
+    if 0 <= index < len(disbursements):
+        disbursements.pop(index)
+        profile.upcoming_disbursements = disbursements
+        flag_modified(profile, "upcoming_disbursements")
+        await db.commit()
+        
+    return await get_csr_account(db, user)
+
 # ── Kia Inline Strategy ───────────────────────────────────────────────────────
 
 @router.get("/kia-recommendation", response_model=dict)
@@ -431,6 +478,142 @@ async def get_kia_recommendation(
     return {
         "recommendation": response or "I'm currently unable to generate a recommendation. Please try again later."
     }
+
+from datetime import datetime
+
+@router.get("/kia-strategy-brief", response_model=dict)
+async def get_kia_strategy_brief(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+    force_refresh: bool = False
+):
+    _require_corporate(user)
+    
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+        
+    # Check if we have a recent brief
+    now_str = datetime.utcnow().isoformat()
+    brief = profile.strategy_brief or {}
+    
+    if not force_refresh and brief and brief.get("priorities"):
+        return brief
+        
+    # Generate new brief
+    from app.services.kia_corporate import fetch_corporate_context, generate_strategy_brief
+    context = await fetch_corporate_context(user.id, user.email, db)
+    priorities = await generate_strategy_brief(context)
+    
+    if priorities:
+        new_brief = {
+            "generated_at": now_str,
+            "priorities": priorities
+        }
+        profile.strategy_brief = new_brief
+        flag_modified(profile, "strategy_brief")
+        await db.commit()
+        return new_brief
+        
+    return {
+        "generated_at": now_str,
+        "priorities": [
+            {
+                "title": "Strategy engine offline",
+                "body": "Kia is currently unable to generate your strategy brief. Please try again.",
+                "urgency": "medium"
+            }
+        ]
+    }
+
+@router.get("/peer-benchmark", response_model=list)
+async def get_peer_benchmarks(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    
+    # In a real app, query all CorporateProfiles, sort by zenq.
+    # For MVP, mock realistic data and insert the user in the middle.
+    
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    user_zenq = profile.corporate_zenq if profile else 78.4
+    user_name = profile.company_name if profile else "Your Company"
+    
+    benchmarks = [
+        {"rank": 1, "label": "Corporate A", "sector": "Technology sector", "zenq": 88.2, "is_you": False},
+        {"rank": 2, "label": "Corporate B", "sector": "FMCG sector", "zenq": 83.1, "is_you": False},
+        {"rank": 3, "label": user_name, "sector": "You", "zenq": user_zenq, "is_you": True},
+        {"rank": 4, "label": "Corporate C", "sector": "Banking", "zenq": 72.0, "is_you": False},
+        {"rank": 5, "label": "Corporate D", "sector": "Pharma", "zenq": 65.3, "is_you": False},
+    ]
+    
+    return benchmarks
+
+@router.get("/corporate-goals", response_model=list)
+async def get_corporate_goals(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    _require_corporate(user)
+    stmt = select(CorporateProfile).where(CorporateProfile.id == user.id)
+    result = await db.execute(stmt)
+    profile = result.scalar_one_or_none()
+    
+    if profile and profile.corporate_goals:
+        return profile.corporate_goals
+        
+    return []
+
+
+# ── Kia Chat & Scenario Planner (Live LLM) ───────────────────────────────────
+
+from pydantic import BaseModel as _PydanticBase
+
+class _KiaChatRequest(_PydanticBase):
+    message: str
+    is_scenario: bool = False
+
+@router.post("/kia-chat")
+async def kia_chat(
+    body: _KiaChatRequest,
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Send a message to Kia (strategy chat or scenario planner)."""
+    _require_corporate(user)
+
+    from app.services.kia_corporate import fetch_corporate_context, generate_corporate_response
+
+    context = await fetch_corporate_context(user.id, user.email, db)
+
+    if body.is_scenario:
+        prompt = (
+            "The corporate user is asking you to MODEL A SCENARIO. "
+            "Analyse the hypothetical situation they describe, estimate the "
+            "likely change to their Corporate ZenQ score, and provide concrete "
+            "recommendations. Use numbers from the Corporate Context. "
+            "Be concise but data-rich.\n\n"
+            f"User's scenario: \"{body.message}\""
+        )
+    else:
+        prompt = body.message
+
+    reply = await generate_corporate_response(prompt, context)
+
+    if not reply:
+        raise HTTPException(
+            status_code=502,
+            detail="Kia is temporarily unable to respond. Please try again.",
+        )
+
+    return {"response": reply}
 
 
 # ── Impact Certification Exports ──────────────────────────────────────────────
