@@ -215,7 +215,7 @@ class CSRAccountResponse(BaseModel):
     transactions: list[CSRTransaction]
     upcoming_disbursements: list[UpcomingDisbursement] = []
     monthly_burn: list[dict] = []  # [{month, amount}]
-    alerts: list[str] = []
+    alerts: list[dict] = []
 
 
 

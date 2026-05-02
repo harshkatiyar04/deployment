@@ -42,6 +42,9 @@ class CorporateProfile(Base):
     top_contributors: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     spend_by_category: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
     transactions: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    monthly_burn: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    alerts: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    upcoming_disbursements: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
 
     # Employee engagement enrichment
     volunteers: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)

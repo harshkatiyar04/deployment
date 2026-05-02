@@ -50,84 +50,7 @@ async def get_corporate_profile(
     profile = result.scalar_one_or_none()
     
     if not profile:
-        if "corporate2" in user.email.lower():
-            company_name = "ICICI Bank"
-            company_initials = "ICICI"
-        elif "hcl" in user.email.lower():
-            company_name = "HCL Foundation"
-            company_initials = "HCL"
-        else:
-            company_name = "TCS Foundation"
-            company_initials = "TCS"
-            
-        profile = CorporateProfile(
-            id=user.id,
-            company_name=company_name,
-            company_initials=company_initials,
-            hq_city="Mumbai" if company_initials == "TCS" else "Noida",
-            brand_color="#E31E24" if company_initials == "ICICI" else "#004B98",
-            total_csr_deployed=100000,
-            unallocated=20000,
-            fy_label="FY 2025-26",
-            badges=[
-                {"label": "Impact Leader — Gold Tier", "color": "gold"},
-                {"label": "ZenK Certified Partner", "color": "teal"},
-            ],
-            zenq_trend=[
-                {"month": "Apr", "corporate_score": 58, "national_avg": 72},
-                {"month": "May", "corporate_score": 61, "national_avg": 72},
-                {"month": "Jun", "corporate_score": 64, "national_avg": 72},
-                {"month": "Jul", "corporate_score": 67, "national_avg": 72},
-                {"month": "Aug", "corporate_score": 69, "national_avg": 72},
-                {"month": "Sep", "corporate_score": 71, "national_avg": 72},
-                {"month": "Oct", "corporate_score": 73, "national_avg": 72},
-                {"month": "Nov", "corporate_score": 74, "national_avg": 72},
-                {"month": "Dec", "corporate_score": 75, "national_avg": 72},
-                {"month": "Jan", "corporate_score": 76, "national_avg": 72},
-                {"month": "Feb", "corporate_score": 77, "national_avg": 72},
-                {"month": "Mar", "corporate_score": 78.4, "national_avg": 72},
-            ],
-            circle_allocations=[
-                {"circle_name": "Ashoka Rising Circle", "leader_name": "Dr. Rahul Sharma", "leader_city": "Mumbai", "allocation_pct": 60, "amount": 60000, "zenq_score": 82, "status": "active", "color": "#00D4BE"},
-                {"circle_name": "Udaan Bangalore", "leader_name": "Ms. Sunita Kumar", "leader_city": "Bengaluru", "allocation_pct": 20, "amount": 20000, "zenq_score": 78, "status": "active", "color": "#F6C343"},
-                {"circle_name": "Unallocated", "leader_name": "—", "leader_city": "—", "allocation_pct": 20, "amount": 20000, "zenq_score": None, "status": "pending", "color": "#4e4635"}
-            ],
-            circle_performance=[
-                {"circle_name": "Ashoka Rising Circle", "leader": "Dr. Rahul Sharma", "city": "Mumbai", "zenq_score": 82, "rank": 3, "participation_pct": 78, "members": 14, "students": 42, "monthly_trend": [70, 72, 75, 76, 78, 80, 81, 82, 82, 82, 82, 82], "status": "active"},
-                {"circle_name": "Udaan Bangalore", "leader": "Ms. Sunita Kumar", "city": "Bengaluru", "zenq_score": 78, "rank": 7, "participation_pct": 65, "members": 11, "students": 33, "monthly_trend": [62, 64, 66, 68, 70, 72, 74, 75, 76, 77, 78, 78], "status": "active"}
-            ],
-            engagement_metrics=[
-                {"label": "Total Enrolled", "value": "12", "delta": "+3 this FY", "trend": "up"},
-                {"label": "Active This Month", "value": "9", "delta": "+2 vs last month", "trend": "up"},
-                {"label": "Avg Hours/Employee", "value": "6.5h", "delta": "-0.5h vs last month", "trend": "down"},
-                {"label": "Volunteer Hours Total", "value": "78h", "delta": "+12h this month", "trend": "up"}
-            ],
-            top_contributors=[
-                {"name": "Priya Sharma", "initials": "PS", "department": "Engineering", "hours": 14, "impact_score": 92},
-                {"name": "Arjun Mehta", "initials": "AM", "department": "HR", "hours": 12, "impact_score": 88},
-                {"name": "Divya Nair", "initials": "DN", "department": "Finance", "hours": 11, "impact_score": 84},
-                {"name": "Rahul Joshi", "initials": "RJ", "department": "Product", "hours": 9, "impact_score": 81},
-                {"name": "Sneha Kapoor", "initials": "SK", "department": "Sales", "hours": 8, "impact_score": 79}
-            ],
-            spend_by_category=[
-                {"category": "Student Circles", "amount": 80000, "color": "#00D4BE"},
-                {"category": "Platform Fee", "amount": 10000, "color": "#F6C343"},
-                {"category": "Unallocated", "amount": 20000, "color": "#4e4635"}
-            ],
-            transactions=[
-                {"date": "Mar 20, 2026", "description": "Ashoka Rising Circle — Q4 Tranche", "category": "Circle Fund", "amount": 15000, "type": "debit", "circle": "Ashoka Rising Circle"},
-                {"date": "Mar 10, 2026", "description": "Udaan Bangalore — Q4 Tranche", "category": "Circle Fund", "amount": 5000, "type": "debit", "circle": "Udaan Bangalore"},
-                {"date": "Feb 28, 2026", "description": "CSR Disbursement", "category": "Inflow", "amount": 100000, "type": "credit"},
-                {"date": "Jan 15, 2026", "description": "Platform Service Fee Q3", "category": "Platform Fee", "amount": 2500, "type": "debit"},
-                {"date": "Dec 20, 2025", "description": "Ashoka Rising Circle — Q3 Tranche", "category": "Circle Fund", "amount": 15000, "type": "debit", "circle": "Ashoka Rising Circle"},
-                {"date": "Dec 10, 2025", "description": "Udaan Bangalore — Q3 Tranche", "category": "Circle Fund", "amount": 5000, "type": "debit", "circle": "Udaan Bangalore"},
-                {"date": "Nov 5, 2025", "description": "Ashoka Rising Circle — Q2 Tranche", "category": "Circle Fund", "amount": 15000, "type": "debit", "circle": "Ashoka Rising Circle"},
-                {"date": "Oct 1, 2025", "description": "Platform Service Fee Q2", "category": "Platform Fee", "amount": 2500, "type": "debit"}
-            ]
-        )
-        db.add(profile)
-        await db.commit()
-        await db.refresh(profile)
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
         
     badges_list = [CorporateBadge(**b) for b in (profile.badges or [])]
         
@@ -164,24 +87,10 @@ async def get_zenq_overview(
     profile = result.scalar_one_or_none()
 
     if not profile:
-        trend_data = [
-            ZenQTrendPoint(month="Apr", corporate_score=58, national_avg=72),
-            ZenQTrendPoint(month="May", corporate_score=61, national_avg=72),
-            ZenQTrendPoint(month="Jun", corporate_score=64, national_avg=72),
-            ZenQTrendPoint(month="Jul", corporate_score=67, national_avg=72),
-            ZenQTrendPoint(month="Aug", corporate_score=69, national_avg=72),
-            ZenQTrendPoint(month="Sep", corporate_score=71, national_avg=72),
-            ZenQTrendPoint(month="Oct", corporate_score=73, national_avg=72),
-            ZenQTrendPoint(month="Nov", corporate_score=74, national_avg=72),
-            ZenQTrendPoint(month="Dec", corporate_score=75, national_avg=72),
-            ZenQTrendPoint(month="Jan", corporate_score=76, national_avg=72),
-            ZenQTrendPoint(month="Feb", corporate_score=77, national_avg=72),
-            ZenQTrendPoint(month="Mar", corporate_score=78.4, national_avg=72),
-        ]
-        weighted_score = 78.4
-    else:
-        trend_data = [ZenQTrendPoint(**p) for p in (profile.zenq_trend or [])]
-        weighted_score = profile.corporate_zenq
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
+
+    trend_data = [ZenQTrendPoint(**p) for p in (profile.zenq_trend or [])]
+    weighted_score = profile.corporate_zenq or 0.0
 
     return ZenQOverviewResponse(
         weighted_score=weighted_score,
@@ -209,44 +118,11 @@ async def get_allocations(
     profile = result.scalar_one_or_none()
 
     if not profile:
-        circles = [
-            CircleAllocation(
-                circle_name="Ashoka Rising Circle",
-                leader_name="Dr. Rahul Sharma",
-                leader_city="Mumbai",
-                allocation_pct=60,
-                amount=60000,
-                zenq_score=82,
-                status="active",
-                color="#00D4BE",
-            ),
-            CircleAllocation(
-                circle_name="Udaan Bangalore",
-                leader_name="Ms. Sunita Kumar",
-                leader_city="Bengaluru",
-                allocation_pct=20,
-                amount=20000,
-                zenq_score=78,
-                status="active",
-                color="#F6C343",
-            ),
-            CircleAllocation(
-                circle_name="Unallocated",
-                leader_name="—",
-                leader_city="—",
-                allocation_pct=20,
-                amount=20000,
-                zenq_score=None,
-                status="pending",
-                color="#4e4635",
-            ),
-        ]
-        total_csr = 100000
-        unallocated = 20000
-    else:
-        circles = [CircleAllocation(**c) for c in (profile.circle_allocations or [])]
-        total_csr = profile.total_csr_deployed
-        unallocated = profile.unallocated
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
+
+    circles = [CircleAllocation(**c) for c in (profile.circle_allocations or [])]
+    total_csr = profile.total_csr_deployed or 0
+    unallocated = profile.unallocated or 0
 
     return AllocationResponse(
         total_csr=total_csr,
@@ -348,38 +224,12 @@ async def get_circles_performance(
     profile = result.scalar_one_or_none()
 
     if not profile:
-        circles = [
-            CirclePerformanceRow(
-                circle_name="Ashoka Rising Circle",
-                leader="Dr. Rahul Sharma",
-                city="Mumbai",
-                zenq_score=82,
-                rank=3,
-                participation_pct=78,
-                members=14,
-                students=42,
-                monthly_trend=[70, 72, 75, 76, 78, 80, 81, 82, 82, 82, 82, 82],
-                status="active",
-            ),
-            CirclePerformanceRow(
-                circle_name="Udaan Bangalore",
-                leader="Ms. Sunita Kumar",
-                city="Bengaluru",
-                zenq_score=78,
-                rank=7,
-                participation_pct=65,
-                members=11,
-                students=33,
-                monthly_trend=[62, 64, 66, 68, 70, 72, 74, 75, 76, 77, 78, 78],
-                status="active",
-            ),
-        ]
-        summary = "2 active circles | 25 total sponsors | 75 students impacted"
-    else:
-        circles = [CirclePerformanceRow(**c) for c in (profile.circle_performance or [])]
-        active_count = len([c for c in circles if c.status == "active"])
-        impacted = sum(c.students for c in circles)
-        summary = f"{active_count} active circles | {impacted} students impacted"
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
+
+    circles = [CirclePerformanceRow(**c) for c in (profile.circle_performance or [])]
+    active_count = len([c for c in circles if c.status == "active"])
+    impacted = sum(c.students for c in circles)
+    summary = f"{active_count} active circles | {impacted} students impacted"
 
     return CirclePerformanceResponse(
         circles=circles,
@@ -474,35 +324,8 @@ async def get_employee_engagement(
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
-    # Default monthly hours
-    default_monthly_hours = [
-        {"month": "Apr", "hours": 32}, {"month": "May", "hours": 38},
-        {"month": "Jun", "hours": 41}, {"month": "Jul", "hours": 44},
-        {"month": "Aug", "hours": 48}, {"month": "Sep", "hours": 52},
-        {"month": "Oct", "hours": 58}, {"month": "Nov", "hours": 62},
-        {"month": "Dec", "hours": 65}, {"month": "Jan", "hours": 70},
-        {"month": "Feb", "hours": 74}, {"month": "Mar", "hours": 84},
-    ]
-
     if not profile:
-        return EmployeeEngagementResponse(
-            total_enrolled=12, active_this_month=9, circles_participating=2,
-            avg_hours_per_employee=6.5, zenq_lift_from_staff=8.2,
-            metrics=[
-                EngagementMetric(label="Volunteers Active", value="12", delta="+3 this FY", trend="up"),
-                EngagementMetric(label="Hours Contributed", value="84 hrs", delta="This FY", trend="up"),
-                EngagementMetric(label="Employee Circles Formed", value="2", delta="Co-funded by TCS", trend="up"),
-                EngagementMetric(label="ZenQ Lift from Staff", value="+8.2", delta="Added to Corp ZenQ", trend="up"),
-            ],
-            top_contributors=[
-                TopContributor(name="Priya Sharma", initials="PS", department="Engineering", hours=14, impact_score=92, badge="gold"),
-                TopContributor(name="Arjun Mehta", initials="AM", department="HR", hours=12, impact_score=88, badge="silver"),
-                TopContributor(name="Divya Nair", initials="DN", department="Finance", hours=11, impact_score=84, badge="bronze"),
-                TopContributor(name="Rahul Joshi", initials="RJ", department="Product", hours=9, impact_score=81),
-                TopContributor(name="Sneha Kapoor", initials="SK", department="Sales", hours=8, impact_score=79),
-            ],
-            monthly_hours=default_monthly_hours,
-        )
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
 
     metrics = [EngagementMetric(**m) for m in (profile.engagement_metrics or [])]
     top_contributors = [TopContributor(**c) for c in (profile.top_contributors or [])]
@@ -519,7 +342,7 @@ async def get_employee_engagement(
         zenq_lift_from_staff=profile.zenq_lift_from_staff or 8.2,
         metrics=metrics,
         top_contributors=top_contributors,
-        monthly_hours=profile.monthly_hours or default_monthly_hours,
+        monthly_hours=profile.monthly_hours or [],
         volunteers=volunteers,
         employee_circles=employee_circles,
         engagement_schemes=engagement_schemes,
@@ -540,85 +363,34 @@ async def get_csr_account(
     result = await db.execute(stmt)
     profile = result.scalar_one_or_none()
 
-    # ── Default rich mock data ─────────────────────────────────────────────────
     if not profile:
-        total_received = 1200000
-        committed      = 900000
-        allocated      = 820000
-        total_deployed = 820000
-        balance        = 300000
-        unallocated    = 300000
-        mandate_amount = 1200000
-        fy_label       = "FY 2025-26"
-        account_number = "ZNK-CORP-1234-TC"
+        raise HTTPException(status_code=404, detail="Corporate profile not found.")
 
-        spend_by_category = [
-            {"category": "Student Circles",   "amount": 720000, "color": "#4A72F5"},
-            {"category": "Platform Fee",      "amount": 100000, "color": "#F6C343"},
-            {"category": "Escrow Interest",   "amount":   2400, "color": "#0CBEAA"},
-            {"category": "Unallocated",       "amount": 300000, "color": "#e8e8e4"},
-        ]
+    total_deployed  = profile.total_csr_deployed or 0
+    total_received  = profile.total_csr_deployed or 0
+    committed       = profile.total_csr_deployed or 0
+    allocated       = (profile.total_csr_deployed or 0) - (profile.unallocated or 0)
+    balance         = profile.unallocated or 0
+    unallocated     = profile.unallocated or 0
+    mandate_amount  = profile.total_csr_deployed or 0
+    fy_label        = profile.fy_label or "FY 2025-26"
+    account_number  = f"ZNK-CORP-{str(profile.id).split('-')[0].upper()}-TC"
+    
+    spend_by_category = list(profile.spend_by_category or [])
+    
+    raw_txns        = profile.transactions or []
+    transactions    = [CSRTransaction(**t) for t in raw_txns]
+    
+    raw_upcoming = getattr(profile, 'upcoming_disbursements', []) or []
+    upcoming_disbursements = [UpcomingDisbursement(**d) for d in raw_upcoming]
+    
+    monthly_burn    = getattr(profile, 'monthly_burn', []) or []
+    alerts          = getattr(profile, 'alerts', []) or []
+    
+    compliance_status = "on_track"
+    escrow_interest_earned = 0
 
-        monthly_burn = [
-            {"month": "Apr", "amount": 20000}, {"month": "May", "amount": 25000},
-            {"month": "Jun", "amount": 30000}, {"month": "Jul", "amount": 20000},
-            {"month": "Aug", "amount": 35000}, {"month": "Sep", "amount": 10000},
-            {"month": "Oct", "amount": 28000}, {"month": "Nov", "amount": 15000},
-            {"month": "Dec", "amount": 40000}, {"month": "Jan", "amount": 22000},
-            {"month": "Feb", "amount": 18000}, {"month": "Mar", "amount": 2400},
-        ]
-
-        # Transactions with running balance pre-computed
-        raw_txns = [
-            {"date": "1 Apr 25",  "type": "credit",   "description": "Annual CSR commitment — FY26",    "category": "Top-up",       "amount": 1200000, "circle": None,                   "running_balance": 1200000, "reference": "NEFT/TCS/2025/001"},
-            {"date": "2 Apr 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q1 tranche","category": "Allocation",   "amount": 20000,   "circle": "Ashoka Rising Circle", "running_balance": 1180000, "reference": "ALLOC/ARC/Q1"},
-            {"date": "2 Apr 25",  "type": "debit",    "description": "Udaan Bangalore — Q1 tranche",    "category": "Allocation",   "amount": 7000,    "circle": "Udaan Bangalore",      "running_balance": 1173000, "reference": "ALLOC/UB/Q1"},
-            {"date": "5 Apr 25",  "type": "debit",    "description": "Platform fee (10% of commitment)","category": "Platform Fee", "amount": 10000,   "circle": None,                   "running_balance": 1163000, "reference": "FEE/2025/Q1"},
-            {"date": "1 Jul 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q2 tranche","category": "Allocation",  "amount": 20000,   "circle": "Ashoka Rising Circle", "running_balance": 1143000, "reference": "ALLOC/ARC/Q2"},
-            {"date": "1 Jul 25",  "type": "debit",    "description": "Udaan Bangalore — Q2 tranche",    "category": "Allocation",   "amount": 5500,    "circle": "Udaan Bangalore",      "running_balance": 1137500, "reference": "ALLOC/UB/Q2"},
-            {"date": "1 Oct 25",  "type": "debit",    "description": "Ashoka Rising Circle — Q3 tranche","category": "Allocation",  "amount": 10000,   "circle": "Ashoka Rising Circle", "running_balance": 1127500, "reference": "ALLOC/ARC/Q3"},
-            {"date": "1 Oct 25",  "type": "debit",    "description": "Udaan Bangalore — Q3 tranche",    "category": "Allocation",   "amount": 6500,    "circle": "Udaan Bangalore",      "running_balance": 1121000, "reference": "ALLOC/UB/Q3"},
-            {"date": "24 Nov 25", "type": "interest", "description": "C.C. Escrow interest credited",  "category": "Interest",     "amount": 2400,    "circle": None,                   "running_balance": 1123400, "reference": "INT/2025/NOV"},
-            {"date": "1 Mar 26",  "type": "debit",    "description": "Ashoka Rising Circle — Q4 partial","category": "Allocation",  "amount": 2400,    "circle": "Ashoka Rising Circle", "running_balance": 1121000, "reference": "ALLOC/ARC/Q4P"},
-        ]
-        transactions = [CSRTransaction(**t) for t in raw_txns]
-
-        upcoming_disbursements = [
-            UpcomingDisbursement(circle_name="Ashoka Rising Circle", amount=20000, due_date="Apr 1, 2026", status="scheduled",        tranche="Q1 FY26-27"),
-            UpcomingDisbursement(circle_name="Udaan Bangalore",      amount=7500,  due_date="Apr 1, 2026", status="pending_approval",  tranche="Q1 FY26-27"),
-            UpcomingDisbursement(circle_name="ZenK Platform Fee",    amount=12000, due_date="Apr 5, 2026", status="scheduled",        tranche="Annual Fee"),
-        ]
-
-        alerts = [
-            "₹3,00,000 unallocated — Q4 FY26 allocation deadline is Apr 1, 2026 (30 days away).",
-            "₹2,400 escrow interest was credited to your account on 24 Nov 2025.",
-            "Annual MCA compliance filing due by Sep 30, 2026. You are currently on track.",
-        ]
-        compliance_status = "on_track"
-        escrow_interest_earned = 2400
-        mandate_used_pct = round((total_deployed / mandate_amount) * 100, 1)
-
-    else:
-        total_deployed  = profile.total_csr_deployed
-        total_received  = profile.total_csr_deployed
-        committed       = profile.total_csr_deployed
-        allocated       = profile.total_csr_deployed - (profile.unallocated or 0)
-        balance         = profile.unallocated or 0
-        unallocated     = profile.unallocated or 0
-        mandate_amount  = profile.total_csr_deployed
-        fy_label        = profile.fy_label or "FY 2025-26"
-        account_number  = f"ZNK-CORP-{profile.id:04d}-TC"
-        spend_by_category = list(profile.spend_by_category or [])
-        raw_txns        = profile.transactions or []
-        transactions    = [CSRTransaction(**t) for t in raw_txns]
-        upcoming_disbursements = [
-            UpcomingDisbursement(**d) for d in (profile.upcoming_disbursements or [])
-        ]
-        monthly_burn    = profile.monthly_burn or []
-        alerts          = profile.alerts or []
-        compliance_status = "on_track"
-        escrow_interest_earned = 0
-        mandate_used_pct = round((total_deployed / mandate_amount) * 100, 1) if mandate_amount else 0.0
+    mandate_used_pct = round((total_deployed / mandate_amount) * 100, 1) if mandate_amount else 0.0
 
     return CSRAccountResponse(
         total_deployed=total_deployed,
