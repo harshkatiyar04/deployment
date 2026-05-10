@@ -5,10 +5,10 @@ from app.db.base import Base
 from app.db.config import db_settings
 from app.db.session import engine
 
-# Import models so they register with Base.metadata
 from app.models import notification, signup  # noqa: F401
 import app.chat.models  # noqa: F401
 import app.microservices.vendor.models  # noqa: F401
+import app.models.mentor  # noqa: F401
 
 
 async def init_db() -> None:
@@ -66,10 +66,10 @@ async def init_db() -> None:
         await conn.execute(text(drop_trigger_sql))
         await conn.execute(text(create_trigger_sql))
 
-    # Run enum migrations (must be outside the transaction above)
     from app.db.migrations.migration_004_add_corporate_persona import run_migration as migration_004
+    from app.db.migrations.migration_007_mentor_dashboard import run_migration as migration_007
     from app.db.session import SessionLocal
     async with SessionLocal() as session:
         await migration_004(session)
-
+    await migration_007()
 
