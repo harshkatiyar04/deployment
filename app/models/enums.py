@@ -7,6 +7,7 @@ class Persona(str, enum.Enum):
     student = "student"
     corporate = "corporate"
     mentor = "mentor"
+    school = "school"
 
 
 class KycStatus(str, enum.Enum):

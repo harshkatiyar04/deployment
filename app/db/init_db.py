@@ -9,6 +9,7 @@ from app.models import notification, signup  # noqa: F401
 import app.chat.models  # noqa: F401
 import app.microservices.vendor.models  # noqa: F401
 import app.models.mentor  # noqa: F401
+import app.models.school  # noqa: F401
 
 
 async def init_db() -> None:
@@ -68,8 +69,10 @@ async def init_db() -> None:
 
     from app.db.migrations.migration_004_add_corporate_persona import run_migration as migration_004
     from app.db.migrations.migration_007_mentor_dashboard import run_migration as migration_007
+    from app.db.migrations.migration_009_school_dashboard import run_migration as migration_009
     from app.db.session import SessionLocal
     async with SessionLocal() as session:
         await migration_004(session)
     await migration_007()
+    await migration_009()
 
