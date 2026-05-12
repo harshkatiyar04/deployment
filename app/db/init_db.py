@@ -78,7 +78,7 @@ async def init_db() -> None:
 
     # --- Auto-seed school@zenk for deployed environments ---
     import logging
-    from app.core.security import get_password_hash
+    from app.core.security import hash_password
     logger = logging.getLogger(__name__)
     async with engine.begin() as conn:
         try:
@@ -87,7 +87,7 @@ async def init_db() -> None:
             row = res.fetchone()
             if not row:
                 logger.info("Seeding school@zenk account...")
-                pwd = get_password_hash("school123")
+                pwd = hash_password("school123")
                 new_id_res = await conn.execute(text(
                     "INSERT INTO \"ZENK\".signup_requests (name, email, password, persona, verified) "
                     f"VALUES ('Sunrise School Admin', 'school@zenk', '{pwd}', 'school', true) RETURNING id"
