@@ -715,10 +715,12 @@ async def list_channels(
                 if hasattr(c.channel_type, "value")
                 else c.channel_type
             ),
+            dm_for=getattr(c, "dm_for", None),
             created_at=c.created_at,
         )
         for c in channels
     ]
+
 
 
 # REST: POST /chat/channels  (sponsor or admin only)
@@ -1031,3 +1033,90 @@ async def list_circle_members(
             joined_at=m.joined_at,
         ))
     return output
+
+
+# REST: POST /chat/circle/{circle_id}/dm-channel
+
+
+@router.post("/chat/circle/{circle_id}/dm-channel", response_model=ChannelOut)
+async def get_or_create_dm_channel(
+    circle_id: str,
+    body: dict,
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get or create a private DM channel between two personas in a circle.
+    body: { "with_persona_id": "<UUID>" }
+    Returns the channel. Both users must be members of the circle.
+    """
+    import json as _json
+
+    user = await get_current_user_from_token(token, db)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    # Verify caller is a circle member
+    membership = await db.execute(
+        select(CircleMember).where(
+            and_(CircleMember.circle_id == circle_id, CircleMember.user_id == user.id)
+        )
+    )
+    if membership.scalar_one_or_none() is None:
+        raise HTTPException(status_code=403, detail="Not a member of this circle")
+
+    # Get our persona
+    my_persona_res = await db.execute(
+        select(GamifiedPersona).where(GamifiedPersona.user_id == user.id)
+    )
+    my_persona = my_persona_res.scalar_one_or_none()
+    if not my_persona:
+        raise HTTPException(status_code=404, detail="Your persona was not found. Send a message first.")
+
+    with_persona_id = body.get("with_persona_id")
+    if not with_persona_id:
+        raise HTTPException(status_code=400, detail="with_persona_id is required")
+
+    # Sort IDs for consistent key regardless of who initiates
+    pair = sorted([str(my_persona.id), str(with_persona_id)])
+    dm_key = _json.dumps(pair)
+
+    # Look for existing DM channel
+    existing_res = await db.execute(
+        select(ChatChannel).where(
+            and_(
+                ChatChannel.circle_id == circle_id,
+                ChatChannel.dm_for == dm_key,
+            )
+        )
+    )
+    channel = existing_res.scalar_one_or_none()
+
+    if not channel:
+        short = lambda s: str(s)[:6]  # noqa: E731
+        channel = ChatChannel(
+            circle_id=circle_id,
+            name=f"dm-{short(pair[0])}-{short(pair[1])}",
+            channel_type="persistent",
+            dm_for=dm_key,
+        )
+        db.add(channel)
+        await db.commit()
+        await db.refresh(channel)
+        logger.info(f"Created DM channel {channel.id} for pair {pair}")
+    else:
+        logger.info(f"Reusing DM channel {channel.id} for pair {pair}")
+
+    return ChannelOut(
+        id=channel.id,
+        circle_id=channel.circle_id,
+        name=channel.name,
+        channel_type=(
+            channel.channel_type.value
+            if hasattr(channel.channel_type, "value")
+            else channel.channel_type
+        ),
+        dm_for=channel.dm_for,
+        created_at=channel.created_at,
+    )
+

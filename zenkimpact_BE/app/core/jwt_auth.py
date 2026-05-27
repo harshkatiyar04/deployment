@@ -23,7 +23,8 @@ class JWTSettings(BaseSettings):
         env_file=get_env_file(), env_file_encoding="utf-8", extra="ignore"
     )
     secret_key: str = Field(default="changeme-insecure-default")
-    access_token_expire_minutes: int = Field(default=1440)  # 1 day (was 7 days — reduced for security)
+    access_token_expire_minutes: int = Field(default=15)  # OAuth-style short-lived access token
+    refresh_token_expire_days: int = Field(default=7)  # Refresh token lifetime
 
 
 jwt_settings = JWTSettings()
@@ -64,11 +65,23 @@ async def get_current_user_from_token(
     return result.scalar_one_or_none()
 
 
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
 from fastapi import Depends, HTTPException, status
 from app.db.session import get_db
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+http_bearer_optional = HTTPBearer(auto_error=False)
+
+
+async def get_optional_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return user when Bearer token is present and valid; otherwise None."""
+    if not credentials or not credentials.credentials:
+        return None
+    return await get_current_user_from_token(credentials.credentials, db)
+
 
 async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
     """FastAPI Dependency for extracting and verifying JWT from Bearer header."""

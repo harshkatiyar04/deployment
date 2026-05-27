@@ -1,5 +1,6 @@
-from pydantic import BaseModel
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime
 
 
 class SummaryResponse(BaseModel):
@@ -27,7 +28,18 @@ class BudgetResponse(BaseModel):
     collected: int
     balance_to_spend: int
     fy_label: str
+    fy_key: Optional[str] = "2025-26"
+    circle_id: Optional[str] = None
+    circle_name: Optional[str] = None
+    can_set_budget: bool = False
+    budget_set_at: Optional[datetime] = None
     transactions: List[Transaction]
+
+
+class SetCircleBudgetRequest(BaseModel):
+    annual_budget: int = Field(..., gt=0, le=50_000_000, description="Annual budget in INR")
+    fy_label: Optional[str] = Field(None, max_length=20, description="e.g. 2025-26")
+    circle_id: Optional[str] = None
 
 
 class Member(BaseModel):

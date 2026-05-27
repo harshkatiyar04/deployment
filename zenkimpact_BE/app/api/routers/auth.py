@@ -35,6 +35,7 @@ class LoginResponse(BaseModel):
     kyc_status: KycStatus
     message: str
     access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: Optional[str] = "bearer"
 
 
@@ -112,12 +113,11 @@ async def login(
         user_agent=request.headers.get("user-agent")
     )
     db.add(log)
+    from app.services.auth_tokens import issue_token_pair
+
+    access_token, refresh_token = await issue_token_pair(db, signup.id)
     await db.commit()
 
-    # Issue JWT Token
-    from app.core.jwt_auth import create_access_token
-    token = create_access_token(data={"sub": signup.id})
-    
     return LoginResponse(
         id=signup.id,
         persona=signup.persona,
@@ -126,8 +126,9 @@ async def login(
         mobile=signup.mobile,
         kyc_status=signup.kyc_status,
         message=status_message,
-        access_token=token,
-        token_type="bearer"
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
     )
 
 
@@ -140,12 +141,24 @@ async def login(
 # Returns {"access_token": "<jwt>", "token_type": "bearer"}.
 # Store in localStorage and pass as ?token=<jwt> to the WebSocket endpoint.
 
-from app.core.jwt_auth import create_access_token  # noqa: E402
-
-
 class TokenResponse(BaseModel):
     access_token: str
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = None
 
 
 @router.post("/token", response_model=TokenResponse, status_code=status.HTTP_200_OK)
@@ -228,8 +241,48 @@ async def issue_token(
         user_agent=request.headers.get("user-agent")
     )
     db.add(log)
-    await db.commit()
+    from app.services.auth_tokens import issue_token_pair
 
+    access_token, refresh_token = await issue_token_pair(db, signup.id)
+    await db.commit()
     logger.info(f"Auth success (/token): JWT issued for '{body.email}'")
-    token = create_access_token(data={"sub": signup.id})
-    return TokenResponse(access_token=token)
+    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/refresh", response_model=RefreshResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("30/minute")
+async def refresh_tokens(
+    request: Request,
+    body: RefreshRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Exchange a valid refresh token for a new access + refresh token pair."""
+    from app.services.auth_tokens import refresh_access_token
+
+    result = await refresh_access_token(db, body.refresh_token.strip())
+    if not result:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+    access_token, refresh_token, _user = result
+    return RefreshResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+    )
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
+async def logout(
+    request: Request,
+    body: LogoutRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Revoke refresh token so it cannot be used again."""
+    if not body.refresh_token:
+        return None
+    from app.services.auth_tokens import revoke_refresh_token
+
+    await revoke_refresh_token(db, body.refresh_token.strip())
+    return None

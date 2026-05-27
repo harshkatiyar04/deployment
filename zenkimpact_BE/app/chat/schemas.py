@@ -75,7 +75,9 @@ class ChannelOut(BaseModel):
     circle_id: str
     name: str
     channel_type: str
+    dm_for: Optional[str] = None   # JSON list of two persona_ids for private DM channels
     created_at: datetime
+
 
 
 class ChannelCreate(BaseModel):
