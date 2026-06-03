@@ -9,6 +9,9 @@ from app.db.session import engine
 from app.models import notification, signup  # noqa: F401
 import app.chat.models  # noqa: F401
 import app.microservices.vendor.models  # noqa: F401
+import app.models.school  # noqa: F401
+import app.models.mentor  # noqa: F401
+import app.models.refresh_token  # noqa: F401
 
 
 async def init_db() -> None:

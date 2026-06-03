@@ -14,6 +14,8 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models.school import SchoolStudent
 
+from app.algorithms.zenq.zqa_policy import ZQA_POLICY_TEXT
+
 TEAL = colors.HexColor("#0d9488")
 DARK = colors.HexColor("#0f172a")
 GRAY = colors.HexColor("#64748b")
@@ -81,6 +83,8 @@ SEL (0–5) — behaviour & wellbeing (not exam marks)
   relationship_skills   — works with others, polite
   responsible_decisions — sensible choices, accepts consequences
 """
+
+IMPORT_GUIDE_TEXT = IMPORT_GUIDE_TEXT.rstrip() + "\n\n" + ZQA_POLICY_TEXT.strip() + "\n"
 
 
 def import_guide_text() -> str:

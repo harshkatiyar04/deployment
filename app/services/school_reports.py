@@ -21,6 +21,7 @@ from app.models.school import (
     SchoolStudentSubjectScore,
 )
 from app.models.signup import SignupRequest
+from app.services.school_zqa_engine import assert_zqa_publishable, recompute_and_apply_zqa
 
 SUBJECT_KEYS = {
     "maths": "Maths",
@@ -31,9 +32,19 @@ SUBJECT_KEYS = {
     "sanskrit": "Sanskrit",
 }
 
-
 def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, float(value)))
+
+
+def _derive_avg_score(subject_scores: dict[str, Any]) -> Optional[float]:
+    vals = []
+    for value in (subject_scores or {}).values():
+        if value is None:
+            continue
+        vals.append(_clamp(float(value), 0, 100))
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 2)
 
 
 async def _upsert_subject_scores(
@@ -241,25 +252,92 @@ async def apply_quarterly_report(
     narrative = (payload.get("narrative") or "").strip()
     tutor = (payload.get("tutor_recommendation") or "").strip() or None
 
-    student.attendance_pct = _clamp(payload["attendance_pct"], 0, 100)
-    student.avg_score = _clamp(payload["avg_score"], 0, 100)
+    if payload.get("attendance_pct") is not None:
+        student.attendance_pct = _clamp(payload["attendance_pct"], 0, 100)
+    submitted_avg = (
+        _clamp(payload["avg_score"], 0, 100)
+        if payload.get("avg_score") is not None
+        else None
+    )
+    derived_avg = _derive_avg_score(subject_scores)
+    if submitted_avg is None and derived_avg is not None:
+        student.avg_score = derived_avg
+    elif submitted_avg is not None and derived_avg is None:
+        student.avg_score = submitted_avg
+    elif submitted_avg is not None and derived_avg is not None:
+        # Robustness rule: when subject-wise marks disagree materially with overall avg,
+        # trust the directly computed subject average.
+        student.avg_score = derived_avg if abs(submitted_avg - derived_avg) > 10 else submitted_avg
     # zqa_score is computed by ZenK algorithm — not set from school form/CSV/PDF
     student.risk_level = payload.get("risk_level") or student.risk_level
-    if payload.get("rank_in_class"):
-        student.rank_in_class = payload["rank_in_class"]
-    if payload.get("class_size") is not None:
-        student.class_size = int(payload["class_size"])
+    if payload.get("rank_in_class") is not None or payload.get("class_size") is not None:
+        from app.services.school_class_rank import normalize_class_rank_fields
+
+        rank_raw = payload.get("rank_in_class")
+        size_raw = payload.get("class_size")
+        size_int = int(size_raw) if size_raw is not None and str(size_raw).strip() != "" else None
+        rank_norm, size_norm = normalize_class_rank_fields(
+            str(rank_raw).strip() if rank_raw is not None and str(rank_raw).strip() else None,
+            size_int,
+        )
+        student.rank_in_class = rank_norm
+        student.class_size = size_norm
     if payload.get("circle_name"):
         student.circle_name = payload["circle_name"]
     student.tutor_recommendation = tutor
     student.tutor_recommendation_status = "matched" if tutor else "none"
-    student.q_report_status = "Finalized" if ready else "Pending"
     if not student.class_teacher:
         student.class_teacher = teacher_name
 
     await _upsert_subject_scores(db, student.id, quarter, subject_scores)
-    await _upsert_blooms(db, student.id, quarter, blooms, teacher_name)
-    await _upsert_sel(db, student.id, quarter, sel)
+    if blooms:
+        await _upsert_blooms(db, student.id, quarter, blooms, teacher_name)
+    if sel:
+        await _upsert_sel(db, student.id, quarter, sel)
+
+    report_attendance = (
+        _clamp(payload["attendance_pct"], 0, 100)
+        if payload.get("attendance_pct") is not None
+        else None
+    )
+
+    if ready:
+        from app.services.school_zqa_engine import resolve_attendance_for_zqa
+
+        attendance_for_check, _ = await resolve_attendance_for_zqa(
+            db,
+            student,
+            quarter,
+            fy,
+            report_attendance=report_attendance,
+        )
+        assert_zqa_publishable(
+            subject_scores=subject_scores,
+            blooms=blooms if blooms else None,
+            sel=sel if sel else None,
+            attendance_pct=attendance_for_check,
+            avg_score=student.avg_score,
+            rank_in_class=student.rank_in_class,
+            class_size=student.class_size,
+            narrative=narrative,
+        )
+
+    student.q_report_status = "Finalized" if ready else "Pending"
+
+    await recompute_and_apply_zqa(
+        db,
+        school_id=school_id,
+        student=student,
+        quarter=quarter,
+        fy=fy,
+        finalized=ready,
+        subject_scores=subject_scores,
+        blooms=blooms if blooms else None,
+        sel=sel if sel else None,
+        report_attendance=report_attendance,
+        narrative=narrative,
+    )
+
     await _upsert_narrative(
         db, student.id, quarter, narrative, teacher_name, finalized=ready
     )

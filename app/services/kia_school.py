@@ -4,6 +4,7 @@ from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.services.kia import _call_llm
+from app.services.kia_priority_engine import compute_student_priority
 
 logger = logging.getLogger(__name__)
 
@@ -182,6 +183,21 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
 
     priorities = []
 
+    student_signals = []
+    for s in students:
+        signal = compute_student_priority(
+            student_name=s.full_name,
+            attendance_pct=float(s.attendance_pct or 0.0),
+            zqa_score=float(s.zqa_score or 0.0),
+            zqa_baseline_delta=s.zqa_baseline_delta,
+            q_report_status=s.q_report_status or "Pending",
+            risk_level=s.risk_level or "Low",
+            tutor_recommendation_pending=bool(
+                s.tutor_recommendation and s.tutor_recommendation_status == "none"
+            ),
+        )
+        student_signals.append(signal)
+
     for s in students:
         if s.avg_score == 0 and s.attendance_pct == 0:
             priorities.append({
@@ -247,6 +263,22 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
             "action_required": True,
         })
 
+    # Deterministic intervention priorities (highest score first).
+    for signal in sorted(student_signals, key=lambda x: x.score, reverse=True)[:5]:
+        if signal.score < 30:
+            continue
+        priorities.append({
+            "type": signal.type,
+            "title": f"{signal.urgency.title()} priority — {signal.student_name}",
+            "detail": signal.detail,
+            "student_name": signal.student_name,
+            "action_required": signal.action_required,
+            "priority_score": signal.score,
+            "urgency": signal.urgency,
+            "recommended_action": signal.action,
+            "reasons": signal.reasons[:4],
+        })
+
     for s in students:
         if s.zqa_score >= 90:
             priorities.append({
@@ -258,6 +290,10 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                 ),
                 "student_name": s.full_name,
                 "action_required": False,
+                "priority_score": 0,
+                "urgency": "watch",
+                "recommended_action": "Celebrate milestone and sustain progress",
+                "reasons": ["High published ZQA score"],
             })
 
     for s in students:
@@ -268,6 +304,10 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                 "detail": s.tutor_recommendation,
                 "student_name": s.full_name,
                 "action_required": True,
+                "priority_score": 55,
+                "urgency": "high",
+                "recommended_action": "Accept or reject tutor recommendation today",
+                "reasons": ["Tutor recommendation pending decision"],
             })
 
     return priorities

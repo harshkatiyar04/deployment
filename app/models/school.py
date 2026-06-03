@@ -251,6 +251,42 @@ class SchoolFormSubmission(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class SchoolZqaSnapshot(Base):
+    """Audit trail of ZQA v2 computation per student/quarter."""
+
+    __tablename__ = "school_zqa_snapshots"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    student_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quarter: Mapped[str] = mapped_column(String(10), nullable=False)
+    fy: Mapped[str] = mapped_column(String(20), nullable=False, default="2025-26")
+    zqa_composite: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    zqa_band: Mapped[str] = mapped_column(String(50), nullable=False, default="1 - Beginning")
+    spd: Mapped[float] = mapped_column(Float, nullable=False, default=1.0)
+    baseline_zqa: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    baseline_quarter: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    zqa_baseline_delta: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    zenq_contribution: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    confidence: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    breakdown_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    validation_issues: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 class SchoolStudentEnrollmentRequest(Base):
     """School proposes a new student; ZenK circle must approve before enrollment is active."""
 

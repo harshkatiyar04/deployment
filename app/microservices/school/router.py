@@ -1,23 +1,34 @@
 from __future__ import annotations
+from contextvars import ContextVar
 from datetime import datetime
 from typing import List, Optional
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.responses import StreamingResponse, PlainTextResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db.session import get_db
 from app.core.jwt_auth import get_current_user
+from app.core.datetime_utils import to_utc_iso
 from app.models.signup import SignupRequest
-from app.models.enums import Persona
+from app.models.enums import Persona, KycStatus
 from app.models.school import (
     SchoolProfile, SchoolStudent, SchoolReport,
     SchoolAttendance, SchoolKiaMessage, SchoolKiaWelcome,
     SchoolStudentSubjectScore, SchoolStudentBloomsAssessment,
     SchoolStudentSEL, SchoolStudentNarrative, SchoolFormSubmission,
-    SchoolStudentEnrollmentRequest,
+    SchoolStudentEnrollmentRequest, SchoolActionAuditLog, SchoolPortalMember,
 )
+from app.services.school_permissions import (
+    has_permission,
+    permissions_for_role,
+    normalize_role,
+    ROLE_PRINCIPAL,
+    ROLE_STAFF,
+)
+from app.services.school_context import SchoolContext, resolve_school_context
 from app.microservices.school.schemas import (
     SchoolProfileResponse, SchoolPhotoUploadResponse, SchoolStudentResponse, SchoolReportResponse,
     SchoolAttendanceResponse, SchoolZQAStudentResponse,
@@ -37,8 +48,17 @@ from app.microservices.school.schemas import (
     SchoolStudentEnrollRequest,
     SchoolEnrollmentRequestResponse,
     SchoolEnrollmentCreateResponse,
+    SchoolAuditLogEntry,
+    SchoolPortalMemberResponse,
+    SchoolPortalMemberCreateRequest,
+    SchoolPortalMemberUpdateRequest,
+    SchoolPortalInviteResponse,
 )
-from app.services.school_reports import apply_quarterly_report, latest_submission_map
+from app.services.school_portal_invite import create_portal_invite, build_join_url
+from app.services.school_invite_email import send_school_portal_invite_email
+from app.models.school import SchoolPortalInvite
+from app.services.school_reports import apply_quarterly_report, latest_submission_map, _recalc_school_profile
+from app.services.school_zqa_engine import get_zqa_breakdown, recompute_and_apply_zqa
 from app.services.school_csv_import import csv_template_text, import_quarterly_csv
 from app.services.school_report_templates import import_guide_text, generate_blank_report_pdf
 from app.services.school_pdf_extract import process_pdf_upload, approve_pdf_review
@@ -60,7 +80,35 @@ from app.services.school_student_enrollment import (
 )
 from app.services.cloudinary_service import upload_image
 
-router = APIRouter(prefix="/school", tags=["School Dashboard"])
+logger = logging.getLogger(__name__)
+
+_school_ctx_var: ContextVar[Optional[SchoolContext]] = ContextVar("school_ctx", default=None)
+
+
+async def _bind_school_context(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    _require_school(user)
+    _school_ctx_var.set(await resolve_school_context(user, db))
+
+
+def _school_ctx() -> SchoolContext:
+    ctx = _school_ctx_var.get()
+    if ctx is None:
+        raise RuntimeError("School context not initialized")
+    return ctx
+
+
+def _school_id() -> str:
+    return _school_ctx().school_id
+
+
+router = APIRouter(
+    prefix="/school",
+    tags=["School Dashboard"],
+    dependencies=[Depends(_bind_school_context)],
+)
 
 _SUBJECT_TO_KEY = {
     "Maths": "maths",
@@ -74,9 +122,11 @@ _SUBJECT_TO_KEY = {
 _QUARTER_META = {
     "Q4": ("Q4 2025-26", "JAN-MAR 2026"),
     "Q3": ("Q3 2025-26", "OCT-DEC 2025"),
-    "Q2": ("Q2 2025-26", "APR-JUN 2025"),
+    "Q2": ("Q2 2025-26", "JUL-SEP 2025"),
     "Q1": ("Q1 2025-26", "APR-JUN 2025"),
 }
+
+_QUARTER_ORDER = {"Q1": 1, "Q2": 2, "Q3": 3, "Q4": 4}
 
 
 def _require_school(user: SignupRequest) -> SignupRequest:
@@ -88,15 +138,81 @@ def _require_school(user: SignupRequest) -> SignupRequest:
     return user
 
 
-async def _get_school_profile(user_id: str, db: AsyncSession) -> SchoolProfile:
-    res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == user_id))
-    profile = res.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="School profile not found.")
-    return profile
+def _require_school_verified(user: SignupRequest) -> SignupRequest:
+    _require_school(user)
+    if user.kyc_status != KycStatus.approved:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This action requires an approved school account.",
+        )
+    return user
 
 
-def _profile_to_response(profile: SchoolProfile) -> SchoolProfileResponse:
+async def _audit_school_action(
+    db: AsyncSession,
+    user: SignupRequest,
+    school_id: str,
+    action: str,
+    *,
+    student_id: Optional[str] = None,
+    outcome: str = "success",
+    detail: Optional[dict] = None,
+) -> None:
+    logger.info(
+        "school_action user_id=%s email=%s action=%s student_id=%s outcome=%s",
+        user.id,
+        user.email,
+        action,
+        student_id or "-",
+        outcome,
+    )
+    db.add(
+        SchoolActionAuditLog(
+            school_id=school_id,
+            actor_user_id=user.id,
+            actor_email=user.email,
+            action=action,
+            student_id=student_id,
+            outcome=outcome,
+            detail=detail,
+        )
+    )
+
+
+async def _enforce_school_permission(
+    db: AsyncSession,
+    user: SignupRequest,
+    permission: str,
+    *,
+    audit_action: Optional[str] = None,
+    student_id: Optional[str] = None,
+) -> SchoolProfile:
+    """KYC-approved school user with the given portal permission."""
+    _require_school_verified(user)
+    ctx = _school_ctx()
+    role = ctx.portal_role
+    if not has_permission(role, permission):
+        if audit_action:
+            await _audit_school_action(
+                db,
+                user,
+                ctx.school_id,
+                audit_action,
+                student_id=student_id,
+                outcome="denied",
+                detail={"required_permission": permission, "portal_role": role},
+            )
+            await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"This action requires permission '{permission}'. Your role is '{role}'.",
+        )
+    return ctx.profile
+
+
+def _profile_to_response(ctx: SchoolContext) -> SchoolProfileResponse:
+    profile = ctx.profile
+    role = ctx.portal_role
     return SchoolProfileResponse(
         id=profile.id,
         school_name=profile.school_name,
@@ -115,10 +231,21 @@ def _profile_to_response(profile: SchoolProfile) -> SchoolProfileResponse:
         reports_pending=profile.reports_pending,
         school_logo_url=profile.school_logo_url,
         principal_photo_url=profile.principal_photo_url,
+        portal_role=role,
+        permissions=permissions_for_role(role),
+        is_account_owner=ctx.is_account_owner,
+        actor_name=ctx.actor_name,
+        login_email=ctx.actor_email,
+        can_manage_portal_access=ctx.can_manage_portal_access,
     )
 
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
+_ALLOWED_CSV_TYPES = {"text/csv", "application/csv", "application/vnd.ms-excel"}
+_ALLOWED_PDF_TYPES = {"application/pdf"}
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+_MAX_CSV_BYTES = 2 * 1024 * 1024
+_MAX_PDF_BYTES = 10 * 1024 * 1024
 
 
 async def _upload_profile_image(file: UploadFile, folder: str) -> str:
@@ -127,6 +254,12 @@ async def _upload_profile_image(file: UploadFile, folder: str) -> str:
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Please upload a JPG, PNG, or WebP image.",
         )
+    payload = await file.read()
+    if not payload:
+        raise HTTPException(status_code=400, detail="Uploaded image is empty.")
+    if len(payload) > _MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image must be <= 5 MB.")
+    await file.seek(0)
     url = await upload_image(file, folder=folder)
     if not url:
         raise HTTPException(
@@ -142,8 +275,255 @@ async def get_profile(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
-    return _profile_to_response(profile)
+    return _profile_to_response(_school_ctx())
+
+
+@router.get("/audit-log", response_model=List[SchoolAuditLogEntry])
+async def get_audit_log(
+    limit: int = 50,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await _enforce_school_permission(
+        db, user, "view_audit_log", audit_action="view_audit_log"
+    )
+    cap = max(1, min(limit, 200))
+    res = await db.execute(
+        select(SchoolActionAuditLog)
+        .where(SchoolActionAuditLog.school_id == profile.id)
+        .order_by(SchoolActionAuditLog.created_at.desc())
+        .limit(cap)
+    )
+    rows = res.scalars().all()
+    return [
+        SchoolAuditLogEntry(
+            id=r.id,
+            action=r.action,
+            student_id=r.student_id,
+            outcome=r.outcome,
+            actor_email=r.actor_email,
+            detail=r.detail,
+            created_at=to_utc_iso(r.created_at),
+        )
+        for r in rows
+    ]
+
+
+def _portal_member_response(member: SchoolPortalMember) -> SchoolPortalMemberResponse:
+    return SchoolPortalMemberResponse(
+        id=member.id,
+        email=member.email,
+        display_name=member.display_name,
+        portal_role=normalize_role(member.portal_role),
+        user_id=member.user_id,
+        is_linked=bool(member.user_id),
+        created_at=member.created_at.isoformat(),
+    )
+
+
+@router.get("/portal-members", response_model=List[SchoolPortalMemberResponse])
+async def list_portal_members(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolPortalMember)
+        .where(SchoolPortalMember.school_id == ctx.school_id)
+        .order_by(SchoolPortalMember.created_at.desc())
+    )
+    return [_portal_member_response(m) for m in res.scalars().all()]
+
+
+def _invite_status(invite: SchoolPortalInvite) -> str:
+    now = datetime.utcnow()
+    if invite.revoked_at is not None:
+        return "revoked"
+    if invite.accepted_at is not None:
+        return "accepted"
+    if invite.expires_at < now:
+        return "expired"
+    return "pending"
+
+
+def _invite_response(invite: SchoolPortalInvite, *, email_sent: bool = False) -> SchoolPortalInviteResponse:
+    return SchoolPortalInviteResponse(
+        id=invite.id,
+        email=invite.email,
+        display_name=invite.display_name,
+        portal_role=normalize_role(invite.portal_role),
+        join_url=build_join_url(invite.token),
+        expires_at=invite.expires_at.isoformat(),
+        status=_invite_status(invite),
+        member_id=invite.member_id,
+        created_at=invite.created_at.isoformat(),
+        email_sent=email_sent,
+    )
+
+
+@router.get("/invites", response_model=List[SchoolPortalInviteResponse])
+async def list_portal_invites(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolPortalInvite)
+        .where(SchoolPortalInvite.school_id == ctx.school_id)
+        .order_by(SchoolPortalInvite.created_at.desc())
+        .limit(100)
+    )
+    return [_invite_response(i) for i in res.scalars().all()]
+
+
+@router.post("/invites", response_model=SchoolPortalInviteResponse)
+async def create_invite(
+    body: SchoolPortalMemberCreateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create invite link for staff/faculty (preferred over email-only onboarding)."""
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    try:
+        invite, _url = await create_portal_invite(
+            db,
+            school_id=ctx.school_id,
+            email=body.email,
+            display_name=body.display_name,
+            portal_role=body.portal_role,
+            invited_by_user_id=user.id,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "create_portal_invite",
+        outcome="success",
+        detail={"email": invite.email, "portal_role": invite.portal_role},
+    )
+    await db.commit()
+    await db.refresh(invite)
+
+    join_url = build_join_url(invite.token)
+    email_sent = await send_school_portal_invite_email(
+        to_email=invite.email,
+        display_name=invite.display_name,
+        school_name=ctx.profile.school_name,
+        portal_role=invite.portal_role,
+        join_url=join_url,
+        expires_at_iso=invite.expires_at.strftime("%d %b %Y %H:%M UTC"),
+    )
+    return _invite_response(invite, email_sent=email_sent)
+
+
+@router.delete("/invites/{invite_id}")
+async def revoke_invite(
+    invite_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolPortalInvite).where(
+            SchoolPortalInvite.id == invite_id,
+            SchoolPortalInvite.school_id == ctx.school_id,
+        )
+    )
+    invite = res.scalar_one_or_none()
+    if not invite:
+        raise HTTPException(status_code=404, detail="Invite not found.")
+    invite.revoked_at = datetime.utcnow()
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "revoke_portal_invite",
+        outcome="success",
+        detail={"email": invite.email},
+    )
+    await db.commit()
+    return {"status": "success", "message": f"Invite for {invite.email} revoked."}
+
+
+@router.post("/portal-members", response_model=SchoolPortalInviteResponse)
+async def add_portal_member(
+    body: SchoolPortalMemberCreateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias for POST /school/invites — returns invite link."""
+    return await create_invite(body, user, db)
+
+
+@router.patch("/portal-members/{member_id}", response_model=SchoolPortalMemberResponse)
+async def update_portal_member(
+    member_id: str,
+    body: SchoolPortalMemberUpdateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolPortalMember).where(
+            SchoolPortalMember.id == member_id,
+            SchoolPortalMember.school_id == ctx.school_id,
+        )
+    )
+    member = res.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="Portal member not found.")
+    if body.display_name is not None:
+        member.display_name = body.display_name.strip()
+    if body.portal_role is not None:
+        member.portal_role = normalize_role(body.portal_role)
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "update_portal_member",
+        outcome="success",
+        detail={"member_id": member_id, "portal_role": member.portal_role},
+    )
+    await db.commit()
+    await db.refresh(member)
+    return _portal_member_response(member)
+
+
+@router.delete("/portal-members/{member_id}")
+async def remove_portal_member(
+    member_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_portal_access")
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolPortalMember).where(
+            SchoolPortalMember.id == member_id,
+            SchoolPortalMember.school_id == ctx.school_id,
+        )
+    )
+    member = res.scalar_one_or_none()
+    if not member:
+        raise HTTPException(status_code=404, detail="Portal member not found.")
+    await db.delete(member)
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "remove_portal_member",
+        outcome="success",
+        detail={"email": member.email},
+    )
+    await db.commit()
+    return {"status": "success", "message": f"Removed portal access for {member.email}."}
 
 
 @router.post("/profile/school-photo", response_model=SchoolPhotoUploadResponse)
@@ -152,9 +532,11 @@ async def upload_school_photo(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(
+        db, user, "manage_profile_photos", audit_action="upload_school_logo"
+    )
     profile.school_logo_url = await _upload_profile_image(file, "zenk/schools/logos")
+    await _audit_school_action(db, user, profile.id, "upload_school_logo", outcome="success")
     await db.commit()
     await db.refresh(profile)
     return SchoolPhotoUploadResponse(url=profile.school_logo_url)
@@ -166,9 +548,11 @@ async def upload_principal_photo(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(
+        db, user, "manage_profile_photos", audit_action="upload_principal_photo"
+    )
     profile.principal_photo_url = await _upload_profile_image(file, "zenk/schools/principals")
+    await _audit_school_action(db, user, profile.id, "upload_principal_photo", outcome="success")
     await db.commit()
     await db.refresh(profile)
     return SchoolPhotoUploadResponse(url=profile.principal_photo_url)
@@ -180,9 +564,9 @@ async def get_students(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    await _get_school_profile(user.id, db)
+    _school_ctx().profile
     res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     students = res.scalars().all()
     return [
@@ -229,10 +613,10 @@ async def list_school_enrollment_requests(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
     res = await db.execute(
         select(SchoolStudentEnrollmentRequest)
-        .where(SchoolStudentEnrollmentRequest.school_id == user.id)
+        .where(SchoolStudentEnrollmentRequest.school_id == _school_id())
         .order_by(SchoolStudentEnrollmentRequest.requested_at.desc())
     )
     return [
@@ -253,8 +637,7 @@ async def submit_student_enrollment(
     Propose a new student for a ZenK circle. Sends intimation to the circle;
     student record is created only after circle approval.
     """
-    _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(db, user, "submit_enrollment")
 
     payload = body.model_dump()
     if body.initial_academic_payload:
@@ -273,10 +656,20 @@ async def submit_student_enrollment(
 
     try:
         req = await create_enrollment_request(
-            db, school_id=user.id, user=user, body=payload
+            db, school_id=_school_id(), user=user, body=payload
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "submit_enrollment",
+        outcome="success",
+        detail={"enrollment_request_id": req.id, "circle_id": req.circle_id},
+    )
+    await db.commit()
 
     data = enrollment_request_to_dict(req, school_name=profile.school_name)
     return SchoolEnrollmentCreateResponse(
@@ -298,7 +691,7 @@ async def get_student_detail(
     _require_school(user)
     
     # 1. Get student
-    res = await db.execute(select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id))
+    res = await db.execute(select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id()))
     student = res.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found")
@@ -343,15 +736,136 @@ async def get_student_detail(
         ) for n in narrative_res.scalars()]
     )
 
-@router.post("/students/{student_id}/request-meeting")
-async def request_parent_meeting(
+
+@router.delete("/students/{student_id}")
+async def remove_student(
     student_id: str,
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    """Remove a student from the school dashboard (principal only). Cascades related records."""
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "remove_student",
+        audit_action="remove_student",
+        student_id=student_id,
+    )
+    res = await db.execute(
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id,
+            SchoolStudent.school_id == profile.id,
+        )
+    )
+    student = res.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    student_name = student.full_name
+    await db.delete(student)
+    await _recalc_school_profile(db, profile.id)
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "remove_student",
+        student_id=student_id,
+        outcome="success",
+        detail={"student_name": student_name},
+    )
+    await db.commit()
+    return {
+        "status": "success",
+        "message": f"{student_name} was removed from your school dashboard.",
+    }
+
+
+@router.get("/students/{student_id}/zqa-breakdown")
+async def get_student_zqa_breakdown(
+    student_id: str,
+    quarter: Optional[str] = None,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     _require_school(user)
-    # Simple mock action
-    return {"status": "success", "message": "Parent meeting requested via Kia"}
+    q = (quarter or "Q4").strip().upper()
+    if q not in ("Q1", "Q2", "Q3", "Q4"):
+        raise HTTPException(status_code=400, detail="Quarter must be Q1, Q2, Q3, or Q4.")
+
+    stu_res = await db.execute(
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id()
+        )
+    )
+    student = stu_res.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    return await get_zqa_breakdown(db, student, q)
+
+
+@router.post("/students/{student_id}/recompute-zqa")
+async def recompute_student_zqa(
+    student_id: str,
+    quarter: Optional[str] = None,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_school(user)
+    profile = _school_ctx().profile
+    q = (quarter or "Q4").strip().upper()
+    if q not in ("Q1", "Q2", "Q3", "Q4"):
+        raise HTTPException(status_code=400, detail="Quarter must be Q1, Q2, Q3, or Q4.")
+
+    stu_res = await db.execute(
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id, SchoolStudent.school_id == profile.id
+        )
+    )
+    student = stu_res.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found")
+
+    result = await recompute_and_apply_zqa(
+        db,
+        school_id=profile.id,
+        student=student,
+        quarter=q,
+        finalized=True,
+    )
+    await db.commit()
+    payload = result.to_breakdown_dict()
+    payload["student_id"] = student.id
+    payload["student_name"] = student.full_name
+    return payload
+
+
+@router.post("/students/{student_id}/request-meeting")
+async def request_parent_meeting_student(
+    student_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "request_meeting",
+        audit_action="request_parent_meeting_student",
+        student_id=student_id,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "request_parent_meeting_student",
+        student_id=student_id,
+        outcome="simulated",
+    )
+    await db.commit()
+    return {
+        "status": "simulated",
+        "message": "Simulation only: parent meeting workflow is not yet integrated to scheduling/notification systems.",
+    }
 
 @router.post("/students/{student_id}/finalize-report")
 async def finalize_student_report(
@@ -359,10 +873,16 @@ async def finalize_student_report(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "finalize_report",
+        audit_action="finalize_report",
+        student_id=student_id,
+    )
     # Verify the student belongs to this school
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -382,6 +902,14 @@ async def finalize_student_report(
 
     for n in narratives:
         n.finalized = True
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "finalize_report",
+        student_id=student_id,
+        outcome="success",
+    )
     await db.commit()
     return {
         "status": "success",
@@ -398,10 +926,10 @@ async def preview_student_report(
 ):
     """Generate a text-based report preview from the student's data."""
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
 
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -517,11 +1045,16 @@ async def notify_sponsor_lead(
     db: AsyncSession = Depends(get_db),
 ):
     """Send a notification to the Sponsor Lead about this student's report."""
-    _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "notify_sl",
+        audit_action="notify_sponsor_lead",
+        student_id=student_id,
+    )
 
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -537,11 +1070,18 @@ async def notify_sponsor_lead(
         f"Please log in to the ZenK platform to review the full report."
     )
 
-    # In production, this would send a real ZenK Chat message or push notification.
-    # For now, we log and return the message as confirmation.
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "notify_sponsor_lead",
+        student_id=student_id,
+        outcome="simulated",
+    )
+    await db.commit()
     return {
-        "status": "success",
-        "message": f"Notification sent to {sl_name} via ZenK Chat.",
+        "status": "simulated",
+        "message": f"Simulation only: notification preview generated for {sl_name}. Delivery integration is not enabled yet.",
         "sl_name": sl_name,
         "notification_preview": notification_message,
     }
@@ -553,15 +1093,15 @@ async def get_reports(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    await _get_school_profile(user.id, db)
+    _school_ctx().profile
 
     reports_res = await db.execute(
-        select(SchoolReport).where(SchoolReport.school_id == user.id)
+        select(SchoolReport).where(SchoolReport.school_id == _school_id())
     )
     reports = reports_res.scalars().all()
 
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     student_map = {s.id: s.full_name for s in students_res.scalars().all()}
 
@@ -590,7 +1130,7 @@ async def submit_report(
     res = await db.execute(
         select(SchoolReport).where(
             SchoolReport.id == report_id,
-            SchoolReport.school_id == user.id,
+            SchoolReport.school_id == _school_id(),
         )
     )
     report = res.scalar_one_or_none()
@@ -600,7 +1140,7 @@ async def submit_report(
     report.status = "Submitted"
     report.submitted_at = datetime.utcnow()
 
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
     if profile.reports_pending > 0:
         profile.reports_pending -= 1
 
@@ -624,8 +1164,17 @@ async def download_all_reports(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
-    return {"status": "success", "message": "ZIP archive of all finalized reports has been emailed to you."}
+    profile = await _enforce_school_permission(
+        db, user, "download_all_reports", audit_action="download_all_reports"
+    )
+    await _audit_school_action(
+        db, user, profile.id, "download_all_reports", outcome="simulated"
+    )
+    await db.commit()
+    return {
+        "status": "simulated",
+        "message": "Simulation only: bulk ZIP export email delivery is not integrated yet.",
+    }
 
 
 from pydantic import BaseModel as PydanticBaseModel
@@ -644,7 +1193,7 @@ async def update_student_narrative(
     """Update the narrative text for a student's quarterly report."""
     _require_school(user)
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -680,9 +1229,15 @@ async def distribute_student_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Distribute a finalized report to SL, Mentor, and Parents."""
-    _require_school(user)
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "distribute_report",
+        audit_action="distribute_student_report",
+        student_id=student_id,
+    )
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -690,9 +1245,21 @@ async def distribute_student_report(
 
     sl_name = student.sl_name or "Sponsor Lead"
     mentor_name = student.mentor_name or "Mentor"
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "distribute_student_report",
+        student_id=student_id,
+        outcome="simulated",
+    )
+    await db.commit()
     return {
-        "status": "success",
-        "message": f"Report for {student.full_name} distributed to {sl_name}, {mentor_name}, and Parent via ZenK.",
+        "status": "simulated",
+        "message": (
+            f"Simulation only: distribution preview ready for {student.full_name} "
+            f"to {sl_name}, {mentor_name}, and Parent."
+        ),
     }
 
 
@@ -703,9 +1270,15 @@ async def finalize_kia_draft(
     db: AsyncSession = Depends(get_db),
 ):
     """Teacher approves Kia draft — marks narrative as finalized."""
-    _require_school(user)
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "finalize_kia_draft",
+        audit_action="finalize_kia_draft",
+        student_id=student_id,
+    )
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
     )
     student = stu_res.scalar_one_or_none()
     if not student:
@@ -725,6 +1298,14 @@ async def finalize_kia_draft(
         return {"status": "already_done", "message": f"Narrative for {student.full_name} was already finalized."}
 
     narrative.finalized = True
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "finalize_kia_draft",
+        student_id=student_id,
+        outcome="success",
+    )
     await db.commit()
     return {"status": "success", "message": f"Kia draft for {student.full_name} approved and finalized."}
 
@@ -747,9 +1328,9 @@ async def download_pdf_template(
 ):
     """Blank quarterly report PDF to fill and re-upload for AI extraction."""
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     students = students_res.scalars().all()
     pdf_bytes = generate_blank_report_pdf(profile.school_name, students)
@@ -770,7 +1351,7 @@ async def download_csv_template(
     """Download CSV template with headers and one example row for enrolled students."""
     _require_school(user)
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     students = students_res.scalars().all()
     content = csv_template_text(students)
@@ -792,20 +1373,23 @@ async def extract_pdf_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload PDF → AI extract → pending review (not live until approved)."""
-    _require_school(user)
-    await _get_school_profile(user.id, db)
+    await _enforce_school_permission(db, user, "import_pdf")
 
+    if file.content_type and file.content_type not in _ALLOWED_PDF_TYPES:
+        raise HTTPException(status_code=400, detail="File must be a PDF.")
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only .pdf files are allowed.")
 
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(contents) > _MAX_PDF_BYTES:
+        raise HTTPException(status_code=400, detail="PDF must be <= 10 MB.")
 
     try:
         result = await process_pdf_upload(
             db,
-            school_id=user.id,
+            school_id=_school_id(),
             user=user,
             file_bytes=contents,
             filename=file.filename,
@@ -827,14 +1411,14 @@ async def list_pending_reviews(
     res = await db.execute(
         select(SchoolFormSubmission)
         .where(
-            SchoolFormSubmission.school_id == user.id,
+            SchoolFormSubmission.school_id == _school_id(),
             SchoolFormSubmission.status == "pending_review",
         )
         .order_by(SchoolFormSubmission.submitted_at.desc())
     )
     reviews = res.scalars().all()
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     name_map = {s.id: s.full_name for s in students_res.scalars().all()}
 
@@ -868,20 +1452,32 @@ async def approve_review(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
+    profile = await _enforce_school_permission(
+        db, user, "approve_pdf_review", audit_action="approve_pdf_review"
+    )
     if body.risk_level not in ("Low", "Medium", "High"):
         raise HTTPException(status_code=400, detail="Risk level must be Low, Medium, or High.")
     try:
         payload = validate_quarterly_payload(body.model_dump())
         result = await approve_pdf_review(
             db,
-            school_id=user.id,
+            school_id=_school_id(),
             user=user,
             review_id=review_id,
             payload=payload,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "approve_pdf_review",
+        student_id=result.get("student_id") if isinstance(result, dict) else None,
+        outcome="success",
+        detail={"review_id": review_id},
+    )
+    await db.commit()
     return result
 
 
@@ -891,11 +1487,13 @@ async def reject_review(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
+    profile = await _enforce_school_permission(
+        db, user, "reject_pdf_review", audit_action="reject_pdf_review"
+    )
     res = await db.execute(
         select(SchoolFormSubmission).where(
             SchoolFormSubmission.id == review_id,
-            SchoolFormSubmission.school_id == user.id,
+            SchoolFormSubmission.school_id == _school_id(),
             SchoolFormSubmission.status == "pending_review",
         )
     )
@@ -903,6 +1501,15 @@ async def reject_review(
     if not review:
         raise HTTPException(status_code=404, detail="Review not found.")
     review.status = "rejected"
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "reject_pdf_review",
+        student_id=review.student_id,
+        outcome="success",
+        detail={"review_id": review_id},
+    )
     await db.commit()
     return {"status": "success", "message": "Review discarded."}
 
@@ -914,19 +1521,22 @@ async def import_csv_reports(
     db: AsyncSession = Depends(get_db),
 ):
     """Bulk import quarterly reports from CSV (one row per student per quarter)."""
-    _require_school(user)
-    await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(db, user, "import_csv")
 
+    if file.content_type and file.content_type not in _ALLOWED_CSV_TYPES:
+        raise HTTPException(status_code=400, detail="File must be a CSV.")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are allowed.")
 
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(contents) > _MAX_CSV_BYTES:
+        raise HTTPException(status_code=400, detail="CSV must be <= 2 MB.")
 
     try:
         result = await import_quarterly_csv(
-            db, school_id=user.id, user=user, file_bytes=contents
+            db, school_id=_school_id(), user=user, file_bytes=contents
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -955,8 +1565,7 @@ async def submit_quarterly_report(
     db: AsyncSession = Depends(get_db),
 ):
     """Save quarterly report from in-app form; records submitter and timestamp."""
-    _require_school(user)
-    await _get_school_profile(user.id, db)
+    profile = await _enforce_school_permission(db, user, "submit_quarterly_report")
 
     quarter = body.quarter.strip().upper()
     if quarter not in ("Q1", "Q2", "Q3", "Q4"):
@@ -967,7 +1576,7 @@ async def submit_quarterly_report(
     stu_res = await db.execute(
         select(SchoolStudent).where(
             SchoolStudent.id == body.student_id,
-            SchoolStudent.school_id == user.id,
+            SchoolStudent.school_id == _school_id(),
         )
     )
     student = stu_res.scalar_one_or_none()
@@ -976,13 +1585,27 @@ async def submit_quarterly_report(
 
     payload = body.model_dump()
     payload["quarter"] = quarter
-    submission = await apply_quarterly_report(
+    try:
+        if payload.get("ready_for_zenk", True):
+            validate_quarterly_payload(payload)
+        submission = await apply_quarterly_report(
+            db,
+            school_id=_school_id(),
+            student=student,
+            user=user,
+            payload=payload,
+            source="manual",
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    await _audit_school_action(
         db,
-        school_id=user.id,
-        student=student,
-        user=user,
-        payload=payload,
-        source="manual",
+        user,
+        profile.id,
+        "submit_quarterly_report",
+        student_id=student.id,
+        outcome="success",
+        detail={"quarter": quarter, "submission_id": submission.id},
     )
     await db.commit()
 
@@ -1010,7 +1633,7 @@ async def list_form_submissions(
     q = (
         select(SchoolFormSubmission)
         .where(
-            SchoolFormSubmission.school_id == user.id,
+            SchoolFormSubmission.school_id == _school_id(),
             SchoolFormSubmission.status == "processed",
         )
         .order_by(SchoolFormSubmission.submitted_at.desc())
@@ -1021,7 +1644,7 @@ async def list_form_submissions(
 
     subs = (await db.execute(q)).scalars().all()
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     name_map = {s.id: s.full_name for s in students_res.scalars().all()}
 
@@ -1051,10 +1674,10 @@ async def get_academic_reports(
     _require_school(user)
 
     # Get all students
-    students_res = await db.execute(select(SchoolStudent).where(SchoolStudent.school_id == user.id))
+    students_res = await db.execute(select(SchoolStudent).where(SchoolStudent.school_id == _school_id()))
     students = students_res.scalars().all()
 
-    submission_lookup = await latest_submission_map(db, user.id)
+    submission_lookup = await latest_submission_map(db, _school_id())
 
     scores_res = await db.execute(
         select(SchoolStudentSubjectScore).where(
@@ -1075,7 +1698,7 @@ async def get_academic_reports(
     all_narratives = narrative_res.scalars().all()
 
     reports_res = await db.execute(
-        select(SchoolReport).where(SchoolReport.school_id == user.id)
+        select(SchoolReport).where(SchoolReport.school_id == _school_id())
     )
     report_map = {(r.student_id, r.quarter): r for r in reports_res.scalars().all()}
 
@@ -1106,7 +1729,11 @@ async def get_academic_reports(
         if not quarters_with_data:
             quarters_with_data = {"Q4"}
 
-        for quarter in sorted(quarters_with_data, reverse=True):
+        for quarter in sorted(
+            quarters_with_data,
+            key=lambda q: _QUARTER_ORDER.get(q, 0),
+            reverse=True,
+        ):
             scores = dict(score_map.get(s.id, {}).get(quarter, {}))
             sub = submission_lookup.get((s.id, quarter))
             narr_obj = narrative_map.get(s.id, {}).get(quarter)
@@ -1160,6 +1787,8 @@ async def get_academic_reports(
                 "grade": s.grade,
                 "scores": scores,
                 "overall_grade": overall_grade,
+                "zqa_score": s.zqa_score,
+                "zqa_baseline_delta": s.zqa_baseline_delta,
                 "narrative": narrative_text,
                 "submitted_by_name": sub.submitted_by_name if sub else None,
                 "submitted_by_email": sub.submitted_by_email if sub else None,
@@ -1176,18 +1805,39 @@ async def get_academic_reports(
                 else None,
             })
 
-    results.sort(key=lambda x: (x["quarter_code"], x["student_name"]), reverse=True)
+    results.sort(
+        key=lambda x: (_QUARTER_ORDER.get((x.get("quarter_code") or "Q0").split()[0], 0), x["student_name"]),
+        reverse=True,
+    )
     return results
 
 
 @router.post("/attendance/{student_id}/request-meeting")
-async def request_parent_meeting(
+async def request_parent_meeting_attendance(
     student_id: str,
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
-    return {"status": "success", "message": "Parent meeting requested successfully."}
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "request_meeting",
+        audit_action="request_parent_meeting_attendance",
+        student_id=student_id,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "request_parent_meeting_attendance",
+        student_id=student_id,
+        outcome="simulated",
+    )
+    await db.commit()
+    return {
+        "status": "simulated",
+        "message": "Simulation only: parent meeting request was recorded locally; external workflow not integrated yet.",
+    }
 
 @router.post("/attendance/{student_id}/alert-sl")
 async def alert_sl_attendance(
@@ -1195,8 +1845,26 @@ async def alert_sl_attendance(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    _require_school(user)
-    return {"status": "success", "message": "Sponsor Lead has been alerted via ZenK."}
+    profile = await _enforce_school_permission(
+        db,
+        user,
+        "alert_sl_attendance",
+        audit_action="alert_sl_attendance",
+        student_id=student_id,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "alert_sl_attendance",
+        student_id=student_id,
+        outcome="simulated",
+    )
+    await db.commit()
+    return {
+        "status": "simulated",
+        "message": "Simulation only: Sponsor Lead alert channel is not integrated yet.",
+    }
 
 
 @router.get("/attendance/csv-template")
@@ -1207,7 +1875,7 @@ async def download_attendance_csv_template(
     """CSV template: one row per student per month (Apr 2025–Mar 2026)."""
     _require_school(user)
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     content = attendance_csv_template(students_res.scalars().all())
     return StreamingResponse(
@@ -1226,19 +1894,22 @@ async def import_attendance_csv_upload(
     db: AsyncSession = Depends(get_db),
 ):
     """Upload monthly attendance rows; recalculates student annual % and school average."""
-    _require_school(user)
-    await _get_school_profile(user.id, db)
+    await _enforce_school_permission(db, user, "manage_attendance")
 
+    if file.content_type and file.content_type not in _ALLOWED_CSV_TYPES:
+        raise HTTPException(status_code=400, detail="File must be a CSV.")
     if not file.filename or not file.filename.lower().endswith(".csv"):
         raise HTTPException(status_code=400, detail="Only .csv files are allowed.")
 
     contents = await file.read()
     if not contents:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
+    if len(contents) > _MAX_CSV_BYTES:
+        raise HTTPException(status_code=400, detail="CSV must be <= 2 MB.")
 
     try:
         result = await import_attendance_csv(
-            db, school_id=user.id, user=user, file_bytes=contents
+            db, school_id=_school_id(), user=user, file_bytes=contents
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -1253,13 +1924,12 @@ async def save_attendance_entry_route(
     db: AsyncSession = Depends(get_db),
 ):
     """Save one month: working_days + days_present; attendance % is calculated."""
-    _require_school(user)
-    await _get_school_profile(user.id, db)
+    await _enforce_school_permission(db, user, "manage_attendance")
 
     try:
         record = await save_attendance_entry(
             db,
-            school_id=user.id,
+            school_id=_school_id(),
             student_id=body.student_id,
             month=body.month,
             year=body.year,
@@ -1301,10 +1971,10 @@ async def get_attendance(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    await _get_school_profile(user.id, db)
+    _school_ctx().profile
 
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     students = students_res.scalars().all()
     student_map = {s.id: s.full_name for s in students}
@@ -1338,10 +2008,10 @@ async def get_zqa(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    await _get_school_profile(user.id, db)
+    _school_ctx().profile
 
     students_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.school_id == user.id)
+        select(SchoolStudent).where(SchoolStudent.school_id == _school_id())
     )
     students = students_res.scalars().all()
 
@@ -1376,13 +2046,13 @@ async def get_kia_priorities(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
 
     hour = datetime.utcnow().hour
     greeting_time = "morning" if hour < 12 else ("afternoon" if hour < 17 else "evening")
     greeting = f"Good {greeting_time}, {profile.principal_name}. Here are your priority actions for today."
 
-    raw_items = await generate_school_priorities(user.id, db)
+    raw_items = await generate_school_priorities(_school_id(), db)
     items = [SchoolKiaPriorityItem(**item) for item in raw_items]
 
     return SchoolKiaPrioritiesResponse(greeting=greeting, items=items)
@@ -1395,7 +2065,7 @@ async def kia_chat(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
 
     user_msg = SchoolKiaMessage(
         school_id=profile.id,
@@ -1405,7 +2075,7 @@ async def kia_chat(
     db.add(user_msg)
     await db.flush()
 
-    context = await fetch_school_context(user.id, db)
+    context = await fetch_school_context(_school_id(), db)
     reply = await generate_school_response(body.message, context)
 
     if not reply:
@@ -1415,7 +2085,36 @@ async def kia_chat(
     db.add(kia_msg)
     await db.commit()
 
-    return SchoolKiaChatResponse(reply=reply)
+    return SchoolKiaChatResponse(
+        reply=reply,
+        user_message_id=user_msg.id,
+        kia_message_id=kia_msg.id,
+    )
+
+
+@router.delete("/kia-chat/messages/{message_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_kia_message(
+    message_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_school(user)
+    profile = _school_ctx().profile
+
+    res = await db.execute(
+        select(SchoolKiaMessage).where(
+            SchoolKiaMessage.id == message_id,
+            SchoolKiaMessage.school_id == profile.id,
+        )
+    )
+    msg = res.scalar_one_or_none()
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+    if msg.role != "user":
+        raise HTTPException(status_code=403, detail="Only your messages can be deleted")
+
+    await db.delete(msg)
+    await db.commit()
 
 
 @router.get("/kia-chat/history", response_model=List[SchoolKiaMessageResponse])
@@ -1424,7 +2123,7 @@ async def get_kia_history(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
 
     res = await db.execute(
         select(SchoolKiaMessage)
@@ -1481,7 +2180,7 @@ async def get_kia_welcome(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
     welcome = await _ensure_kia_welcome(db, profile.id)
 
     tasks = welcome.task_list or []
@@ -1503,7 +2202,7 @@ async def complete_kia_welcome(
 ):
     """Mark the one-time Kia welcome checklist as done."""
     _require_school(user)
-    profile = await _get_school_profile(user.id, db)
+    profile = _school_ctx().profile
     welcome = await _ensure_kia_welcome(db, profile.id)
     welcome.welcome_sent = True
     await db.commit()
@@ -1518,7 +2217,7 @@ async def handle_tutor_recommendation(
     db: AsyncSession = Depends(get_db),
 ):
     _require_school(user)
-    await _get_school_profile(user.id, db)
+    _school_ctx().profile
 
     if body.action not in ("accept", "reject"):
         raise HTTPException(status_code=400, detail="Action must be 'accept' or 'reject'.")
@@ -1526,7 +2225,7 @@ async def handle_tutor_recommendation(
     res = await db.execute(
         select(SchoolStudent).where(
             SchoolStudent.id == student_id,
-            SchoolStudent.school_id == user.id,
+            SchoolStudent.school_id == _school_id(),
         )
     )
     student = res.scalar_one_or_none()

@@ -80,6 +80,12 @@ async def _keepalive_loop():
 @app.on_event("startup")
 async def _startup() -> None:
     await init_db()
+    try:
+        from app.db.apply_all_migrations import apply_all_migrations
+
+        await apply_all_migrations()
+    except Exception as exc:
+        logger.warning("[Startup] School migrations skipped: %s", exc)
     asyncio.create_task(_keepalive_loop())
     logger.info("[Startup] Server ready. DB keepalive task started.")
 

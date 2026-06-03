@@ -157,6 +157,10 @@ class SchoolKiaPriorityItem(BaseModel):
     detail: str
     student_name: Optional[str] = None
     action_required: bool = False
+    priority_score: Optional[int] = None
+    urgency: Optional[str] = None
+    recommended_action: Optional[str] = None
+    reasons: List[str] = Field(default_factory=list)
 
 
 class SchoolKiaPrioritiesResponse(BaseModel):
@@ -170,6 +174,8 @@ class SchoolKiaChatRequest(BaseModel):
 
 class SchoolKiaChatResponse(BaseModel):
     reply: str
+    user_message_id: str
+    kia_message_id: str
 
 
 class SchoolKiaMessageResponse(BaseModel):
