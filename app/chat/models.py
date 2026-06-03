@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, Text
+from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -34,6 +34,16 @@ class SponsorCircle(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="active")
+    fy_label: Mapped[Optional[str]] = mapped_column(String(20), nullable=True, default="2025-26")
+    annual_budget: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=150000)
+    budget_spent: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=94200)
+    budget_collected: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=124500)
+    budget_set_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    budget_set_by: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

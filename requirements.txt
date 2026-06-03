@@ -87,3 +87,4 @@ websockets==14.2
 wrapt==2.1.2
 
 reportlab
+pypdf>=5.0.0

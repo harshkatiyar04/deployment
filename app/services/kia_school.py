@@ -42,7 +42,13 @@ def _build_school_prompt(school_context: dict) -> str:
 
 
 async def fetch_school_context(school_id: str, db: AsyncSession) -> dict:
-    from app.models.school import SchoolProfile, SchoolStudent, SchoolReport
+    from app.models.school import (
+        SchoolProfile,
+        SchoolStudent,
+        SchoolReport,
+        SchoolStudentNarrative,
+        SchoolFormSubmission,
+    )
 
     profile_res = await db.execute(
         select(SchoolProfile).where(SchoolProfile.id == school_id)
@@ -56,28 +62,82 @@ async def fetch_school_context(school_id: str, db: AsyncSession) -> dict:
     )
     students = students_res.scalars().all()
 
-    high_risk = [s.full_name for s in students if s.risk_level == "High"]
-    below_attendance = [s.full_name for s in students if s.attendance_pct < 75]
-
-    reports_res = await db.execute(
-        select(SchoolReport).where(
-            SchoolReport.school_id == school_id,
-            SchoolReport.status == "Pending",
+    narratives_res = await db.execute(
+        select(SchoolStudentNarrative).where(
+            SchoolStudentNarrative.student_id.in_([s.id for s in students])
+            if students
+            else False
         )
     )
-    pending_reports = reports_res.scalars().all()
+    narratives = narratives_res.scalars().all()
+    narrative_by_student = {n.student_id: n for n in narratives}
+
+    reports_res = await db.execute(
+        select(SchoolReport).where(SchoolReport.school_id == school_id)
+    )
+    all_reports = reports_res.scalars().all()
+    pending_reports = [r for r in all_reports if r.status == "Pending"]
+
+    from app.models.school import SchoolFormSubmission
+
+    pdf_pending_res = await db.execute(
+        select(SchoolFormSubmission).where(
+            SchoolFormSubmission.school_id == school_id,
+            SchoolFormSubmission.status == "pending_review",
+        )
+    )
+    pdf_pending = pdf_pending_res.scalars().all()
+
+    subs_res = await db.execute(
+        select(SchoolFormSubmission)
+        .where(SchoolFormSubmission.school_id == school_id)
+        .order_by(SchoolFormSubmission.submitted_at.desc())
+        .limit(5)
+    )
+    recent_subs = subs_res.scalars().all()
+
+    high_risk = [s.full_name for s in students if s.risk_level == "High"]
+    below_attendance = [
+        s.full_name for s in students if s.attendance_pct > 0 and s.attendance_pct < 75
+    ]
+
+    student_summaries = []
+    for s in students:
+        narr = narrative_by_student.get(s.id)
+        narr_note = (
+            f"narrative Q{narr.quarter}: {'finalized' if narr.finalized else 'draft'}"
+            if narr
+            else "no narrative yet"
+        )
+        student_summaries.append(
+            f"{s.full_name} ({s.grade}): attendance {s.attendance_pct:.1f}%, "
+            f"avg score {s.avg_score:.1f}%, ZQA {s.zqa_score:.1f}% (platform-calculated), risk {s.risk_level}, "
+            f"report {s.q_report_status}; {narr_note}"
+        )
+
+    recent_activity = []
+    for sub in recent_subs:
+        name = next((s.full_name for s in students if s.id == sub.student_id), "Unknown")
+        recent_activity.append(
+            f"{sub.quarter} report for {name} submitted by {sub.submitted_by_name} "
+            f"at {sub.submitted_at.isoformat()}"
+        )
 
     return {
         "school_name": profile.school_name,
         "principal_name": profile.principal_name,
         "total_students": len(students),
-        "avg_attendance": f"{profile.avg_attendance:.0f}%",
-        "avg_academic_score": f"{profile.avg_academic_score:.0f}%",
+        "avg_attendance": f"{profile.avg_attendance:.1f}%",
+        "avg_academic_score": f"{profile.avg_academic_score:.1f}%",
         "high_risk_students": ", ".join(high_risk) if high_risk else "None",
         "students_below_attendance_threshold": ", ".join(below_attendance) if below_attendance else "None",
         "pending_reports_count": len(pending_reports),
         "next_zqa_date": profile.next_zqa_date or "Not scheduled",
         "fy": profile.fy_current,
+        "live_student_data": "; ".join(student_summaries) if student_summaries else "No students",
+        "recent_form_submissions": "; ".join(recent_activity) if recent_activity else "None yet",
+        "pdf_reviews_pending": len(pdf_pending),
+        "data_policy": "Use only the metrics above — they are loaded live from the database after form submissions.",
     }
 
 
@@ -96,7 +156,7 @@ async def generate_school_response(message: str, school_context: dict) -> Option
 
 
 async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[dict]:
-    from app.models.school import SchoolStudent, SchoolReport
+    from app.models.school import SchoolStudent, SchoolReport, SchoolFormSubmission
 
     students_res = await db.execute(
         select(SchoolStudent).where(SchoolStudent.school_id == school_id)
@@ -112,10 +172,31 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
     )
     pending_reports = reports_res.scalars().all()
 
+    pdf_pending_res = await db.execute(
+        select(SchoolFormSubmission).where(
+            SchoolFormSubmission.school_id == school_id,
+            SchoolFormSubmission.status == "pending_review",
+        )
+    )
+    pdf_pending = pdf_pending_res.scalars().all()
+
     priorities = []
 
     for s in students:
-        if s.attendance_pct < 75:
+        if s.avg_score == 0 and s.attendance_pct == 0:
+            priorities.append({
+                "type": "report_due",
+                "title": f"Submit quarterly report — {s.full_name}",
+                "detail": (
+                    f"No live metrics for {s.full_name} yet. "
+                    f"Open Submit report and enter attendance, scores, Bloom's, SEL, and narrative."
+                ),
+                "student_name": s.full_name,
+                "action_required": True,
+            })
+
+    for s in students:
+        if s.attendance_pct > 0 and s.attendance_pct < 75:
             grade_part = s.grade.replace("Grade ", "Gr ")
             priorities.append({
                 "type": "attendance_alert",
@@ -131,16 +212,37 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
 
     if pending_reports:
         names = ", ".join(
-            student_map.get(r.student_id, "Unknown") for r in pending_reports[:2]
+            student_map.get(r.student_id, "Unknown") for r in pending_reports[:3]
         )
         quarters = list({r.quarter for r in pending_reports})
         priorities.append({
             "type": "report_due",
-            "title": f"{pending_reports[0].quarter} reports due — {len(pending_reports)} students pending",
+            "title": f"{pending_reports[0].quarter} reports pending — {len(pending_reports)}",
             "detail": (
-                f"{names} {'/'.join(quarters)} reports are not yet submitted. "
-                f"Deadline: 10 April 2026. Kia has pre-generated draft reports for teacher review."
+                f"{names}: {', '.join(quarters)} report(s) not finalized. "
+                f"Use Submit report on the school dashboard to enter live data."
             ),
+            "student_name": None,
+            "action_required": True,
+        })
+
+    if pdf_pending:
+        priorities.insert(0, {
+            "type": "report_due",
+            "title": f"PDF reviews pending — {len(pdf_pending)}",
+            "detail": (
+                "AI extracted report data from uploaded PDFs. "
+                "Open Import PDF, review fields, and approve to publish live dashboard data."
+            ),
+            "student_name": None,
+            "action_required": True,
+        })
+
+    if not students:
+        priorities.append({
+            "type": "report_due",
+            "title": "No students enrolled",
+            "detail": "Add a student record, then submit the quarterly report form.",
             "student_name": None,
             "action_required": True,
         })
@@ -151,8 +253,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                 "type": "zqa_milestone",
                 "title": f"ZQA milestone — {s.full_name}",
                 "detail": (
-                    f"{s.full_name} scored {s.zqa_score:.0f}% in Q3 ZQA, "
-                    f"up from 70% baseline. This milestone contributes +4.2 pts to the circle's ZenQ score."
+                    f"{s.full_name} has a platform ZQA score of {s.zqa_score:.0f}% "
+                    f"(ZenK-calculated from attendance, academics, and circle data)."
                 ),
                 "student_name": s.full_name,
                 "action_required": False,

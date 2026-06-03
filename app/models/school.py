@@ -32,6 +32,8 @@ class SchoolProfile(Base):
     avg_academic_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     next_zqa_date: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     reports_pending: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    school_logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    principal_photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -212,3 +214,106 @@ class SchoolStudentNarrative(Base):
     teacher_name: Mapped[str] = mapped_column(String(100), nullable=False)
     narrative: Mapped[str] = mapped_column(Text, nullable=False)
     finalized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class SchoolFormSubmission(Base):
+    __tablename__ = "school_form_submissions"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    student_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_students.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    quarter: Mapped[str] = mapped_column(String(10), nullable=False)
+    fy: Mapped[str] = mapped_column(String(20), nullable=False, default="2025-26")
+    source: Mapped[str] = mapped_column(String(20), nullable=False, default="manual")
+    submitted_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    submitted_by_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    submitted_by_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="processed")
+    payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SchoolStudentEnrollmentRequest(Base):
+    """School proposes a new student; ZenK circle must approve before enrollment is active."""
+
+    __tablename__ = "school_student_enrollment_requests"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    circle_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.sponsor_circles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    circle_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(30), nullable=False, default="pending_circle"
+    )
+    student_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_students.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    full_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    grade: Mapped[str] = mapped_column(String(50), nullable=False)
+    dob: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    zenk_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    class_teacher: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    sl_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    mentor_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    rank_in_class: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    class_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+    initial_academic_payload: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    requested_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    requested_by_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    requested_by_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    reviewed_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    reviewed_by_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    review_note: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    intimation_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )

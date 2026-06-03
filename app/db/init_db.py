@@ -5,11 +5,10 @@ from app.db.base import Base
 from app.db.config import db_settings
 from app.db.session import engine
 
+# Import models so they register with Base.metadata
 from app.models import notification, signup  # noqa: F401
 import app.chat.models  # noqa: F401
 import app.microservices.vendor.models  # noqa: F401
-import app.models.mentor  # noqa: F401
-import app.models.school  # noqa: F401
 
 
 async def init_db() -> None:
@@ -67,54 +66,10 @@ async def init_db() -> None:
         await conn.execute(text(drop_trigger_sql))
         await conn.execute(text(create_trigger_sql))
 
+    # Run enum migrations (must be outside the transaction above)
     from app.db.migrations.migration_004_add_corporate_persona import run_migration as migration_004
-    from app.db.migrations.migration_007_mentor_dashboard import run_migration as migration_007
-    from app.db.migrations.migration_009_school_dashboard import run_migration as migration_009
     from app.db.session import SessionLocal
     async with SessionLocal() as session:
         await migration_004(session)
-    await migration_007()
-    await migration_009()
-
-    # --- Auto-seed school@zenk for deployed environments ---
-    import logging
-    from app.core.security import hash_password
-    logger = logging.getLogger(__name__)
-    async with engine.begin() as conn:
-        try:
-            # Check if school@zenk exists
-            res = await conn.execute(text("SELECT id, persona FROM \"ZENK\".signup_requests WHERE email = 'school@zenk'"))
-            row = res.fetchone()
-            if not row:
-                logger.info("Seeding school@zenk account...")
-                pwd = hash_password("school123")
-                new_id_res = await conn.execute(text(
-                    "INSERT INTO \"ZENK\".signup_requests (name, email, password, persona, verified) "
-                    f"VALUES ('Sunrise School Admin', 'school@zenk', '{pwd}', 'school', true) RETURNING id"
-                ))
-                user_id = new_id_res.scalar()
-                
-                await conn.execute(text(f"""
-                    INSERT INTO "ZENK".school_profiles 
-                    (id, school_name, school_code, affiliation, city, district, principal_name, total_enrolled, avg_attendance, avg_academic_score) 
-                    VALUES ('{user_id}', 'Sunrise English Medium School', 'ZNK-SCH-MUM-0012', 'CBSE', 'Mumbai', 'Dharavi', 'Priya Patel', 450, 88.0, 76.0)
-                """))
-            else:
-                user_id, persona = row
-                if persona != 'school':
-                    logger.info("Fixing school@zenk persona...")
-                    await conn.execute(text(f"UPDATE \"ZENK\".signup_requests SET persona = 'school' WHERE id = '{user_id}'"))
-                
-                # Check if profile exists
-                prof_res = await conn.execute(text(f"SELECT id FROM \"ZENK\".school_profiles WHERE id = '{user_id}'"))
-                if not prof_res.fetchone():
-                    logger.info("Fixing school profile...")
-                    await conn.execute(text(f"""
-                        INSERT INTO "ZENK".school_profiles 
-                        (id, school_name, school_code, affiliation, city, district, principal_name, total_enrolled, avg_attendance, avg_academic_score) 
-                        VALUES ('{user_id}', 'Sunrise English Medium School', 'ZNK-SCH-MUM-0012', 'CBSE', 'Mumbai', 'Dharavi', 'Priya Patel', 450, 88.0, 76.0)
-                    """))
-        except Exception as e:
-            logger.error(f"Failed to auto-seed school account: {e}")
 
 
