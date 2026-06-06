@@ -18,7 +18,9 @@ PRINCIPAL_ONLY: FrozenSet[str] = frozenset({
     "manage_profile_photos",
     "view_audit_log",
     "manage_portal_access",
+    "manage_faculty_registry",
     "remove_student",
+    "review_parent_upload",
 })
 
 ALL_PERMISSIONS: FrozenSet[str] = frozenset({
@@ -31,6 +33,7 @@ ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "manage_attendance",
     "request_meeting",
     "submit_enrollment",
+    "view_faculty_registry",
     *PRINCIPAL_ONLY,
 })
 

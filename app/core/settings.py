@@ -14,8 +14,12 @@ class Settings(BaseSettings):
     # Where uploaded KYC docs are stored on disk (local storage for now)
     storage_dir: str = Field(default="app/storage")
 
-    # Website (used in email content)
-    website_url: str = Field(default="https://zenkedu.com")
+    # Public site / invite links (set to production URL on deploy)
+    website_url: str = Field(default="http://localhost:5173", validation_alias="WEBSITE_URL")
+    frontend_base_url: str = Field(
+        default="http://localhost:5173",
+        validation_alias="FRONTEND_BASE_URL",
+    )
 
     # SMTP (for email notifications)
     smtp_enabled: bool = Field(default=False)
@@ -31,6 +35,27 @@ class Settings(BaseSettings):
     # Content Moderation API
     gemini_api_key: Optional[str] = Field(default=None)
     groq_api_key: Optional[str] = Field(default=None)
+
+    # The Guardian Open Platform (use "test" for dev tier; set a real key in production)
+    guardian_api_key: Optional[str] = Field(default=None, validation_alias="GUARDIAN_API_KEY")
+
+    # Dev-only: allow auto-join demo circle (never enable in production)
+    allow_demo_circle: bool = Field(default=False, validation_alias="ZENK_ALLOW_DEMO_CIRCLE")
+
+    # Admin KYC / queue APIs — required in production (FE: VITE_ZENK_ADMIN_API_KEY)
+    admin_api_key: Optional[str] = Field(default=None, validation_alias="ZENK_ADMIN_API_KEY")
+    # Local dev only: allow admin routes without a key (never enable in production)
+    admin_allow_open_dev: bool = Field(default=False, validation_alias="ZENK_ADMIN_ALLOW_OPEN_DEV")
+
+    # ICICI corporate disbursement gateway (production URL from bank onboarding)
+    icici_gateway_base_url: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_GATEWAY_BASE_URL",
+    )
+    icici_merchant_id: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_MERCHANT_ID",
+    )
 
 
 settings = Settings()

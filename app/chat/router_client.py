@@ -49,6 +49,7 @@ from app.chat.schemas import (
     CircleMemberOut,
     WSEnvelope,
 )
+from app.chat.gamified_persona import get_or_create_persona as _get_or_create_persona
 from app.chat.services import manager
 from app.services.shield import shield_message_async
 from app.services.kia import generate_kia_response
@@ -64,29 +65,6 @@ _raised_hands: dict[str, set[str]] = {}
 
 ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/pdf"}
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
-
-
-async def _get_or_create_persona(
-    user: SignupRequest, db: AsyncSession
-) -> GamifiedPersona:
-    """Get existing GamifiedPersona for user, or create one."""
-    result = await db.execute(
-        select(GamifiedPersona).where(GamifiedPersona.user_id == user.id)
-    )
-    persona = result.scalar_one_or_none()
-    if persona is None:
-        # Generate a deterministic but anonymous nickname from user email prefix
-        prefix = user.email.split("@")[0][:8]
-        nickname = f"{prefix}_{str(uuid.uuid4())[:4]}"
-        avatar_key = f"avatar_{str(uuid.uuid4())[:8]}"
-        persona = GamifiedPersona(
-            user_id=user.id,
-            nickname=nickname,
-            avatar_key=avatar_key,
-        )
-        db.add(persona)
-        await db.flush()
-    return persona
 
 
 async def _message_to_out(msg: ChatMessage, persona: GamifiedPersona) -> MessageOut:
@@ -186,7 +164,11 @@ async def _process_kia_bot_response(
                     include_private=True,
                     is_leader=is_leader,
                 )
-                response_text = await generate_kia_response(trigger_message, user_context=user_context)
+                response_text = await generate_kia_response(
+                    trigger_message,
+                    user_context=user_context,
+                    channel="CIRCLE_CHAT",
+                )
                 
             if not response_text:
                 # Stop typing even if no response generated

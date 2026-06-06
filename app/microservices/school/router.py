@@ -45,14 +45,24 @@ from app.microservices.school.schemas import (
     SchoolAttendanceEntryRequest,
     SchoolAttendanceEntryResponse,
     SchoolCircleOption,
+    SchoolFacultyResponse,
+    SchoolFacultyCreateRequest,
+    SchoolFacultyUpdateRequest,
+    SchoolStudentFacultyAssignRequest,
     SchoolStudentEnrollRequest,
     SchoolEnrollmentRequestResponse,
     SchoolEnrollmentCreateResponse,
+    PendingStudentSignupResponse,
+    AdmitStudentSignupRequest,
+    AdmitStudentSignupResponse,
     SchoolAuditLogEntry,
     SchoolPortalMemberResponse,
     SchoolPortalMemberCreateRequest,
     SchoolPortalMemberUpdateRequest,
     SchoolPortalInviteResponse,
+    SchoolPartnerCircleResponse,
+    SchoolPartnerMessageResponse,
+    SchoolPartnerMessageRequest,
 )
 from app.services.school_portal_invite import create_portal_invite, build_join_url
 from app.services.school_invite_email import send_school_portal_invite_email
@@ -78,7 +88,26 @@ from app.services.school_student_enrollment import (
     create_enrollment_request,
     enrollment_request_to_dict,
 )
+from app.services.school_student_admit import (
+    admit_student_signup,
+    list_pending_student_signups,
+)
+from app.services.student_onboarding_v2 import (
+    approve_school_interest,
+    list_principal_school_interests,
+    reject_school_interest,
+)
 from app.services.cloudinary_service import upload_image
+from app.microservices.parent.schemas import (
+    SchoolParentSubmissionOut,
+    ParentReviewRequest,
+    ParentRejectRequest,
+)
+from app.services.parent_portal import (
+    list_school_parent_submissions,
+    approve_parent_submission,
+    reject_parent_submission,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -526,6 +555,151 @@ async def remove_portal_member(
     return {"status": "success", "message": f"Removed portal access for {member.email}."}
 
 
+@router.get("/faculty", response_model=List[SchoolFacultyResponse])
+async def list_school_faculty(
+    role: Optional[str] = None,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "view_faculty_registry")
+    from app.services.school_faculty_registry import list_faculty
+
+    ctx = _school_ctx()
+    return [SchoolFacultyResponse(**row) for row in await list_faculty(db, ctx.school_id, role=role)]
+
+
+@router.post("/faculty", response_model=SchoolFacultyResponse)
+async def create_school_faculty(
+    body: SchoolFacultyCreateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_faculty_registry")
+    from app.services.school_faculty_registry import create_faculty
+
+    ctx = _school_ctx()
+    row = await create_faculty(
+        db,
+        ctx.school_id,
+        display_name=body.display_name,
+        faculty_role=body.faculty_role,
+        subject=body.subject,
+        email=body.email,
+        portal_member_id=body.portal_member_id,
+        notes=body.notes,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "create_faculty",
+        outcome="success",
+        detail={"display_name": row["display_name"], "faculty_role": row["faculty_role"]},
+    )
+    await db.commit()
+    return SchoolFacultyResponse(**row)
+
+
+@router.patch("/faculty/{faculty_id}", response_model=SchoolFacultyResponse)
+async def update_school_faculty(
+    faculty_id: str,
+    body: SchoolFacultyUpdateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "manage_faculty_registry")
+    from app.services.school_faculty_registry import update_faculty
+
+    ctx = _school_ctx()
+    row = await update_faculty(
+        db,
+        ctx.school_id,
+        faculty_id,
+        display_name=body.display_name,
+        faculty_role=body.faculty_role,
+        subject=body.subject,
+        email=body.email,
+        notes=body.notes,
+        is_active=body.is_active,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "update_faculty",
+        outcome="success",
+        detail={"faculty_id": faculty_id},
+    )
+    await db.commit()
+    return SchoolFacultyResponse(**row)
+
+
+@router.patch("/students/{student_id}/faculty-assignments")
+async def assign_student_faculty(
+    student_id: str,
+    body: SchoolStudentFacultyAssignRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "submit_enrollment")
+    from app.services.school_faculty_registry import assign_faculty_to_student
+
+    ctx = _school_ctx()
+    res = await db.execute(
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id,
+            SchoolStudent.school_id == ctx.school_id,
+        )
+    )
+    student = res.scalar_one_or_none()
+    if not student:
+        raise HTTPException(status_code=404, detail="Student not found.")
+
+    out = await assign_faculty_to_student(
+        db,
+        ctx.school_id,
+        student,
+        class_teacher_faculty_id=body.class_teacher_faculty_id,
+        mentor_faculty_id=body.mentor_faculty_id,
+        clear_class_teacher=body.clear_class_teacher,
+        clear_mentor=body.clear_mentor,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "assign_student_faculty",
+        student_id=student.id,
+        outcome="success",
+        detail=out,
+    )
+    await db.commit()
+    return {"status": "success", **out}
+
+
+@router.post("/students/sync-circle-links")
+async def sync_student_circle_links(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Principal: refresh circle name + SL from live sponsor circles."""
+    await _enforce_school_permission(db, user, "manage_faculty_registry")
+    from app.services.school_circle_sync import backfill_circle_links_for_school
+
+    ctx = _school_ctx()
+    result = await backfill_circle_links_for_school(db, ctx.school_id)
+    await _audit_school_action(
+        db,
+        user,
+        ctx.school_id,
+        "sync_circle_links",
+        outcome="success",
+        detail=result,
+    )
+    await db.commit()
+    return {"status": "success", **result}
+
+
 @router.post("/profile/school-photo", response_model=SchoolPhotoUploadResponse)
 async def upload_school_photo(
     file: UploadFile = File(...),
@@ -586,8 +760,10 @@ async def get_students(
             zenk_id=s.zenk_id,
             dob=s.dob,
             class_teacher=s.class_teacher,
+            class_teacher_faculty_id=s.class_teacher_faculty_id,
             sl_name=s.sl_name,
             mentor_name=s.mentor_name,
+            mentor_faculty_id=s.mentor_faculty_id,
             rank_in_class=s.rank_in_class,
             class_size=s.class_size,
             zenq_contribution=s.zenq_contribution,
@@ -595,6 +771,103 @@ async def get_students(
         )
         for s in students
     ]
+
+
+@router.get("/student-interests")
+async def school_student_interests(
+    status: str = "pending_principal",
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """v2: students who selected this school at signup and await principal approval."""
+    await _enforce_school_permission(db, user, "submit_enrollment")
+    return await list_principal_school_interests(db, _school_id(), status=status)
+
+
+@router.post("/student-interests/{interest_id}/approve")
+async def school_approve_student_interest(
+    interest_id: str,
+    body: ParentReviewRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "submit_enrollment")
+    return await approve_school_interest(
+        db,
+        interest_id=interest_id,
+        school_id=_school_id(),
+        principal=user,
+        note=body.note,
+    )
+
+
+@router.post("/student-interests/{interest_id}/reject")
+async def school_reject_student_interest(
+    interest_id: str,
+    body: ParentRejectRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "submit_enrollment")
+    return await reject_school_interest(
+        db,
+        interest_id=interest_id,
+        school_id=_school_id(),
+        principal=user,
+        note=body.note,
+    )
+
+
+@router.get("/pending-student-signups", response_model=List[PendingStudentSignupResponse])
+async def school_pending_student_signups(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """KYC-approved ZenK student signups not yet admitted to this school."""
+    profile = await _enforce_school_permission(db, user, "submit_enrollment")
+    rows = await list_pending_student_signups(db, profile)
+    return [PendingStudentSignupResponse(**r) for r in rows]
+
+
+@router.post("/students/admit-signup", response_model=AdmitStudentSignupResponse)
+async def school_admit_student_signup(
+    body: AdmitStudentSignupRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    One-click admit: link an approved student signup to this school.
+    Circle join is requested later from the student dashboard.
+    """
+    profile = await _enforce_school_permission(db, user, "submit_enrollment")
+    try:
+        student = await admit_student_signup(
+            db,
+            school_id=profile.id,
+            signup_id=body.signup_id.strip(),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    await _audit_school_action(
+        db,
+        user,
+        profile.id,
+        "admit_student_signup",
+        student_id=student.id,
+        detail={"signup_id": body.signup_id},
+    )
+    await db.commit()
+
+    return AdmitStudentSignupResponse(
+        status="success",
+        message=(
+            f"{student.full_name} is now enrolled at your school. "
+            "They can request a sponsorship circle from their student dashboard."
+        ),
+        student_id=student.id,
+        signup_id=body.signup_id,
+    )
 
 
 @router.get("/circles", response_model=List[SchoolCircleOption])
@@ -718,8 +991,10 @@ async def get_student_detail(
         zenk_id=student.zenk_id,
         dob=student.dob,
         class_teacher=student.class_teacher,
+        class_teacher_faculty_id=student.class_teacher_faculty_id,
         sl_name=student.sl_name,
         mentor_name=student.mentor_name,
+        mentor_faculty_id=student.mentor_faculty_id,
         rank_in_class=student.rank_in_class,
         class_size=student.class_size,
         zenq_contribution=student.zenq_contribution,
@@ -2235,3 +2510,165 @@ async def handle_tutor_recommendation(
     student.tutor_recommendation_status = body.action
     await db.commit()
     return {"ok": True, "status": body.action}
+
+
+@router.get("/parent-submissions", response_model=List[SchoolParentSubmissionOut])
+async def school_parent_submissions(
+    status: str = "pending_principal",
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Principal queue for parent-uploaded marksheets and transcripts."""
+    await _enforce_school_permission(db, user, "review_parent_upload", audit_action="list_parent_submissions")
+    rows = await list_school_parent_submissions(db, _school_id(), status=status)
+    return [SchoolParentSubmissionOut(**r) for r in rows]
+
+
+@router.post("/parent-submissions/{submission_id}/approve", response_model=SchoolParentSubmissionOut)
+async def school_approve_parent_submission(
+    submission_id: str,
+    body: ParentReviewRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(
+        db,
+        user,
+        "review_parent_upload",
+        audit_action="approve_parent_submission",
+    )
+    row = await approve_parent_submission(
+        db,
+        school_user=user,
+        school_id=_school_id(),
+        submission_id=submission_id,
+        note=body.note,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        _school_id(),
+        "approve_parent_submission",
+        student_id=row.get("school_student_id"),
+        detail={"submission_id": submission_id},
+    )
+    await db.commit()
+    return SchoolParentSubmissionOut(**row)
+
+
+@router.post("/parent-submissions/{submission_id}/reject", response_model=SchoolParentSubmissionOut)
+async def school_reject_parent_submission(
+    submission_id: str,
+    body: ParentRejectRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(
+        db,
+        user,
+        "review_parent_upload",
+        audit_action="reject_parent_submission",
+    )
+    row = await reject_parent_submission(
+        db,
+        school_user=user,
+        school_id=_school_id(),
+        submission_id=submission_id,
+        note=body.note,
+    )
+    await _audit_school_action(
+        db,
+        user,
+        _school_id(),
+        "reject_parent_submission",
+        student_id=row.get("school_student_id"),
+        detail={"submission_id": submission_id, "note": body.note},
+    )
+    await db.commit()
+    return SchoolParentSubmissionOut(**row)
+
+
+@router.get("/partner-circles", response_model=List[SchoolPartnerCircleResponse])
+async def list_school_partner_circles(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sponsor circles with enrolled students from this school."""
+    await _enforce_school_permission(db, user, "view_students")
+    from app.services.circle_school_partner import list_partner_circles_for_school
+
+    rows = await list_partner_circles_for_school(db, _school_id())
+    return [SchoolPartnerCircleResponse(**r) for r in rows]
+
+
+@router.get(
+    "/partner-circles/{circle_id}/messages",
+    response_model=List[SchoolPartnerMessageResponse],
+)
+async def list_school_partner_circle_messages(
+    circle_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "view_students")
+    from app.services.circle_school_partner import fetch_partner_messages
+
+    school_id = _school_id()
+    linked = await db.execute(
+        select(func.count())
+        .select_from(SchoolStudent)
+        .where(
+            SchoolStudent.school_id == school_id,
+            SchoolStudent.circle_id == circle_id,
+        )
+    )
+    if int(linked.scalar_one() or 0) < 1:
+        raise HTTPException(status_code=404, detail="This circle is not linked to your school.")
+    rows = await fetch_partner_messages(db, circle_id=circle_id, school_id=school_id)
+    return [SchoolPartnerMessageResponse(**r) for r in rows]
+
+
+@router.post(
+    "/partner-circles/{circle_id}/messages",
+    response_model=SchoolPartnerMessageResponse,
+)
+async def post_school_partner_circle_message(
+    circle_id: str,
+    body: SchoolPartnerMessageRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _enforce_school_permission(db, user, "view_students")
+    from app.services.circle_school_partner import post_partner_message
+
+    school_id = _school_id()
+    linked = await db.execute(
+        select(func.count())
+        .select_from(SchoolStudent)
+        .where(
+            SchoolStudent.school_id == school_id,
+            SchoolStudent.circle_id == circle_id,
+        )
+    )
+    if int(linked.scalar_one() or 0) < 1:
+        raise HTTPException(status_code=404, detail="This circle is not linked to your school.")
+    try:
+        row = await post_partner_message(
+            db,
+            circle_id=circle_id,
+            school_id=school_id,
+            sender_side="school",
+            body=body.body,
+            sender_signup=user,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await _audit_school_action(
+        db,
+        user,
+        school_id,
+        "partner_circle_message",
+        detail={"circle_id": circle_id, "message_id": row["id"]},
+    )
+    await db.commit()
+    return SchoolPartnerMessageResponse(**row)

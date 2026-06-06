@@ -81,6 +81,91 @@ async def notify_user_kyc_approved(
     )
 
 
+async def notify_circle_leaders_member_application(
+    *,
+    circle_id: str,
+    member_signup_id: str,
+    member_name: str,
+    member_email: str,
+    db: AsyncSession,
+) -> None:
+    """Tell circle leaders that someone applied via their invite link."""
+    from sqlalchemy import select
+
+    from app.chat.models import CircleMember, SponsorCircle
+    from app.services.circle_budget import LEADER_ROLES
+
+    circle_res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+    circle = circle_res.scalar_one_or_none()
+    circle_label = circle.name if circle else "your circle"
+
+    leaders_res = await db.execute(
+        select(CircleMember.user_id).where(
+            CircleMember.circle_id == circle_id,
+            CircleMember.role.in_(list(LEADER_ROLES)),
+        )
+    )
+    leader_ids = [row[0] for row in leaders_res.all()]
+    if not leader_ids:
+        logger.info(
+            "No leaders to notify for circle_id=%s (member signup %s)",
+            circle_id,
+            member_signup_id,
+        )
+        return
+
+    for leader_id in leader_ids:
+        if leader_id == member_signup_id:
+            continue
+        await create_notification(
+            recipient_id=leader_id,
+            recipient_type="user",
+            notification_type="circle_member_application",
+            title="New circle member application",
+            message=(
+                f"{member_name} ({member_email}) applied to join {circle_label} "
+                "using your invite link. They appear in Pending while Zenk completes verification."
+            ),
+            related_entity_id=member_signup_id,
+            related_entity_type="signup",
+            db=db,
+        )
+
+
+async def notify_user_leader_circle_decision(
+    *,
+    member_signup_id: str,
+    member_name: str,
+    circle_name: str,
+    approved: bool,
+    db: AsyncSession,
+) -> None:
+    if approved:
+        title = "Welcome to the circle"
+        message = (
+            f"Your circle leader approved your membership in {circle_name}. "
+            "You can now participate in circle activities."
+        )
+        ntype = "circle_member_approved"
+    else:
+        title = "Circle membership update"
+        message = (
+            f"Your request to join {circle_name} was not accepted by the circle leader. "
+            "Contact your leader or Zenk support if you have questions."
+        )
+        ntype = "circle_member_rejected"
+    await create_notification(
+        recipient_id=member_signup_id,
+        recipient_type="user",
+        notification_type=ntype,
+        title=title,
+        message=message,
+        related_entity_id=member_signup_id,
+        related_entity_type="signup",
+        db=db,
+    )
+
+
 async def notify_user_kyc_rejected(
     *,
     signup_id: str,

@@ -82,8 +82,14 @@ Still concise (under 3 paragraphs).
 One suggestion line maximum.
 
 LANGUAGE:
-- Default to English. {language_preference}
-- Mirror the user's language choice. Never force a language.
+- {language_preference}
+- Never use Hindi, Hinglish, or mixed-language phrases.
+
+DATA INTEGRITY:
+- Use ONLY facts present in the CONTEXT block below.
+- If has_sponsored_students is false or student count is zero, do NOT invent student names, grades, scores, or rankings.
+- Follow onboarding_guidance from context when there are no students.
+- If a metric is missing from context, say it is not available yet instead of guessing.
 
 FORMATTING:
 - Use plain text. No markdown, no bullet points, no headers.
@@ -105,9 +111,7 @@ PERSONAS = {
             "friend who walks beside each participant."
         ),
         "language_preference": (
-            "You are bilingual-ready (English and Hindi). Use Hindi phrases naturally "
-            "where culturally appropriate. Example: \"Bahut accha! Your circle is "
-            "making real progress.\""
+            "Respond in clear English only. Do not use Hindi or Hinglish under any circumstances."
         ),
     },
     "aryan": {
@@ -265,16 +269,12 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
                 f"you are {abs(delta)}% {above_below} average)"
             )
 
-    # ── ZenQ score (circle-level: always included) ───────────────────
-    zenq = user_context.get("my_zenq_score")
-    rank = user_context.get("my_circle_rank")
-    total = user_context.get("total_circles_nationally")
-    change = user_context.get("zenq_change_this_month")
-    prev = user_context.get("previous_rank")
-    if zenq is not None:
+    # ── ZenQ / ZQA (only when computed from real students) ───────────
+    zenq_summary = user_context.get("circle_zenq_summary")
+    if zenq_summary:
         lines.append(
-            f"Circle ZenQ Score: {zenq} (up {change} pts this month) | "
-            f"National Rank: #{rank} of {total} (was #{prev})"
+            f"Circle ZQA (from enrolled students): average {zenq_summary.get('average_zqa')} "
+            f"across {zenq_summary.get('student_count')} student(s)"
         )
 
     # ── Time invested (EXCLUDED from Circle Chat) ────────────────────
@@ -298,9 +298,28 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
             f"Remaining: ₹{circle_budget.get('balance_to_spend', 0):,}"
         )
 
-    # ── Sponsored student (MASKED NAME ONLY — enforced here) ────────
-    student = user_context.get("sponsored_student")
-    if student:
+    has_students = user_context.get("has_sponsored_students", False)
+    student_count = user_context.get("sponsored_student_count", 0)
+    pending = user_context.get("pending_enrollment_count", 0)
+    lines.append(
+        f"has_sponsored_students: {str(has_students).lower()} | "
+        f"active_students: {student_count} | pending_enrollments: {pending}"
+    )
+    guidance = user_context.get("onboarding_guidance")
+    if guidance:
+        lines.append(f"onboarding_guidance: {guidance}")
+
+    members = user_context.get("circle_member_count")
+    if members is not None:
+        lines.append(f"Circle members (sponsors): {members}")
+
+    # ── Sponsored students (MASKED NAME ONLY) ───────────────────────
+    all_students = user_context.get("sponsored_students") or []
+    if not all_students:
+        student = user_context.get("sponsored_student")
+        if student:
+            all_students = [student]
+    for student in all_students[:5]:
         # CRITICAL: Use masked_name, never real name.
         # If only 'name' is provided, log a warning — this should be
         # fixed upstream so real names never reach this layer.
@@ -335,6 +354,12 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
         if impact:
             lines.append(f"  Impact Summary: {impact}")
 
+    if student_count == 0:
+        lines.append(
+            "NO STUDENT RECORDS: Do not mention Ananya or any demo names. "
+            "Guide the user using onboarding_guidance above."
+        )
+
     # ── Personal contribution (EXCLUDED from Circle Chat) ────────────
     if not is_circle_chat:
         contrib = user_context.get("my_contribution")
@@ -343,17 +368,6 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
                 f"Your Contribution This Month: "
                 f"₹{contrib.get('this_month', 0):,} | "
                 f"Total Contributed: ₹{contrib.get('total_contributed', 0):,}"
-            )
-
-    # ── National rankings (circle-level: always included) ────────────
-    rankings = user_context.get("national_circle_rankings", [])
-    if rankings:
-        lines.append("National Circle Rankings:")
-        for r in rankings:
-            mine_tag = " ← Your Circle" if r.get("is_mine") else ""
-            lines.append(
-                f"  #{r['rank']} {r['name']} ({r['city']}) "
-                f"— ZenQ {r['zenq']}{mine_tag}"
             )
 
     # ── Leader access: individual member data (DASHBOARD only) ───────

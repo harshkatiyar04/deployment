@@ -4,24 +4,78 @@ from typing import Optional
 import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.db.session import get_db
 from app.models.enums import KycStatus, Persona
 from app.models.signup import KycDocument, SignupRequest
-from app.schemas.signup import SignupResponse, FullSignupDetails
+from app.schemas.signup import SignupResponse, FullSignupDetails, StudentFamilySignupResponse
+from app.services.student_family import (
+    compute_login_access_tier,
+    create_parent_guardian_signup,
+    upsert_family_link,
+)
 from app.core.settings import settings
 from app.core.security import hash_password
 from app.services.email import send_email
 from app.services.email_templates import render_admin_notification_html
-from app.services.notifications import notify_admin_new_signup
+from app.services.notifications import notify_admin_new_signup, notify_circle_leaders_member_application
 from app.services.storage import save_kyc_file
+from app.services.student_onboarding_v2 import (
+    ONBOARDING_V2,
+    create_school_interest,
+    list_public_schools,
+)
+from app.models.school import SchoolProfile
 
 
 router = APIRouter(prefix="/signup", tags=["signup"])
 logger = logging.getLogger(__name__)
+
+
+@router.get("/check-availability")
+async def check_signup_availability(
+    email: Optional[str] = None,
+    pan: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Pre-submit check — if email or PAN is already registered, the client should
+    prompt the user to sign in instead of creating a duplicate account.
+    """
+    out: dict = {
+        "email_available": True,
+        "pan_available": True,
+        "email_registered": False,
+        "pan_registered": False,
+        "message": None,
+    }
+
+    if email and email.strip():
+        norm_email = email.strip().lower()
+        res = await db.execute(
+            select(SignupRequest).where(func.lower(SignupRequest.email) == norm_email)
+        )
+        rows = res.scalars().all()
+        if rows:
+            out["email_available"] = False
+            out["email_registered"] = True
+            out["message"] = "This email is already registered. Sign in instead."
+
+    if pan and pan.strip():
+        norm_pan = pan.strip().upper()
+        res = await db.execute(
+            select(SignupRequest).where(func.upper(SignupRequest.pan_number) == norm_pan)
+        )
+        if res.scalars().first():
+            out["pan_available"] = False
+            out["pan_registered"] = True
+            if not out["message"]:
+                out["message"] = "This PAN is already on file. Sign in or contact support."
+
+    return out
 
 
 def _require(condition: bool, message: str) -> None:
@@ -51,8 +105,27 @@ async def _process_signup_common(
     Accepts kyc_docs as a list of files (can be empty list if kyc_doc is provided).
     """
     """Common logic for creating/updating signup and saving KYC docs."""
-    if signup and signup.kyc_status == KycStatus.approved:
-        raise HTTPException(status_code=409, detail="Signup already approved; changes are not allowed")
+    norm_email = email.strip().lower()
+    if signup:
+        if signup.kyc_status == KycStatus.approved:
+            raise HTTPException(status_code=409, detail="Signup already approved; changes are not allowed")
+        if signup.kyc_status == KycStatus.pending:
+            raise HTTPException(
+                status_code=409,
+                detail="This email is already registered. Sign in instead.",
+            )
+    else:
+        clash_res = await db.execute(
+            select(SignupRequest).where(func.lower(SignupRequest.email) == norm_email)
+        )
+        for row in clash_res.scalars().all():
+            if row.persona == persona and row.kyc_status == KycStatus.rejected:
+                signup = row
+                break
+            raise HTTPException(
+                status_code=409,
+                detail="This email is already registered. Sign in instead.",
+            )
 
     _require(len(kyc_docs) > 0, "At least one KYC document is required")
 
@@ -131,6 +204,8 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
 
     persona_labels = {
         Persona.sponsor: "Sponsor",
+        Persona.sponsor_leader: "Sponsor Leader",
+        Persona.sponsor_member: "Circle Member",
         Persona.vendor: "Vendor",
         Persona.student: "Student",
     }
@@ -294,6 +369,271 @@ async def signup_sponsor(
 
 
 @router.post(
+    "/sponsor_leader",
+    response_model=SignupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup_sponsor_leader(
+    full_name: str = Form(...),
+    mobile: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    address_line1: str = Form(...),
+    address_line2: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    pincode: str = Form(...),
+    country: str = Form(...),
+    sponsor_type: str = Form(...),
+    pan_number: Optional[str] = Form(default=None),
+    company_name: Optional[str] = Form(default=None),
+    company_registration_number: Optional[str] = Form(default=None),
+    gst_number: Optional[str] = Form(default=None),
+    authorized_signatory_name: Optional[str] = Form(default=None),
+    authorized_signatory_designation: Optional[str] = Form(default=None),
+    kyc_doc: Optional[UploadFile] = File(default=None),
+    kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Sponsor circle leader signup — full KYC before circle setup."""
+    _require(password == confirm_password, "Password and confirm password do not match")
+    _require(len(password) >= 8, "Password must be at least 8 characters long")
+    _require(sponsor_type in {"individual", "company"}, "sponsor_type must be 'individual' or 'company'")
+
+    if sponsor_type == "individual":
+        _require(bool(pan_number), "pan_number is required for sponsor individual")
+    else:
+        _require(bool(company_name), "company_name is required for sponsor company")
+        _require(bool(company_registration_number), "company_registration_number is required for sponsor company")
+        _require(bool(gst_number), "gst_number is required for sponsor company")
+        _require(bool(authorized_signatory_name), "authorized_signatory_name is required for sponsor company")
+        _require(bool(authorized_signatory_designation), "authorized_signatory_designation is required for sponsor company")
+
+    all_files: list[UploadFile] = []
+    if kyc_doc:
+        all_files.append(kyc_doc)
+    if kyc_docs:
+        all_files.extend(kyc_docs)
+    _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
+
+    existing_res = await db.execute(
+        select(SignupRequest).where(
+            SignupRequest.persona == Persona.sponsor_leader,
+            SignupRequest.email == email,
+        )
+    )
+    signup = existing_res.scalar_one_or_none()
+
+    signup = await _process_signup_common(
+        persona=Persona.sponsor_leader,
+        signup=signup,
+        full_name=full_name,
+        mobile=mobile,
+        email=email,
+        password=password,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        city=city,
+        state=state,
+        pincode=pincode,
+        country=country,
+        kyc_docs=all_files,
+        db=db,
+    )
+
+    signup.sponsor_type = sponsor_type
+    signup.pan_number = pan_number
+    signup.company_name = company_name
+    signup.company_registration_number = company_registration_number
+    signup.gst_number = gst_number
+    signup.authorized_signatory_name = authorized_signatory_name
+    signup.authorized_signatory_designation = authorized_signatory_designation
+    await db.commit()
+    await db.refresh(signup)
+
+    await _send_admin_notification(Persona.sponsor_leader, signup, db)
+
+    docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
+    docs = docs_res.scalars().all()
+
+    return SignupResponse(
+        id=signup.id,
+        persona=signup.persona,
+        full_name=signup.full_name,
+        mobile=signup.mobile,
+        email=signup.email,
+        kyc_status=signup.kyc_status,
+        documents=[
+            {
+                "id": d.id,
+                "original_filename": d.original_filename,
+                "stored_filename": d.stored_filename,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in docs
+        ],
+    )
+
+
+@router.post(
+    "/sponsor_member",
+    response_model=SignupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup_sponsor_member(
+    full_name: str = Form(...),
+    mobile: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    address_line1: str = Form(...),
+    address_line2: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    pincode: str = Form(...),
+    country: str = Form(...),
+    pan_number: Optional[str] = Form(default=None),
+    circle_invite_code: Optional[str] = Form(default=None),
+    is_parent_guardian: bool = Form(default=False),
+    linked_student_signup_id: Optional[str] = Form(default=None),
+    kyc_doc: Optional[UploadFile] = File(default=None),
+    kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Circle member signup — joins a sponsor circle after leader invite."""
+    _require(password == confirm_password, "Password and confirm password do not match")
+    _require(len(password) >= 8, "Password must be at least 8 characters long")
+
+    all_files: list[UploadFile] = []
+    if kyc_doc:
+        all_files.append(kyc_doc)
+    if kyc_docs:
+        all_files.extend(kyc_docs)
+    _require(len(all_files) > 0, "At least one ID document is required (use kyc_doc or kyc_docs)")
+
+    existing_res = await db.execute(
+        select(SignupRequest).where(
+            SignupRequest.persona == Persona.sponsor_member,
+            SignupRequest.email == email,
+        )
+    )
+    signup = existing_res.scalar_one_or_none()
+
+    signup = await _process_signup_common(
+        persona=Persona.sponsor_member,
+        signup=signup,
+        full_name=full_name,
+        mobile=mobile,
+        email=email,
+        password=password,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        city=city,
+        state=state,
+        pincode=pincode,
+        country=country,
+        kyc_docs=all_files,
+        db=db,
+    )
+
+    from app.models.enums import MemberKind
+    from app.services.student_family import build_parent_admin_note, upsert_family_link
+
+    signup.pan_number = pan_number
+    if is_parent_guardian:
+        signup.member_kind = MemberKind.parent_guardian.value
+        signup.linked_student_signup_id = linked_student_signup_id
+    invite_circle_id = ""
+    if circle_invite_code and circle_invite_code.strip():
+        from app.services.circle_member_invite import build_invite_note
+        from app.services.circle_invite_token import is_uuid_like, resolve_invite_token
+
+        raw_invite = circle_invite_code.strip()
+        if is_uuid_like(raw_invite):
+            invite_circle_id = raw_invite
+        else:
+            resolved = await resolve_invite_token(db, raw_invite)
+            if not resolved:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Circle invite link is invalid or expired. Ask your leader for a new link.",
+                )
+            invite_circle_id, _ = resolved
+        if is_parent_guardian and linked_student_signup_id:
+            signup.admin_note = build_parent_admin_note(
+                circle_id=invite_circle_id,
+                student_signup_id=linked_student_signup_id,
+            )
+        else:
+            signup.admin_note = build_invite_note(invite_circle_id)
+    elif is_parent_guardian and linked_student_signup_id:
+        signup.admin_note = build_parent_admin_note(
+            circle_id="",
+            student_signup_id=linked_student_signup_id,
+        )
+    await db.commit()
+    await db.refresh(signup)
+
+    if is_parent_guardian and linked_student_signup_id:
+        student_res = await db.execute(
+            select(SignupRequest).where(
+                SignupRequest.id == linked_student_signup_id,
+                SignupRequest.persona == Persona.student,
+            )
+        )
+        student_row = student_res.scalar_one_or_none()
+        if student_row:
+            await upsert_family_link(
+                db,
+                student_signup_id=student_row.id,
+                parent_signup_id=signup.id,
+                relationship=student_row.guardian_relationship or "parent",
+                circle_id=invite_circle_id or None,
+            )
+            await db.commit()
+
+    await _send_admin_notification(Persona.sponsor_member, signup, db)
+    if invite_circle_id:
+        try:
+            label = f"{signup.full_name} (parent guardian)" if is_parent_guardian else signup.full_name
+            await notify_circle_leaders_member_application(
+                circle_id=invite_circle_id,
+                member_signup_id=signup.id,
+                member_name=label,
+                member_email=signup.email,
+                db=db,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to notify circle leaders for member signup_id=%s circle_id=%s",
+                signup.id,
+                invite_circle_id,
+            )
+
+    docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
+    docs = docs_res.scalars().all()
+
+    return SignupResponse(
+        id=signup.id,
+        persona=signup.persona,
+        full_name=signup.full_name,
+        mobile=signup.mobile,
+        email=signup.email,
+        kyc_status=signup.kyc_status,
+        documents=[
+            {
+                "id": d.id,
+                "original_filename": d.original_filename,
+                "stored_filename": d.stored_filename,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in docs
+        ],
+    )
+
+
+@router.post(
     "/vendor",
     response_model=SignupResponse,
     status_code=status.HTTP_201_CREATED,
@@ -393,9 +733,15 @@ async def signup_vendor(
     )
 
 
+@router.get("/schools")
+async def list_signup_schools(db: AsyncSession = Depends(get_db)):
+    """Registered partner schools for student signup dropdown."""
+    return await list_public_schools(db)
+
+
 @router.post(
     "/student",
-    response_model=SignupResponse,
+    response_model=StudentFamilySignupResponse,
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_student(
@@ -413,29 +759,40 @@ async def signup_student(
     country: str = Form(...),
     # Student-specific fields
     date_of_birth: date = Form(...),
-    school_or_college_name: str = Form(...),
+    school_id: str = Form(...),
+    school_or_college_name: Optional[str] = Form(default=None),
     grade_or_year: str = Form(...),
     guardian_name: str = Form(...),
     guardian_mobile: str = Form(...),
+    guardian_relationship: str = Form(default="parent"),
+    circle_invite_code: Optional[str] = Form(default=None),
+    parent_pan_number: Optional[str] = Form(default=None),
     # KYC docs - accept single file (kyc_doc) or multiple files (kyc_docs)
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    parent_kyc_doc: Optional[UploadFile] = File(default=None),
+    parent_kyc_docs: Optional[list[UploadFile]] = File(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Student signup endpoint (form-data with file uploads)."""
-    # Validate password
+    """Student signup — also creates linked parent/guardian member account (same email + password)."""
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
-    
-    # Combine single file and multiple files into one list
+    _require(guardian_relationship.strip(), "Guardian relationship is required")
+
     all_files: list[UploadFile] = []
     if kyc_doc:
         all_files.append(kyc_doc)
     if kyc_docs:
         all_files.extend(kyc_docs)
-    
-    _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
-    
+    _require(len(all_files) > 0, "At least one student KYC document is required (use kyc_doc or kyc_docs)")
+
+    parent_files: list[UploadFile] = []
+    if parent_kyc_doc:
+        parent_files.append(parent_kyc_doc)
+    if parent_kyc_docs:
+        parent_files.extend(parent_kyc_docs)
+    _require(len(parent_files) > 0, "Parent/guardian KYC documents are required (use parent_kyc_doc or parent_kyc_docs)")
+
     existing_res = await db.execute(
         select(SignupRequest).where(SignupRequest.persona == Persona.student, SignupRequest.email == email)
     )
@@ -458,27 +815,80 @@ async def signup_student(
         db=db,
     )
 
-    # Update student-specific fields
+    school_res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == school_id.strip()))
+    school_profile = school_res.scalar_one_or_none()
+    if not school_profile:
+        raise HTTPException(status_code=400, detail="Please select a registered school from the list")
+
+    access_tier = compute_login_access_tier(date_of_birth)
     signup.date_of_birth = date_of_birth
-    signup.school_or_college_name = school_or_college_name
+    signup.selected_school_id = school_profile.id
+    signup.school_or_college_name = school_or_college_name or school_profile.school_name
+    signup.onboarding_version = ONBOARDING_V2
     signup.grade_or_year = grade_or_year
     signup.guardian_name = guardian_name
     signup.guardian_mobile = guardian_mobile
+    signup.guardian_relationship = guardian_relationship.strip()
+    signup.login_access_tier = access_tier.value
     await db.commit()
     await db.refresh(signup)
 
+    invite_circle_id = ""
+    if circle_invite_code and circle_invite_code.strip():
+        from app.services.circle_invite_token import is_uuid_like, resolve_invite_token
+
+        raw_invite = circle_invite_code.strip()
+        if is_uuid_like(raw_invite):
+            invite_circle_id = raw_invite
+        else:
+            resolved = await resolve_invite_token(db, raw_invite)
+            if not resolved:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Circle invite link is invalid or expired. Ask your leader for a new link.",
+                )
+            invite_circle_id, _ = resolved
+
+    parent_signup = await create_parent_guardian_signup(
+        db,
+        student_signup=signup,
+        guardian_name=guardian_name,
+        guardian_mobile=guardian_mobile,
+        password=password,
+        circle_id=invite_circle_id,
+        parent_pan_number=parent_pan_number,
+        parent_kyc_docs=parent_files or None,
+    )
+    family_link = await upsert_family_link(
+        db,
+        student_signup_id=signup.id,
+        parent_signup_id=parent_signup.id,
+        relationship=guardian_relationship.strip(),
+        circle_id=invite_circle_id or None,
+    )
+    await create_school_interest(db, student_signup_id=signup.id, school_id=school_profile.id)
+    await db.commit()
+    await db.refresh(parent_signup)
+    await db.refresh(family_link)
+
     await _send_admin_notification(Persona.student, signup, db)
+    await _send_admin_notification(Persona.sponsor_member, parent_signup, db)
+
+    # Parent joins circle only after student is school-enrolled and circle-approved (see family_circle_provision).
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
 
-    return SignupResponse(
+    return StudentFamilySignupResponse(
         id=signup.id,
         persona=signup.persona,
         full_name=signup.full_name,
         mobile=signup.mobile,
         email=signup.email,
         kyc_status=signup.kyc_status,
+        parent_signup_id=parent_signup.id,
+        login_access_tier=access_tier.value,
+        family_link_id=family_link.id,
         documents=[
             {
                 "id": d.id,
@@ -570,7 +980,10 @@ async def get_signup_details(signup_id: str, db: AsyncSession = Depends(get_db))
         grade_or_year=signup.grade_or_year,
         guardian_name=signup.guardian_name,
         guardian_mobile=signup.guardian_mobile,
-        # Documents metadata
+        guardian_relationship=signup.guardian_relationship,
+        login_access_tier=signup.login_access_tier,
+        member_kind=signup.member_kind,
+        linked_student_signup_id=signup.linked_student_signup_id,
         documents=[
             {
                 "id": d.id,

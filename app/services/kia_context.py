@@ -1,202 +1,54 @@
 """
-Kia RAG Context Fetcher
-=======================
-Builds a personalized data context for the requesting user so Kia can answer
-questions about their own data (participation, circle rank, time spent, etc.)
-
-Privacy Architecture:
-  - All queries are scoped to `user_id` of the *requesting* user only.
-  - Contribution / budget data is flagged as PRIVATE and never returned for
-    other users' IDs.
-  - The returned dict is injected into Kia's system prompt before the user's
-    question, grounding Kia in real (or structured placeholder) data.
-
-Swap Guide (when real DB data is ready):
-  - Replace the `_fetch_*_hardcoded()` helpers with real `await db.execute(...)` queries.
-  - The `fetch_user_context()` signature and return schema stay identical.
-  - No changes needed in kia.py or router_client.py.
+Kia RAG context — live data from circle membership, budget, and school students.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
+from app.models.school import SchoolStudent, SchoolStudentEnrollmentRequest, SchoolStudentNarrative
+from app.models.signup import SignupRequest
+from app.services.circle_budget import _can_set_budget, build_budget_payload
+from app.services.school_enrollment_constants import ENROLLMENT_PENDING
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Hardcoded data layer (replace with real DB queries when ready)
-# ---------------------------------------------------------------------------
-
-# Simulates per-user participation data keyed by user_id.
-# TODO: Replace with: SELECT participation_pct FROM ZENK.member_stats WHERE user_id = :uid AND circle_id = :cid
-_HARDCODED_PARTICIPATION: dict[str, int] = {}  # user_id -> pct (defaults to 74 if not found)
-_DEFAULT_PARTICIPATION = 74
-_CIRCLE_AVG_PARTICIPATION = 68
-
-# Simulates per-user ZenQ / rank data.
-# TODO: Replace with: SELECT zenq_score, circle_rank FROM ZENK.member_scores WHERE user_id = :uid
-_HARDCODED_ZENQ: dict[str, dict] = {}
-_DEFAULT_ZENQ = {"zenq_score": 82, "circle_rank": 3, "total_circles": 47, "zenq_change": 4, "rank_previous": 5}
-
-# Simulates per-user time spent data.
-# TODO: Replace with: SELECT time_this_month_hrs FROM ZENK.time_logs WHERE user_id = :uid
-_HARDCODED_TIME: dict[str, float] = {}
-_DEFAULT_TIME_HRS = 6.5
-_TOP_GROUP_HRS = 11.2
-
-# Circle-level rankings (public, not user-scoped)
-# TODO: Replace with: SELECT rank, name, zenq_score, city FROM ZENK.circle_rankings ORDER BY rank
-_CIRCLE_RANKINGS = [
-    {"rank": 1, "name": "Vasundhara Circle", "city": "Pune", "zenq": 96},
-    {"rank": 2, "name": "Prarambh Mumbai", "city": "Mumbai", "zenq": 89},
-    {"rank": 3, "name": "Ashoka Rising", "city": "Mumbai", "zenq": 82, "is_mine": True},
-    {"rank": 4, "name": "Udaan Bangalore", "city": "Bengaluru", "zenq": 78},
-    {"rank": 5, "name": "Kishore Circle", "city": "Delhi", "zenq": 71},
-]
-
-# Circle-level budget data (public within the circle)
-# Matches the data in app/microservices/sponsor_circle/router.py
-_CIRCLE_BUDGET_SUMMARY = {
-    "total_budget": 150000,
-    "spent": 94200,
-    "collected": 124500,
-    "balance_to_spend": 55800,
-    "fy_label": "FY 2025-26",
-}
-
-# Per-user contribution data (PRIVATE — only return for the requesting user)
-# TODO: Replace with: SELECT amount, month FROM ZENK.contributions WHERE user_id = :uid ORDER BY month DESC
-_HARDCODED_CONTRIBUTIONS: dict[str, dict] = {}
-_DEFAULT_CONTRIBUTION = {
-    "total_contributed": 15000,  # INR
-    "this_month": 2500,
-    "currency": "INR",
-    "note": "Thank you for your consistent support!"
-}
-
-# Sponsored Student Data (Shared within the circle)
-# TODO: Replace with: SELECT * FROM ZENK.students WHERE circle_id = :cid
-_SPONSORED_STUDENT_DATA = {
-    "name": "Ananya",
-    "grade": "9th Standard",
-    "school": "St. Mary's High School",
-    "attendance_pct": 94,
-    "recent_grades": {"Math": "A", "Science": "A-", "English": "B+"},
-    "teacher_notes": "Ananya is showing great interest in robotics and computer science. Her attendance is consistent.",
-    "zenq_score": 88,
-    "impact_summary": "Your circle's support has enabled her to attend extra computer science classes and robotics club."
-}
+def _mask_student_label(index: int, zenk_id: Optional[str] = None) -> str:
+    if zenk_id and str(zenk_id).strip():
+        return f"Student {str(zenk_id).strip()}"
+    return f"Sponsored student {index + 1}"
 
 
-# All member contributions (LEADER-ONLY DATA — never shown to regular members)
-# TODO: Replace with: SELECT u.full_name, SUM(c.amount) FROM ZENK.contributions c JOIN ZENK.signup_requests u ON c.user_id = u.id WHERE c.circle_id = :cid GROUP BY u.id
-_ALL_MEMBER_CONTRIBUTIONS = [
-    {"name": "Rohit Chawla", "role": "Coordinator", "total_contributed": 45000, "this_month": 8000, "pct_of_total": 36},
-    {"name": "Priya Sharma", "role": "Sponsor Member", "total_contributed": 28000, "this_month": 8000, "pct_of_total": 22},
-    {"name": "Arjun Kulkarni", "role": "Sponsor Member", "total_contributed": 22000, "this_month": 10000, "pct_of_total": 18},
-    {"name": "Sneha Mehta", "role": "Mentor", "total_contributed": 15500, "this_month": 5000, "pct_of_total": 12},
-    {"name": "Vikram Patil", "role": "CSR — TCS", "total_contributed": 36000, "this_month": 0, "pct_of_total": 29},
-    {"name": "Mrs. Devika", "role": "Guardian (Parent)", "total_contributed": 4000, "this_month": 0, "pct_of_total": 3},
-]
-
-
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
-async def fetch_user_context(
-    user_id: str,
-    circle_id: str,
-    db: AsyncSession,
-    include_private: bool = True,  # True = requesting user asking about themselves
-    is_leader: bool = False,  # True = Circle Leader — gets full member contribution access
-) -> dict:
-    """
-    Build a personalized context dict for the requesting user.
-
-    Parameters:
-        user_id: The authenticated user's ID (from JWT).
-        circle_id: The circle they're chatting in.
-        db: Active async DB session.
-        include_private: If True, includes contribution/budget data.
-                         Always True when the user asks about themselves.
-        is_leader: If True, includes ALL member contribution data.
-                   This is the leader-exclusive data access layer.
-
-    Returns:
-        A structured dict injected into Kia's system prompt context block.
-    """
-    try:
-        # 1. Resolve circle name
-        circle_name = await _get_circle_name(circle_id, db)
-
-        # 2. Get membership role
-        role = await _get_member_role(user_id, circle_id, db)
-        # Override role if leader flag is set
-        if is_leader:
-            role = "coordinator"
-
-        # 3. Per-user stats (scoped, privacy-safe)
-        participation = _HARDCODED_PARTICIPATION.get(user_id, _DEFAULT_PARTICIPATION)
-        zenq_data = _HARDCODED_ZENQ.get(user_id, _DEFAULT_ZENQ)
-        time_hrs = _HARDCODED_TIME.get(user_id, _DEFAULT_TIME_HRS)
-
-        context = {
-            "circle_name": circle_name,
-            "member_role": role,
-            # Participation
-            "my_participation_pct": participation,
-            "circle_avg_participation_pct": _CIRCLE_AVG_PARTICIPATION,
-            "participation_vs_avg": participation - _CIRCLE_AVG_PARTICIPATION,
-            # ZenQ / Circle Rank
-            "my_zenq_score": zenq_data["zenq_score"],
-            "my_circle_rank": zenq_data["circle_rank"],
-            "total_circles_nationally": zenq_data["total_circles"],
-            "zenq_change_this_month": zenq_data["zenq_change"],
-            "previous_rank": zenq_data["rank_previous"],
-            # Time
-            "my_time_this_month_hrs": time_hrs,
-            "top_group_time_hrs": _TOP_GROUP_HRS,
-            "time_gap_to_top_hrs": round(_TOP_GROUP_HRS - time_hrs, 1),
-            # Circle rankings (public)
-            "national_circle_rankings": _CIRCLE_RANKINGS,
-            # Circle-level Budget Summary (Public within the circle)
-            "circle_budget_summary": _CIRCLE_BUDGET_SUMMARY,
-            # Sponsored Student Progress (Public within the circle)
-            "sponsored_student": _SPONSORED_STUDENT_DATA,
-        }
-
-        # Private: individual contribution data only for the user themselves
-        if include_private:
-            contribution = _HARDCODED_CONTRIBUTIONS.get(user_id, _DEFAULT_CONTRIBUTION)
-            context["my_contribution"] = contribution
-
-        # LEADER-EXCLUSIVE: Full breakdown of all member contributions
-        if is_leader:
-            context["all_member_contributions"] = _ALL_MEMBER_CONTRIBUTIONS
-            context["leader_note"] = (
-                "You are the Circle Coordinator. You have full access to all "
-                "member contributions, participation, and payment data. "
-                "When the coordinator asks about individual member contributions, "
-                "you MUST provide the data. This is authorized leader-level access."
+def _onboarding_guidance(is_leader: bool, student_count: int, pending_count: int) -> str:
+    if student_count > 0:
+        if pending_count > 0:
+            return (
+                f"You have {student_count} active sponsored student(s) and {pending_count} "
+                "enrollment request(s) awaiting circle approval. Review pending items in "
+                "School Comm or Circle Orders."
             )
+        return f"You have {student_count} active sponsored student(s) on record."
 
-        return context
+    if is_leader:
+        return (
+            "No sponsored students are linked to this circle yet. Guide the leader to: "
+            "(1) open the School Comm tab to connect with their school partner, "
+            "(2) approve school enrollment requests, or "
+            "(3) use Add Student / school CSV import from the school portal. "
+            "Do not invent student names, grades, or scores."
+        )
+    return (
+        "No sponsored students are linked to this circle yet. Guide the member to ask their "
+        "circle leader to enroll students via School Comm or school partnership. "
+        "Do not invent student names, grades, or scores."
+    )
 
-    except Exception as exc:
-        logger.warning("kia_context: Failed to build context for user %s: %s", user_id, exc)
-        return {}  # Kia will fall back to generic response
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
 
 async def _get_circle_name(circle_id: str, db: AsyncSession) -> str:
     try:
@@ -207,7 +59,9 @@ async def _get_circle_name(circle_id: str, db: AsyncSession) -> str:
         return "your circle"
 
 
-async def _get_member_role(user_id: str, circle_id: str, db: AsyncSession) -> str:
+async def _get_member_role(user_id: str, circle_id: str, db: AsyncSession, is_leader: bool) -> str:
+    if is_leader:
+        return "coordinator"
     try:
         res = await db.execute(
             select(CircleMember).where(
@@ -219,3 +73,203 @@ async def _get_member_role(user_id: str, circle_id: str, db: AsyncSession) -> st
         return member.role if member else "member"
     except Exception:
         return "member"
+
+
+async def _fetch_circle_budget(circle_id: str, user_id: str, db: AsyncSession) -> Optional[dict]:
+    try:
+        res = await db.execute(
+            select(SponsorCircle, CircleMember.role)
+            .join(CircleMember, CircleMember.circle_id == SponsorCircle.id)
+            .where(
+                SponsorCircle.id == circle_id,
+                CircleMember.user_id == user_id,
+            )
+        )
+        row = res.first()
+        if not row:
+            res2 = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+            circle = res2.scalar_one_or_none()
+            if not circle:
+                return None
+            return {
+                "total_budget": int(circle.annual_budget or 0),
+                "spent": int(circle.budget_spent or 0),
+                "collected": int(circle.budget_collected or 0),
+                "balance_to_spend": max(0, int(circle.annual_budget or 0) - int(circle.budget_spent or 0)),
+                "fy_label": circle.fy_label or "FY 2025-26",
+            }
+        circle, role = row
+        payload = build_budget_payload(circle, role)
+        return {
+            "total_budget": payload["total_budget"],
+            "spent": payload["spent"],
+            "collected": payload["collected"],
+            "balance_to_spend": payload["balance_to_spend"],
+            "fy_label": payload["fy_label"],
+        }
+    except Exception as exc:
+        logger.warning("kia_context: budget fetch failed: %s", exc)
+        return None
+
+
+async def _fetch_member_participation(
+    circle_id: str, user_id: str, db: AsyncSession
+) -> dict[str, Any]:
+    """Real roster; participation % is placeholder until activity metrics exist."""
+    res = await db.execute(
+        select(CircleMember, SignupRequest)
+        .join(SignupRequest, SignupRequest.id == CircleMember.user_id)
+        .where(CircleMember.circle_id == circle_id)
+        .order_by(SignupRequest.full_name)
+    )
+    rows = res.all()
+    if not rows:
+        return {"member_count": 0, "my_participation_pct": None, "circle_avg_participation_pct": None}
+
+    pcts = [50 for _ in rows]
+    my_pct = 50
+    for _cm, signup in rows:
+        if signup.id == user_id:
+            my_pct = 50
+            break
+    avg = round(sum(pcts) / len(pcts))
+    return {
+        "member_count": len(rows),
+        "my_participation_pct": my_pct,
+        "circle_avg_participation_pct": avg,
+        "participation_vs_avg": my_pct - avg,
+        "leader_name": next(
+            (s.full_name for cm, s in rows if _can_set_budget(cm.role)),
+            rows[0][1].full_name if rows else "",
+        ),
+    }
+
+
+async def _fetch_circle_students(circle_id: str, db: AsyncSession) -> list[dict]:
+    res = await db.execute(
+        select(SchoolStudent)
+        .where(SchoolStudent.circle_id == circle_id)
+        .order_by(SchoolStudent.full_name)
+        .limit(20)
+    )
+    students = res.scalars().all()
+    out: list[dict] = []
+    for idx, st in enumerate(students):
+        narrative = None
+        try:
+            n_res = await db.execute(
+                select(SchoolStudentNarrative)
+                .where(SchoolStudentNarrative.student_id == st.id)
+                .limit(1)
+            )
+            narrative = n_res.scalar_one_or_none()
+        except Exception:
+            pass
+        teacher_notes = None
+        if narrative and getattr(narrative, "narrative", None):
+            teacher_notes = (narrative.narrative or "")[:500]
+        elif st.tutor_recommendation:
+            teacher_notes = st.tutor_recommendation
+
+        out.append(
+            {
+                "masked_name": _mask_student_label(idx, st.zenk_id),
+                "grade": st.grade,
+                "attendance_pct": round(float(st.attendance_pct or 0)),
+                "zenq_score": round(float(st.zqa_score or 0)),
+                "avg_score": round(float(st.avg_score or 0)),
+                "risk_level": st.risk_level,
+                "q_report_status": st.q_report_status,
+                "teacher_notes": teacher_notes,
+                "impact_summary": (
+                    f"ZQA score {round(float(st.zqa_score or 0))}; "
+                    f"attendance {round(float(st.attendance_pct or 0))}%."
+                    if st.zqa_score or st.attendance_pct
+                    else None
+                ),
+            }
+        )
+    return out
+
+
+async def _fetch_pending_enrollments(circle_id: str, db: AsyncSession) -> int:
+    res = await db.execute(
+        select(func.count())
+        .select_from(SchoolStudentEnrollmentRequest)
+        .where(
+            SchoolStudentEnrollmentRequest.circle_id == circle_id,
+            SchoolStudentEnrollmentRequest.status == ENROLLMENT_PENDING,
+        )
+    )
+    return int(res.scalar_one() or 0)
+
+
+async def fetch_user_context(
+    user_id: str,
+    circle_id: str,
+    db: AsyncSession,
+    include_private: bool = True,
+    is_leader: bool = False,
+) -> dict:
+    """
+    Build live context for Kia from DB. Never injects demo student "Ananya" or fake rankings.
+    """
+    try:
+        circle_name = await _get_circle_name(circle_id, db)
+        role = await _get_member_role(user_id, circle_id, db, is_leader)
+        budget = await _fetch_circle_budget(circle_id, user_id, db)
+        participation = await _fetch_member_participation(circle_id, user_id, db)
+        students = await _fetch_circle_students(circle_id, db)
+        pending_count = await _fetch_pending_enrollments(circle_id, db)
+        student_count = len(students)
+
+        context: dict[str, Any] = {
+            "circle_name": circle_name,
+            "member_role": role,
+            "has_sponsored_students": student_count > 0,
+            "sponsored_student_count": student_count,
+            "pending_enrollment_count": pending_count,
+            "circle_member_count": participation.get("member_count", 0),
+            "onboarding_guidance": _onboarding_guidance(is_leader, student_count, pending_count),
+            "data_source": "live_database",
+        }
+
+        if budget:
+            context["circle_budget_summary"] = budget
+
+        if participation.get("member_count"):
+            context["my_participation_pct"] = participation.get("my_participation_pct")
+            context["circle_avg_participation_pct"] = participation.get("circle_avg_participation_pct")
+            context["participation_vs_avg"] = participation.get("participation_vs_avg")
+            context["circle_leader_name"] = participation.get("leader_name")
+
+        if students:
+            context["sponsored_students"] = students
+            context["sponsored_student"] = students[0]
+            zqa_vals = [s["zenq_score"] for s in students if s.get("zenq_score") is not None]
+            if zqa_vals:
+                context["circle_zenq_summary"] = {
+                    "average_zqa": round(sum(zqa_vals) / len(zqa_vals)),
+                    "student_count": student_count,
+                }
+        else:
+            context["sponsored_students"] = []
+            context["sponsored_student"] = None
+
+        if is_leader:
+            context["leader_note"] = (
+                "You are the Circle Coordinator. Use only the data in this context block. "
+                "If there are no students, tell the leader how to add students via School Comm "
+                "and enrollment approvals — do not fabricate names or metrics."
+            )
+
+        return context
+
+    except Exception as exc:
+        logger.warning("kia_context: Failed for user %s: %s", user_id, exc)
+        return {
+            "circle_name": "your circle",
+            "has_sponsored_students": False,
+            "onboarding_guidance": _onboarding_guidance(is_leader, 0, 0),
+            "data_source": "error_fallback",
+        }

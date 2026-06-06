@@ -5,17 +5,18 @@ from typing import List
 
 from app.db.session import get_db
 from app.models.auth_log import AuthAuditLog
-from app.core.jwt_auth import get_current_user
+from app.core.admin_deps import require_admin_api_key
 from app.chat.schemas import AuthLogResponse
 
-router = APIRouter(prefix="/admin/chat", tags=["admin_audit"])
+router = APIRouter(
+    prefix="/admin/chat",
+    tags=["admin_audit"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 
 
 @router.get("/auth-logs", response_model=List[AuthLogResponse])
-async def list_auth_logs(
-    admin_user=Depends(get_current_user), 
-    db: AsyncSession = Depends(get_db)
-):
+async def list_auth_logs(db: AsyncSession = Depends(get_db)):
     """
     Fetch the latest 100 authentication audit logs for administrators.
     """

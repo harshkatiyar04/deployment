@@ -1,0 +1,55 @@
+from typing import Any, Optional
+
+from pydantic import BaseModel, Field
+
+
+class StudentProfileOut(BaseModel):
+    signup_id: str
+    pseudonym: str
+    avatar_key: Optional[str] = None
+    grade: Optional[str] = None
+    school_label: Optional[str] = None
+    login_access_tier: Optional[str] = None
+    has_parental_consent: bool = False
+    kyc_status: str
+    circle_id: Optional[str] = None
+    circle_name_masked: Optional[str] = None
+    school_linked: bool = False
+
+
+class StudentOverviewOut(BaseModel):
+    signup_id: str
+    pseudonym: str
+    avatar_key: Optional[str] = None
+    grade: Optional[str] = None
+    school_label: Optional[str] = None
+    circle_name_masked: Optional[str] = None
+    school_linked: bool = False
+    kpis: dict[str, Any] = {}
+    school_note: Optional[str] = None
+    milestones: list[dict[str, str]] = []
+
+
+class StudentCircleJoinRequest(BaseModel):
+    circle_id: str = Field(..., min_length=1)
+
+
+class StudentKiaChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
+class StudentKiaChatResponse(BaseModel):
+    reply: str
+    user_message_id: str
+    kia_message_id: str
+
+
+class StudentKiaMessageOut(BaseModel):
+    id: str
+    role: str
+    text: str
+    created_at: str
+
+
+class StudentMentoringPostRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=4000)

@@ -55,9 +55,20 @@ class SignupRequest(Base):
     # Student fields
     date_of_birth: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     school_or_college_name: Mapped[Optional[str]] = mapped_column(String(250), nullable=True)
+    selected_school_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    onboarding_version: Mapped[Optional[str]] = mapped_column(String(10), nullable=True, default="v1")
     grade_or_year: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     guardian_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     guardian_mobile: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    guardian_relationship: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    login_access_tier: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+
+    # Sponsor member: standard circle member vs parent/guardian (same KYC pipeline)
+    member_kind: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    linked_student_signup_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        nullable=True,
+    )
 
     # KYC
     kyc_status: Mapped[KycStatus] = mapped_column(

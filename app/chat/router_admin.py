@@ -9,24 +9,27 @@ from uuid import UUID
 
 from app.db.session import get_db
 from app.chat.models import ChatBan
-from app.core.jwt_auth import get_current_user
+from app.core.admin_deps import require_admin_api_key, resolve_admin_actor_id
 from app.chat.services import manager
 from app.chat.schemas import BanCreate, BanResponse, BanListResponse, ActivityResponse, WarnedMessageOut
 
-router = APIRouter(prefix="/admin/chat", tags=["admin_chat"])
+router = APIRouter(
+    prefix="/admin/chat",
+    tags=["admin_chat"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 
 
 @router.post("/bans", response_model=BanResponse, status_code=status.HTTP_201_CREATED)
 async def create_ban(
     data: BanCreate,
-    admin_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Ban a user from a specific circle. Supports UUID or Email as identifier.
     Audit trigger will automatically log this action.
     """
-    admin_id = admin_user.id
+    admin_id = await resolve_admin_actor_id(db)
     target_user_id = None
     target_email = None
 
@@ -92,9 +95,7 @@ async def create_ban(
 
 
 @router.get("/bans", response_model=BanListResponse)
-async def list_bans(
-    admin_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
-):
+async def list_bans(db: AsyncSession = Depends(get_db)):
     """List all active chat bans with joined user emails."""
     from app.models.signup import SignupRequest  # noqa: PLC0415
 
@@ -115,14 +116,13 @@ async def list_bans(
 @router.delete("/bans/{ban_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_ban(
     ban_id: str,
-    admin_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Revoke a ban by its ID.
     Audit trigger will log this DELETE.
     """
-    admin_id = admin_user.id
+    admin_id = await resolve_admin_actor_id(db)
     res = await db.execute(select(ChatBan).where(ChatBan.id == ban_id))
     ban = res.scalar_one_or_none()
 
@@ -137,9 +137,7 @@ async def revoke_ban(
 
 
 @router.get("/activity", response_model=List[ActivityResponse])
-async def list_activity(
-    admin_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
-):
+async def list_activity(db: AsyncSession = Depends(get_db)):
     """Fetch the latest 50 admin audit logs."""
     from app.chat.models import AdminAccessLog
     from app.models.signup import SignupRequest
@@ -172,9 +170,7 @@ async def list_activity(
 
 
 @router.get("/warned-messages", response_model=List[WarnedMessageOut])
-async def list_warned_messages(
-    admin_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
-):
+async def list_warned_messages(db: AsyncSession = Depends(get_db)):
     """Fetch recent messages that were warned/flagged by the AI shield."""
     from app.chat.models import ChatMessage, GamifiedPersona, ChatChannel
 

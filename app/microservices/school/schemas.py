@@ -21,6 +21,56 @@ class SchoolProfileResponse(BaseModel):
     reports_pending: int
     school_logo_url: Optional[str] = None
     principal_photo_url: Optional[str] = None
+    portal_role: str = "principal"
+    permissions: List[str] = Field(default_factory=list)
+    is_account_owner: bool = True
+    actor_name: Optional[str] = None
+    login_email: Optional[str] = None
+    can_manage_portal_access: bool = False
+
+
+class SchoolPortalMemberResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    portal_role: str
+    user_id: Optional[str] = None
+    is_linked: bool = False
+    created_at: str
+
+
+class SchoolPortalMemberCreateRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=320)
+    display_name: str = Field(..., min_length=1, max_length=200)
+    portal_role: str = Field(default="staff", pattern="^(principal|staff)$")
+
+
+class SchoolPortalMemberUpdateRequest(BaseModel):
+    display_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    portal_role: Optional[str] = Field(None, pattern="^(principal|staff)$")
+
+
+class SchoolPortalInviteResponse(BaseModel):
+    id: str
+    email: str
+    display_name: str
+    portal_role: str
+    join_url: str
+    expires_at: str
+    status: str  # pending | accepted | revoked | expired
+    member_id: Optional[str] = None
+    created_at: str
+    email_sent: bool = False
+
+
+class SchoolAuditLogEntry(BaseModel):
+    id: str
+    action: str
+    student_id: Optional[str] = None
+    outcome: str
+    actor_email: Optional[str] = None
+    detail: Optional[dict] = None
+    created_at: str
 
 
 class SchoolPhotoUploadResponse(BaseModel):
@@ -44,8 +94,10 @@ class SchoolStudentResponse(BaseModel):
     zenk_id: Optional[str] = None
     dob: Optional[str] = None
     class_teacher: Optional[str] = None
+    class_teacher_faculty_id: Optional[str] = None
     sl_name: Optional[str] = None
     mentor_name: Optional[str] = None
+    mentor_faculty_id: Optional[str] = None
     rank_in_class: Optional[str] = None
     class_size: Optional[int] = None
     zenq_contribution: Optional[float] = None
@@ -312,6 +364,45 @@ class SchoolCircleOption(BaseModel):
     id: str
     name: str
     description: str = ""
+    leader_name: Optional[str] = None
+
+
+class SchoolFacultyResponse(BaseModel):
+    id: str
+    display_name: str
+    faculty_role: str
+    role_label: str
+    subject: Optional[str] = None
+    email: Optional[str] = None
+    portal_member_id: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[str] = None
+
+
+class SchoolFacultyCreateRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=200)
+    faculty_role: str = Field(..., pattern="^(class_teacher|mentor|coordinator)$")
+    subject: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=320)
+    portal_member_id: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
+
+
+class SchoolFacultyUpdateRequest(BaseModel):
+    display_name: Optional[str] = Field(None, min_length=1, max_length=200)
+    faculty_role: Optional[str] = Field(None, pattern="^(class_teacher|mentor|coordinator)$")
+    subject: Optional[str] = Field(None, max_length=100)
+    email: Optional[str] = Field(None, max_length=320)
+    notes: Optional[str] = Field(None, max_length=2000)
+    is_active: Optional[bool] = None
+
+
+class SchoolStudentFacultyAssignRequest(BaseModel):
+    class_teacher_faculty_id: Optional[str] = None
+    mentor_faculty_id: Optional[str] = None
+    clear_class_teacher: bool = False
+    clear_mentor: bool = False
 
 
 class InitialAcademicPayload(BaseModel):
@@ -338,8 +429,10 @@ class SchoolStudentEnrollRequest(BaseModel):
     dob: Optional[str] = None
     zenk_id: Optional[str] = None
     class_teacher: Optional[str] = None
+    class_teacher_faculty_id: Optional[str] = None
     sl_name: Optional[str] = None
     mentor_name: Optional[str] = None
+    mentor_faculty_id: Optional[str] = None
     rank_in_class: Optional[str] = None
     class_size: Optional[int] = Field(default=None, ge=1, le=500)
     initial_academic_payload: Optional[InitialAcademicPayload] = None
@@ -358,8 +451,10 @@ class SchoolEnrollmentRequestResponse(BaseModel):
     dob: Optional[str] = None
     zenk_id: Optional[str] = None
     class_teacher: Optional[str] = None
+    class_teacher_faculty_id: Optional[str] = None
     sl_name: Optional[str] = None
     mentor_name: Optional[str] = None
+    mentor_faculty_id: Optional[str] = None
     rank_in_class: Optional[str] = None
     class_size: Optional[int] = None
     initial_academic_payload: Optional[dict] = None
@@ -376,6 +471,29 @@ class SchoolEnrollmentCreateResponse(BaseModel):
     status: str
     message: str
     request: SchoolEnrollmentRequestResponse
+
+
+class PendingStudentSignupResponse(BaseModel):
+    signup_id: str
+    full_name: str
+    email: str
+    grade: str
+    school_on_signup: Optional[str] = None
+    guardian_name: Optional[str] = None
+    date_of_birth: Optional[str] = None
+    submitted_at: Optional[str] = None
+    matches_school: bool = False
+
+
+class AdmitStudentSignupRequest(BaseModel):
+    signup_id: str = Field(..., min_length=1)
+
+
+class AdmitStudentSignupResponse(BaseModel):
+    status: str
+    message: str
+    student_id: str
+    signup_id: str
 
 
 class CircleEnrollmentReviewRequest(BaseModel):
@@ -402,3 +520,22 @@ class SchoolReviewApproveRequest(BaseModel):
     narrative: str
     tutor_recommendation: Optional[str] = None
     ready_for_zenk: bool = True
+
+
+class SchoolPartnerCircleResponse(BaseModel):
+    circle_id: str
+    circle_name: str
+    leader_name: Optional[str] = None
+    linked_students: int = 0
+
+
+class SchoolPartnerMessageResponse(BaseModel):
+    id: str
+    sender_side: str
+    sender_name: Optional[str] = None
+    body: str
+    created_at: Optional[str] = None
+
+
+class SchoolPartnerMessageRequest(BaseModel):
+    body: str = Field(..., min_length=1, max_length=4000)

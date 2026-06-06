@@ -2,62 +2,330 @@ from datetime import datetime
 from pathlib import Path
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import Response
-from sqlalchemy import select
+from typing import Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import RedirectResponse, Response
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.admin_deps import require_admin_api_key
 from app.core.settings import settings
 from app.db.session import get_db
-from app.models.enums import KycStatus
+from app.models.enums import KycStatus, MemberKind
 from app.models.enums import Persona
 from app.models.signup import KycDocument, SignupRequest
+from app.models.student_family import StudentFamilyLink
 from app.schemas.signup import (
     AdminDecisionRequest,
     AdminSignupListItem,
+    FullSignupDetails,
     KycDocumentOut,
     KycDocumentView,
+    LinkedSignupSummary,
 )
 from app.services.email import send_email
 from app.services.email_templates import render_user_approval_html
 from app.services.notifications import notify_user_kyc_approved, notify_user_kyc_rejected
+from app.services.school_provision import ensure_school_profile
 
 
-router = APIRouter(prefix="/admin/kyc", tags=["admin-kyc"])
+router = APIRouter(
+    prefix="/admin/kyc",
+    tags=["admin-kyc"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 logger = logging.getLogger(__name__)
+
+PERSONA_LABELS = {
+    Persona.sponsor: "Sponsor",
+    Persona.sponsor_leader: "Sponsor Leader",
+    Persona.sponsor_member: "Sponsor Member",
+    Persona.vendor: "Vendor",
+    Persona.student: "Student",
+    Persona.corporate: "Corporate",
+    Persona.mentor: "Mentor",
+    Persona.school: "School",
+}
+
+PRIMARY_SIGNUP_PERSONAS = {Persona.sponsor, Persona.vendor, Persona.student}
+
+
+def _display_role(signup: SignupRequest) -> str:
+    if signup.persona == Persona.student:
+        return "Student"
+    if signup.persona == Persona.sponsor_member and signup.member_kind == MemberKind.parent_guardian.value:
+        return "Parent / guardian"
+    if signup.persona == Persona.sponsor_member:
+        return "Circle member"
+    return PERSONA_LABELS.get(signup.persona, signup.persona.value)
+
+
+def _linked_summary(signup: SignupRequest) -> LinkedSignupSummary:
+    return LinkedSignupSummary(
+        id=signup.id,
+        full_name=signup.full_name,
+        kyc_status=signup.kyc_status,
+        member_kind=signup.member_kind,
+        documents_count=len(signup.documents),
+    )
+
+
+async def _family_links_for_signup(db: AsyncSession, signup: SignupRequest) -> tuple[SignupRequest | None, SignupRequest | None]:
+    """Return (linked_guardian, linked_student) for admin detail view."""
+    guardian: SignupRequest | None = None
+    student: SignupRequest | None = None
+
+    if signup.persona == Persona.student:
+        link_res = await db.execute(
+            select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == signup.id)
+        )
+        link = link_res.scalar_one_or_none()
+        if link:
+            g_res = await db.execute(
+                select(SignupRequest)
+                .options(selectinload(SignupRequest.documents))
+                .where(SignupRequest.id == link.parent_signup_id)
+            )
+            guardian = g_res.scalar_one_or_none()
+    elif signup.member_kind == MemberKind.parent_guardian.value and signup.linked_student_signup_id:
+        s_res = await db.execute(
+            select(SignupRequest)
+            .options(selectinload(SignupRequest.documents))
+            .where(SignupRequest.id == signup.linked_student_signup_id)
+        )
+        student = s_res.scalar_one_or_none()
+
+    return guardian, student
+
+
+def _normalize_stored_path(stored_path: str | None) -> str:
+    return (stored_path or "").strip()
+
+
+def _is_remote_storage(stored_path: str | None) -> bool:
+    s = _normalize_stored_path(stored_path)
+    if not s:
+        return False
+    lower = s.lower()
+    return (
+        lower.startswith("http://")
+        or lower.startswith("https://")
+        or "cloudinary.com" in lower
+        or "res.cloudinary.com" in lower
+    )
+
+
+def _infer_content_type(doc: KycDocument) -> str | None:
+    if doc.content_type:
+        return doc.content_type
+    name = (doc.original_filename or doc.stored_filename or "").lower()
+    path = (doc.stored_path or "").lower()
+    for ext, mime in (
+        (".jpg", "image/jpeg"),
+        (".jpeg", "image/jpeg"),
+        (".png", "image/png"),
+        (".webp", "image/webp"),
+        (".gif", "image/gif"),
+        (".pdf", "application/pdf"),
+    ):
+        if name.endswith(ext) or ext.lstrip(".") in path:
+            return mime
+    if "/image/upload/" in path:
+        return "image/jpeg"
+    return None
+
+
+def _preview_url_for_doc(doc: KycDocument) -> str:
+    path = _normalize_stored_path(doc.stored_path)
+    if _is_remote_storage(path):
+        return path
+    return f"/admin/kyc/documents/{doc.id}"
+
+
+def _doc_view(doc: KycDocument) -> KycDocumentView:
+    return KycDocumentView(
+        id=doc.id,
+        original_filename=doc.original_filename,
+        preview_url=_preview_url_for_doc(doc),
+        content_type=_infer_content_type(doc),
+        created_at=doc.created_at.isoformat() if doc.created_at else None,
+    )
+
+
+def _doc_out(d: KycDocument) -> KycDocumentOut:
+    return KycDocumentOut(
+        id=d.id,
+        original_filename=d.original_filename,
+        stored_filename=d.stored_filename,
+        created_at=d.created_at.isoformat() if d.created_at else None,
+    )
+
+
+def _signup_list_item(r: SignupRequest) -> AdminSignupListItem:
+    return AdminSignupListItem(
+        id=r.id,
+        persona=r.persona,
+        full_name=r.full_name,
+        mobile=r.mobile,
+        email=r.email,
+        kyc_status=r.kyc_status,
+        created_at=r.created_at.isoformat() if r.created_at else None,
+        documents_count=len(r.documents),
+        documents=[_doc_out(d) for d in r.documents],
+        member_kind=r.member_kind,
+        linked_student_signup_id=r.linked_student_signup_id,
+        onboarding_version=r.onboarding_version,
+        display_role=_display_role(r),
+    )
+
+
+def _signup_full_details(r: SignupRequest) -> FullSignupDetails:
+    return FullSignupDetails(
+        id=r.id,
+        persona=r.persona,
+        kyc_status=r.kyc_status,
+        admin_note=r.admin_note,
+        created_at=r.created_at.isoformat() if r.created_at else None,
+        updated_at=r.updated_at.isoformat() if r.updated_at else None,
+        full_name=r.full_name,
+        mobile=r.mobile,
+        email=r.email,
+        address_line1=r.address_line1,
+        address_line2=r.address_line2,
+        city=r.city,
+        state=r.state,
+        pincode=r.pincode,
+        country=r.country,
+        sponsor_type=r.sponsor_type,
+        pan_number=r.pan_number,
+        company_name=r.company_name,
+        company_registration_number=r.company_registration_number,
+        gst_number=r.gst_number,
+        authorized_signatory_name=r.authorized_signatory_name,
+        authorized_signatory_designation=r.authorized_signatory_designation,
+        business_name=r.business_name,
+        business_type=r.business_type,
+        product_categories=r.product_categories,
+        website=r.website,
+        date_of_birth=r.date_of_birth.isoformat() if r.date_of_birth else None,
+        school_or_college_name=r.school_or_college_name,
+        selected_school_id=r.selected_school_id,
+        grade_or_year=r.grade_or_year,
+        guardian_name=r.guardian_name,
+        guardian_mobile=r.guardian_mobile,
+        guardian_relationship=r.guardian_relationship,
+        login_access_tier=r.login_access_tier,
+        member_kind=r.member_kind,
+        linked_student_signup_id=r.linked_student_signup_id,
+        onboarding_version=r.onboarding_version,
+        documents=[_doc_out(d) for d in r.documents],
+    )
+
+
+def _parse_status_filter(status: Optional[str]) -> Optional[KycStatus]:
+    if not status or status == "all":
+        return None
+    try:
+        return KycStatus(status)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="status must be pending, approved, rejected, or all") from exc
+
+
+@router.get("/summary")
+async def signup_summary(db: AsyncSession = Depends(get_db)):
+    """Counts per persona and KYC status for admin queue badges."""
+    res = await db.execute(
+        select(SignupRequest.persona, SignupRequest.member_kind, SignupRequest.kyc_status, func.count())
+        .group_by(SignupRequest.persona, SignupRequest.member_kind, SignupRequest.kyc_status)
+    )
+    by_persona: dict[str, dict[str, int]] = {}
+    totals = {"pending": 0, "approved": 0, "rejected": 0, "all": 0}
+    for persona, member_kind, kyc_status, count in res.all():
+        key = persona.value if hasattr(persona, "value") else str(persona)
+        by_persona.setdefault(key, {"pending": 0, "approved": 0, "rejected": 0, "all": 0})
+        status_key = kyc_status.value if hasattr(kyc_status, "value") else str(kyc_status)
+        by_persona[key][status_key] = by_persona[key].get(status_key, 0) + count
+        by_persona[key]["all"] += count
+        if key == Persona.sponsor_member.value:
+            if member_kind == MemberKind.parent_guardian.value:
+                sub_key = f"parent_guardian_{status_key}"
+                by_persona[key][sub_key] = by_persona[key].get(sub_key, 0) + count
+                if status_key == "pending":
+                    by_persona[key]["parent_guardian_pending"] = by_persona[key].get("parent_guardian_pending", 0) + count
+            elif member_kind in (None, MemberKind.standard.value):
+                sub_key = f"circle_member_{status_key}"
+                by_persona[key][sub_key] = by_persona[key].get(sub_key, 0) + count
+                if status_key == "pending":
+                    by_persona[key]["circle_member_pending"] = by_persona[key].get("circle_member_pending", 0) + count
+        if status_key in totals:
+            totals[status_key] += count
+        totals["all"] += count
+    return {"by_persona": by_persona, "totals": totals}
+
+
+@router.get("/requests", response_model=list[AdminSignupListItem])
+async def list_requests(
+    persona: Optional[Persona] = Query(None),
+    status: Optional[str] = Query("pending", description="pending | approved | rejected | all"),
+    persona_group: Optional[str] = Query(
+        None,
+        description="signup = sponsor+vendor+student; other = all remaining personas",
+    ),
+    member_kind: Optional[str] = Query(
+        None,
+        description="parent_guardian | circle_member — narrows sponsor_member queue",
+    ),
+    db: AsyncSession = Depends(get_db),
+):
+    """All signup requests for admin review, filterable by persona and KYC status."""
+    kyc_filter = _parse_status_filter(status)
+    q = select(SignupRequest).options(selectinload(SignupRequest.documents))
+    if persona:
+        q = q.where(SignupRequest.persona == persona)
+        if persona == Persona.sponsor_member:
+            if member_kind == MemberKind.parent_guardian.value:
+                q = q.where(SignupRequest.member_kind == MemberKind.parent_guardian.value)
+            elif member_kind == "circle_member":
+                q = q.where(
+                    (SignupRequest.member_kind.is_(None))
+                    | (SignupRequest.member_kind == MemberKind.standard.value)
+                )
+    elif persona_group == "signup":
+        q = q.where(SignupRequest.persona.in_(PRIMARY_SIGNUP_PERSONAS))
+    elif persona_group == "other":
+        q = q.where(SignupRequest.persona.not_in(PRIMARY_SIGNUP_PERSONAS))
+    if kyc_filter is not None:
+        q = q.where(SignupRequest.kyc_status == kyc_filter)
+    q = q.order_by(SignupRequest.created_at.desc())
+    res = await db.execute(q)
+    return [_signup_list_item(r) for r in res.scalars().all()]
 
 
 @router.get("/pending", response_model=list[AdminSignupListItem])
 async def list_pending(db: AsyncSession = Depends(get_db)):
+    return await list_requests(status="pending", persona=None, persona_group=None, db=db)
+
+
+@router.get("/{signup_id}", response_model=FullSignupDetails)
+async def get_signup_detail(signup_id: str, db: AsyncSession = Depends(get_db)):
     res = await db.execute(
         select(SignupRequest)
         .options(selectinload(SignupRequest.documents))
-        .where(SignupRequest.kyc_status == KycStatus.pending)
+        .where(SignupRequest.id == signup_id)
     )
-    rows = res.scalars().all()
-    return [
-        AdminSignupListItem(
-            id=r.id,
-            persona=r.persona,
-            full_name=r.full_name,
-            mobile=r.mobile,
-            email=r.email,
-            kyc_status=r.kyc_status,
-            created_at=r.created_at.isoformat() if r.created_at else None,
-            documents_count=len(r.documents),
-            documents=[
-                KycDocumentOut(
-                    id=d.id,
-                    original_filename=d.original_filename,
-                    stored_filename=d.stored_filename,
-                    created_at=d.created_at.isoformat() if d.created_at else None,
-                )
-                for d in r.documents
-            ],
-        )
-        for r in rows
-    ]
+    signup = res.scalar_one_or_none()
+    if not signup:
+        raise HTTPException(status_code=404, detail="Signup not found")
+    details = _signup_full_details(signup)
+    guardian, student = await _family_links_for_signup(db, signup)
+    return details.model_copy(
+        update={
+            "linked_guardian": _linked_summary(guardian) if guardian else None,
+            "linked_student": _linked_summary(student) if student else None,
+        }
+    )
 
 
 @router.get("/{signup_id}/documents", response_model=list[KycDocumentOut])
@@ -87,16 +355,18 @@ async def preview_document(doc_id: str, db: AsyncSession = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="KYC document not found")
 
-    path = Path(doc.stored_path)
+    stored = _normalize_stored_path(doc.stored_path)
+    if _is_remote_storage(stored):
+        return RedirectResponse(url=stored, status_code=302)
+
+    path = Path(stored)
     if not path.exists():
         raise HTTPException(status_code=404, detail="KYC document missing on disk")
 
-    # Read file content
     with path.open("rb") as f:
         file_content = f.read()
-    
-    # Return with inline Content-Disposition for browser preview
-    media_type = doc.content_type or "application/octet-stream"
+
+    media_type = _infer_content_type(doc) or "application/octet-stream"
     headers = {
         "Content-Disposition": f'inline; filename="{doc.original_filename or path.name}"',
         "Content-Type": media_type,
@@ -113,20 +383,13 @@ async def view_document_base64(doc_id: str, db: AsyncSession = Depends(get_db)):
     if not doc:
         raise HTTPException(status_code=404, detail="KYC document not found")
 
-    path = Path(doc.stored_path)
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="KYC document missing on disk")
+    stored = _normalize_stored_path(doc.stored_path)
+    if not _is_remote_storage(stored):
+        path = Path(stored)
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="KYC document missing on disk")
 
-    # Return preview URL instead of base64
-    preview_url = f"/admin/kyc/documents/{doc_id}"
-    
-    return KycDocumentView(
-        id=doc.id,
-        original_filename=doc.original_filename,
-        preview_url=preview_url,
-        content_type=doc.content_type,
-        created_at=doc.created_at.isoformat() if doc.created_at else None,
-    )
+    return _doc_view(doc)
 
 
 @router.get("/{signup_id}/documents/view", response_model=list[KycDocumentView])
@@ -151,23 +414,15 @@ async def view_all_documents_base64(signup_id: str, db: AsyncSession = Depends(g
 
     result = []
     for doc in docs:
-        path = Path(doc.stored_path)
-        if not path.exists():
-            logger.warning("Document file missing on disk: %s", doc.stored_path)
+        stored = _normalize_stored_path(doc.stored_path)
+        if _is_remote_storage(stored):
+            result.append(_doc_view(doc))
             continue
-
-        # Return preview URL instead of base64
-        preview_url = f"/admin/kyc/documents/{doc.id}"
-        
-        result.append(
-            KycDocumentView(
-                id=doc.id,
-                original_filename=doc.original_filename,
-                preview_url=preview_url,
-                content_type=doc.content_type,
-                created_at=doc.created_at.isoformat() if doc.created_at else None,
-            )
-        )
+        path = Path(stored)
+        if not path.exists():
+            logger.warning("KYC file missing on disk (not a remote URL): %s", stored)
+            continue
+        result.append(_doc_view(doc))
 
     # If all documents failed to read, return message
     if not result:
@@ -189,20 +444,23 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
     if not signup:
         raise HTTPException(status_code=404, detail="Signup not found")
 
+    from app.services.circle_member_invite import merge_admin_kyc_note
+
     signup.kyc_status = body.decision
-    signup.admin_note = body.note
+    signup.admin_note = merge_admin_kyc_note(signup.admin_note, body.note)
     signup.updated_at = datetime.utcnow()
+
+    if body.decision == KycStatus.approved and signup.persona == Persona.school:
+        await ensure_school_profile(db, signup)
+
     await db.commit()
 
     # Notify user via email and in-app notification
-    persona_labels = {
-        Persona.sponsor: "Sponsor",
-        Persona.vendor: "Vendor",
-        Persona.student: "Student",
-    }
-    label = persona_labels.get(signup.persona, "User")
+    label = PERSONA_LABELS.get(signup.persona, "User")
     
     if signup.kyc_status == KycStatus.approved:
+        if signup.persona == Persona.sponsor_member and signup.member_kind == MemberKind.parent_guardian.value:
+            label = "Parent / guardian"
         # Email notification
         subject = f"Your Zenk {label} KYC is Approved"
         text_body = (

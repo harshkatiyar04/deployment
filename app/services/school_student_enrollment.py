@@ -9,8 +9,17 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.models import ChatChannel, ChatMessage, CircleMember, GamifiedPersona, SponsorCircle
-from app.chat.router_client import _get_or_create_persona
+from app.chat.models import CircleMember, SponsorCircle
+from app.services.kia_event_briefings import (
+    emit_enrollment_approved,
+    emit_enrollment_rejected,
+    emit_enrollment_submitted,
+)
+from app.services.school_enrollment_constants import (
+    ENROLLMENT_APPROVED,
+    ENROLLMENT_PENDING,
+    ENROLLMENT_REJECTED,
+)
 from app.models.notification import Notification
 from app.models.school import (
     SchoolProfile,
@@ -19,21 +28,55 @@ from app.models.school import (
 )
 from app.models.signup import SignupRequest
 from app.services.school_reports import apply_quarterly_report, _recalc_school_profile
+from app.services.student_onboarding_v2 import ONBOARDING_V2
 
 
-ENROLLMENT_PENDING = "pending_circle"
-ENROLLMENT_APPROVED = "approved"
-ENROLLMENT_REJECTED = "rejected"
+async def _assert_not_v2_circle_flow(
+    db: AsyncSession,
+    *,
+    signup_id: Optional[str],
+    school_id: str,
+) -> None:
+    """v2 students use circle interest requests — not school enrollment intimations."""
+    if signup_id:
+        signup_res = await db.execute(
+            select(SignupRequest).where(SignupRequest.id == signup_id)
+        )
+        signup = signup_res.scalar_one_or_none()
+        if signup and (signup.onboarding_version or "v1") == ONBOARDING_V2:
+            raise ValueError(
+                "This student uses v2 onboarding. Admit them at school, then they request "
+                "a circle from their student dashboard — not via school enrollment intimations."
+            )
+        admitted = await db.execute(
+            select(SchoolStudent.id).where(
+                SchoolStudent.school_id == school_id,
+                SchoolStudent.signup_request_id == signup_id,
+            )
+        )
+        if admitted.scalar_one_or_none():
+            raise ValueError(
+                "Student is already admitted to your school. v2 students join circles via "
+                "their student dashboard interest requests."
+            )
 
 
 async def list_active_circles(db: AsyncSession) -> list[dict[str, str]]:
+    from app.services.school_circle_sync import resolve_circle_leader_signup
+
     res = await db.execute(
         select(SponsorCircle).order_by(SponsorCircle.name)
     )
-    return [
-        {"id": c.id, "name": c.name, "description": c.description or ""}
-        for c in res.scalars().all()
-    ]
+    out: list[dict[str, str]] = []
+    for c in res.scalars().all():
+        leader = await resolve_circle_leader_signup(db, c.id)
+        out.append({
+            "id": c.id,
+            "name": c.name,
+            "description": c.description or "",
+            "leader_name": (leader.full_name or "").strip() if leader else None,
+        })
+    return out
 
 
 def _validate_initial_academic(payload: Optional[dict]) -> Optional[dict]:
@@ -78,6 +121,9 @@ async def create_enrollment_request(
     if not full_name or not grade:
         raise ValueError("Student name and grade are required.")
 
+    signup_id = (body.get("zenk_id") or body.get("signup_request_id") or "").strip() or None
+    await _assert_not_v2_circle_flow(db, signup_id=signup_id, school_id=school_id)
+
     dup = await db.execute(
         select(SchoolStudentEnrollmentRequest).where(
             SchoolStudentEnrollmentRequest.school_id == school_id,
@@ -97,6 +143,23 @@ async def create_enrollment_request(
     profile = profile_res.scalar_one_or_none()
     school_name = profile.school_name if profile else "School"
 
+    from app.services.school_circle_sync import resolve_circle_leader_signup
+    from app.services.school_faculty_registry import resolve_faculty_labels_for_enrollment
+
+    sl_name = (body.get("sl_name") or "").strip() or None
+    if not sl_name:
+        leader = await resolve_circle_leader_signup(db, circle.id)
+        sl_name = (leader.full_name or "").strip() if leader else None
+
+    class_teacher, mentor_name = await resolve_faculty_labels_for_enrollment(
+        db,
+        school_id,
+        class_teacher=body.get("class_teacher"),
+        class_teacher_faculty_id=body.get("class_teacher_faculty_id"),
+        mentor_name=body.get("mentor_name"),
+        mentor_faculty_id=body.get("mentor_faculty_id"),
+    )
+
     req = SchoolStudentEnrollmentRequest(
         id=str(uuid.uuid4()),
         school_id=school_id,
@@ -107,9 +170,9 @@ async def create_enrollment_request(
         grade=grade,
         dob=body.get("dob"),
         zenk_id=body.get("zenk_id"),
-        class_teacher=body.get("class_teacher"),
-        sl_name=body.get("sl_name"),
-        mentor_name=body.get("mentor_name"),
+        class_teacher=class_teacher,
+        sl_name=sl_name,
+        mentor_name=mentor_name,
         rank_in_class=body.get("rank_in_class"),
         class_size=body.get("class_size"),
         initial_academic_payload=_validate_initial_academic(
@@ -122,78 +185,12 @@ async def create_enrollment_request(
     db.add(req)
     await db.flush()
 
-    await _send_circle_intimation(db, req=req, school_name=school_name, school_user=user)
+    await emit_enrollment_submitted(
+        db, req=req, school_name=school_name, school_user=user
+    )
     await db.commit()
     await db.refresh(req)
     return req
-
-
-async def _send_circle_intimation(
-    db: AsyncSession,
-    *,
-    req: SchoolStudentEnrollmentRequest,
-    school_name: str,
-    school_user: SignupRequest,
-) -> None:
-    """Post intimation to circle chat and notify circle leads/sponsors."""
-    academic_note = ""
-    if req.initial_academic_payload:
-        q = req.initial_academic_payload.get("quarter", "Q4")
-        academic_note = f" Initial {q} academic data included — will apply after approval."
-
-    msg_text = (
-        f"📋 **School enrollment intimation** — {school_name}\n\n"
-        f"**Student:** {req.full_name} · **Grade:** {req.grade}\n"
-        f"**Requested ZenK circle:** {req.circle_name}\n"
-        f"**SL:** {req.sl_name or 'TBD'} · **Class teacher:** {req.class_teacher or 'TBD'}\n"
-        f"{academic_note}\n\n"
-        f"Please review in **School Comm → Enrollment requests** and Approve or Reject.\n"
-        f"_Request ID: {req.id[:8]}…_"
-    )
-
-    channel_res = await db.execute(
-        select(ChatChannel)
-        .where(ChatChannel.circle_id == req.circle_id)
-        .order_by(ChatChannel.created_at)
-        .limit(1)
-    )
-    channel = channel_res.scalar_one_or_none()
-    if channel:
-        persona = await _get_or_create_persona(school_user, db)
-        db.add(
-            ChatMessage(
-                id=str(uuid.uuid4()),
-                channel_id=channel.id,
-                gamified_persona_id=persona.id,
-                content_text=msg_text,
-                shield_action="allow",
-            )
-        )
-
-    members_res = await db.execute(
-        select(CircleMember).where(
-            CircleMember.circle_id == req.circle_id,
-            CircleMember.role.in_(("lead", "sponsor_leader", "sponsor")),
-        )
-    )
-    for member in members_res.scalars().all():
-        db.add(
-            Notification(
-                id=str(uuid.uuid4()),
-                recipient_id=member.user_id,
-                recipient_type="user",
-                notification_type="school_enrollment_request",
-                title="New school enrollment request",
-                message=(
-                    f"{school_name} requested to enroll {req.full_name} ({req.grade}) "
-                    f"in {req.circle_name}. Approve in School Comm."
-                ),
-                related_entity_id=req.id,
-                related_entity_type="school_enrollment",
-            )
-        )
-
-    req.intimation_sent_at = datetime.utcnow()
 
 
 async def _require_circle_reviewer(
@@ -232,6 +229,19 @@ async def approve_enrollment_request(
 
     await _require_circle_reviewer(db, user, req.circle_id)
 
+    signup_request_id = None
+    if req.zenk_id:
+        signup_request_id = str(req.zenk_id).strip()
+        signup_res = await db.execute(
+            select(SignupRequest).where(SignupRequest.id == signup_request_id)
+        )
+        linked_signup = signup_res.scalar_one_or_none()
+        if linked_signup and (linked_signup.onboarding_version or "v1") == ONBOARDING_V2:
+            raise ValueError(
+                "Cannot approve legacy enrollment for a v2 student. "
+                "They must join via student dashboard circle interest."
+            )
+
     student = SchoolStudent(
         id=str(uuid.uuid4()),
         school_id=req.school_id,
@@ -239,6 +249,7 @@ async def approve_enrollment_request(
         grade=req.grade,
         circle_id=req.circle_id,
         circle_name=req.circle_name,
+        signup_request_id=signup_request_id,
         attendance_pct=0.0,
         avg_score=0.0,
         zqa_score=0.0,
@@ -255,6 +266,19 @@ async def approve_enrollment_request(
     )
     db.add(student)
     await db.flush()
+
+    if req.circle_id:
+        from app.services.school_circle_sync import sync_school_student_circle_link
+
+        await sync_school_student_circle_link(
+            db,
+            student,
+            req.circle_id,
+            leader=None,
+            force_sl=not req.sl_name,
+        )
+        if req.sl_name:
+            student.sl_name = req.sl_name
 
     if req.initial_academic_payload:
         payload = {**req.initial_academic_payload}
@@ -282,22 +306,23 @@ async def approve_enrollment_request(
     req.reviewed_at = datetime.utcnow()
     req.review_note = review_note
 
-    if req.requested_by_user_id:
-        db.add(
-            Notification(
-                id=str(uuid.uuid4()),
-                recipient_id=req.requested_by_user_id,
-                recipient_type="user",
-                notification_type="school_enrollment_approved",
-                title="Enrollment approved",
-                message=(
-                    f"{req.circle_name} approved enrollment for {req.full_name}. "
-                    f"The student is now active on your school dashboard."
-                ),
-                related_entity_id=student.id,
-                related_entity_type="school_student",
-            )
-        )
+    prof_res = await db.execute(
+        select(SchoolProfile.school_name).where(SchoolProfile.id == req.school_id)
+    )
+    school_name = prof_res.scalar_one_or_none()
+    await emit_enrollment_approved(
+        db,
+        req=req,
+        student=student,
+        reviewer=user,
+        school_name=school_name,
+    )
+
+    from app.services.family_circle_provision import provision_parent_after_student_enrollment
+
+    await provision_parent_after_student_enrollment(
+        db, school_student=student, circle_id=req.circle_id
+    )
 
     await db.commit()
     await db.refresh(student)
@@ -333,22 +358,7 @@ async def reject_enrollment_request(
     req.reviewed_at = datetime.utcnow()
     req.review_note = review_note.strip()
 
-    if req.requested_by_user_id:
-        db.add(
-            Notification(
-                id=str(uuid.uuid4()),
-                recipient_id=req.requested_by_user_id,
-                recipient_type="user",
-                notification_type="school_enrollment_rejected",
-                title="Enrollment not approved",
-                message=(
-                    f"{req.circle_name} declined enrollment for {req.full_name}. "
-                    f"Reason: {req.review_note}"
-                ),
-                related_entity_id=req.id,
-                related_entity_type="school_enrollment",
-            )
-        )
+    await emit_enrollment_rejected(db, req=req, reviewer=user)
 
     await db.commit()
     await db.refresh(req)

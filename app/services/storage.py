@@ -9,9 +9,25 @@ from uuid import uuid4
 from fastapi import UploadFile
 from app.services.cloudinary_service import upload_image, upload_raw
 
+def _guess_upload_content_type(file: UploadFile) -> Optional[str]:
+    if file.content_type and file.content_type != "application/octet-stream":
+        return file.content_type
+    name = (file.filename or "").lower()
+    if name.endswith((".jpg", ".jpeg")):
+        return "image/jpeg"
+    if name.endswith(".png"):
+        return "image/png"
+    if name.endswith(".webp"):
+        return "image/webp"
+    if name.endswith(".pdf"):
+        return "application/pdf"
+    return file.content_type
+
+
 async def save_kyc_file(*, signup_id: str, file: UploadFile) -> tuple[str, str, Optional[str]]:
     """Save KYC file to Cloudinary."""
-    is_image = file.content_type in ["image/jpeg", "image/png", "image/webp"]
+    content_type = _guess_upload_content_type(file)
+    is_image = content_type in ["image/jpeg", "image/png", "image/webp", "image/gif"]
     folder = f"zenk/kyc/{signup_id}"
     
     if is_image:
@@ -24,7 +40,7 @@ async def save_kyc_file(*, signup_id: str, file: UploadFile) -> tuple[str, str, 
 
     # Return URL as stored_path for backward compatibility
     stored_filename = file.filename or "kyc_document"
-    return stored_filename, url, file.content_type
+    return stored_filename, url, content_type
 
 async def save_kyc_files(*, signup_id: str, files: list[UploadFile]) -> list[tuple[str, str, Optional[str], str]]:
     """Save multiple KYC files to Cloudinary."""

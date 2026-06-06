@@ -368,6 +368,21 @@ async def apply_quarterly_report(
     )
     db.add(submission)
     await db.flush()
+
+    if ready:
+        from app.services.kia_event_briefings import emit_report_published
+
+        await emit_report_published(
+            db,
+            school_id=school_id,
+            student=student,
+            quarter=quarter,
+            fy=fy,
+            teacher_name=teacher_name,
+            narrative=narrative,
+            finalized=ready,
+        )
+
     return submission
 
 

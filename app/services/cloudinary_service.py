@@ -36,6 +36,23 @@ async def upload_image(file: UploadFile, folder: str = "zenk/chat") -> Optional[
     finally:
         await file.seek(0) # Reset file pointer for any other use cases
 
+async def upload_video(file: UploadFile, folder: str = "zenk/support") -> Optional[str]:
+    """Upload a video file to Cloudinary."""
+    try:
+        content = await file.read()
+        result = cloudinary.uploader.upload(
+            content,
+            folder=folder,
+            resource_type="video",
+        )
+        return result.get("secure_url")
+    except Exception as e:
+        logger.error(f"Cloudinary video upload error: {e}")
+        return None
+    finally:
+        await file.seek(0)
+
+
 async def upload_raw(file: UploadFile, folder: str = "zenk/docs") -> Optional[str]:
     """
     Upload a non-image file (PDF, etc) to Cloudinary.

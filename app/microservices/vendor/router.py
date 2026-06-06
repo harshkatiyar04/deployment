@@ -688,109 +688,21 @@ async def checkout_cart(
     user: SignupRequest = Depends(get_current_user),
 ):
     """Place multiple orders from a cart checkout, applying active promotions."""
-    now = datetime.now(timezone.utc)
-    orders = []
-    
-    for item in body.items:
-        # Fetch product to verify price and check for promotions
-        p_res = await db.execute(select(VendorProduct).where(VendorProduct.id == item.product_id))
-        product = p_res.scalar_one_or_none()
-        if not product: continue
+    if body.order_type == "student" and user.persona != Persona.sponsor_leader:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only circle leaders can complete student fund checkout and payment.",
+        )
+    if body.order_type == "student":
+        from app.services.circle_budget import resolve_user_circle
+        from app.services.circle_student_enrollment_gate import assert_circle_has_enrolled_student
 
-        # Check for active promotions
-        promo_q = select(VendorPromotion).where(
-            VendorPromotion.vendor_id == item.vendor_id,
-            VendorPromotion.is_active == True,
-            VendorPromotion.start_date <= now,
-            VendorPromotion.end_date >= now
-        )
-        promo_res = await db.execute(promo_q)
-        active_promos = promo_res.scalars().all()
-        
-        # Filter by target audience based on order type
-        valid_promos = []
-        for p in active_promos:
-            if p.target_audience == "all":
-                valid_promos.append(p)
-            elif p.target_audience == "student" and body.order_type == "student":
-                valid_promos.append(p)
-            elif p.target_audience == "sponsor" and body.order_type == "personal":
-                valid_promos.append(p)
-        
-        best_discount = 0.0
-        applied_promo_id = None
-        
-        for promo in valid_promos:
-            applies = False
-            if promo.scope == "all":
-                applies = True
-            elif promo.target_product_ids:
-                if str(product.id) in promo.target_product_ids.split(","):
-                    applies = True
-            
-            if applies and promo.discount_percentage > best_discount:
-                best_discount = promo.discount_percentage
-                applied_promo_id = promo.id
-        
-        # Determine base price based on order type
-        base_price = product.price
-        if body.order_type == "student" and product.student_price:
-            base_price = product.student_price
-            
-        unit_price = base_price
-        discount_amount = 0.0
-        if best_discount > 0:
-            discount_per_unit = unit_price * (best_discount / 100)
-            discount_amount = discount_per_unit * item.quantity
-            unit_price = unit_price - discount_per_unit
+        circle, _ = await resolve_user_circle(db, user.id, None)
+        await assert_circle_has_enrolled_student(db, circle.id)
 
-        order = VendorOrder(
-            vendor_id=item.vendor_id,
-            product_id=item.product_id,
-            buyer_id=user.id,
-            buyer_name=user.full_name,
-            circle_name=body.circle_name,
-            quantity=item.quantity,
-            unit_price=unit_price,
-            total_amount=unit_price * item.quantity,
-            discount_amount=discount_amount,
-            promotion_id=applied_promo_id,
-            delivery_address=body.delivery_address,
-            phone_number=body.phone_number,
-            order_type=body.order_type,
-            status=OrderStatus.pending,
-        )
-        db.add(order)
-        orders.append(order)
-        
-        # Create notification for vendor
-        from app.models.notification import Notification
-        notif = Notification(
-            recipient_id=item.vendor_id,
-            recipient_type="user",
-            notification_type="new_order",
-            title="New Order Received",
-            message=f"You have received a new order for {product.name}.",
-            related_entity_id=order.id,
-            related_entity_type="order"
-        )
-        db.add(notif)
-    
-    await db.commit()
-    for o in orders:
-        await db.refresh(o)
+    from app.services.vendor_checkout import execute_cart_checkout
 
-    out = []
-    for o in orders:
-        prod_result = await db.execute(
-            select(VendorProduct.name).where(VendorProduct.id == o.product_id)
-        )
-        product_name = prod_result.scalar_one_or_none()
-        order_dict = OrderOut.model_validate(o).model_dump()
-        order_dict["product_name"] = product_name
-        out.append(OrderOut(**order_dict))
-    
-    return out
+    return await execute_cart_checkout(db, body, user)
 
 
 @router.get("/my-orders", response_model=list[OrderOut])
@@ -1190,26 +1102,33 @@ async def get_kia_marketplace_recommendation(
     """
     print(f"FETCHING KIA RECOMMENDATION FOR USER: {user.email}")
     
-    # Pre-set fallback in case of any error
-    fallback_recommendation = (
-        "Based on the current curriculum, I recommend looking at the Class 9 Science Exemplar "
-        "and NCERT Maths textbooks. These are foundational for Ananya's upcoming ZQA assessment."
+    fallback_no_students = (
+        "Your circle does not have enrolled students yet. After your leader adds students "
+        "via School Comm, I can recommend marketplace items matched to their grade and ZQA needs."
     )
-    
-    try:
-        # 1. Fetch user context
-        circle_id = "ashoka-rising" 
-        
-        try:
-            from app.chat.models import CircleMember
-            res = await db.execute(select(CircleMember.circle_id).where(CircleMember.user_id == str(user.id)).limit(1))
-            real_circle_id = res.scalar()
-            if real_circle_id:
-                circle_id = real_circle_id
-        except Exception:
-            pass
+    fallback_generic = (
+        "Browse student-fund items in the marketplace that match your circle's current grade band "
+        "and budget. Ask your circle leader to approve student-fund checkout when ready."
+    )
 
-        context = await fetch_user_context(str(user.id), circle_id, db, is_leader=True)
+    try:
+        from app.chat.models import CircleMember
+        from app.models.enums import Persona
+
+        circle_id = None
+        res = await db.execute(
+            select(CircleMember.circle_id).where(CircleMember.user_id == str(user.id)).limit(1)
+        )
+        circle_id = res.scalar()
+        if not circle_id:
+            return {"recommendation": fallback_no_students}
+
+        is_leader = user.persona == Persona.sponsor_leader
+        context = await fetch_user_context(
+            str(user.id), str(circle_id), db, is_leader=is_leader
+        )
+        if not context.get("has_sponsored_students"):
+            return {"recommendation": fallback_no_students}
         
         # 2. Get some top products from the DB to give Kia more context
         from app.microservices.vendor.models import VendorProduct
@@ -1234,9 +1153,9 @@ async def get_kia_marketplace_recommendation(
             channel="PROACTIVE_TRIGGER"
         )
         
-        return {"recommendation": recommendation or fallback_recommendation}
-        
+        return {"recommendation": recommendation or fallback_generic}
+
     except Exception as e:
         print(f"ERROR IN KIA RECOMMENDATION: {e}")
-        return {"recommendation": fallback_recommendation}
+        return {"recommendation": fallback_generic}
 

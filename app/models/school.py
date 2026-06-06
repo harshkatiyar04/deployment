@@ -34,6 +34,7 @@ class SchoolProfile(Base):
     reports_pending: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     school_logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     principal_photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    portal_role: Mapped[str] = mapped_column(String(20), nullable=False, default="principal")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -70,10 +71,13 @@ class SchoolStudent(Base):
     
     # New fields for deep dive
     zenk_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    signup_request_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
     dob: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     class_teacher: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    class_teacher_faculty_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
     sl_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     mentor_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    mentor_faculty_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
     rank_in_class: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
     class_size: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     zenq_contribution: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -353,3 +357,122 @@ class SchoolStudentEnrollmentRequest(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, default=datetime.utcnow
     )
+
+
+class SchoolFaculty(Base):
+    """Principal-managed faculty directory (class teacher, mentor, coordinator)."""
+    __tablename__ = "school_faculty"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    faculty_role: Mapped[str] = mapped_column(String(30), nullable=False)
+    subject: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    portal_member_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_portal_members.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class SchoolActionAuditLog(Base):
+    __tablename__ = "school_action_audit_log"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    actor_user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
+    actor_email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    action: Mapped[str] = mapped_column(String(80), nullable=False)
+    student_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(20), nullable=False, default="success")
+    detail: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class SchoolPortalMember(Base):
+    """Invited school portal users (staff/principal) linked by email to a school org."""
+    __tablename__ = "school_portal_members"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    portal_role: Mapped[str] = mapped_column(String(20), nullable=False, default="staff")
+    user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    invited_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+
+class SchoolPortalInvite(Base):
+    __tablename__ = "school_portal_invites"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    school_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    member_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.school_portal_members.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    email: Mapped[str] = mapped_column(String(320), nullable=False)
+    display_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    portal_role: Mapped[str] = mapped_column(String(20), nullable=False, default="staff")
+    token: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    invited_by_user_id: Mapped[Optional[str]] = mapped_column(
+        UUID(as_uuid=False),
+        ForeignKey("ZENK.signup_requests.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)

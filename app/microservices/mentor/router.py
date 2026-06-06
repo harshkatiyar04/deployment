@@ -3,13 +3,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, date
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.db.session import get_db
+from app.core.admin_deps import require_admin_api_key
 from app.core.jwt_auth import get_current_user
 from app.models.signup import SignupRequest
 from app.models.enums import Persona
@@ -404,18 +405,29 @@ async def log_uplift_action(
         created_at=action.created_at.isoformat(),
     )
 @router.get("/admin/uplift-actions", response_model=List[AdminUpliftActionResponse])
-async def admin_list_uplift_actions(db: AsyncSession = Depends(get_db)):
-    """List all uplift actions (pending and verified) for admin review."""
-    # Note: In a real app, this should have admin auth checks
+async def admin_list_uplift_actions(
+    status: Optional[str] = None,
+    _: None = Depends(require_admin_api_key),
+    db: AsyncSession = Depends(get_db),
+):
+    """List uplift actions for admin review (status=pending|verified|all)."""
     stmt = (
         select(MentorUpliftAction, MentorProfile, SignupRequest)
         .join(MentorProfile, MentorUpliftAction.mentor_id == MentorProfile.id)
         .join(SignupRequest, MentorProfile.id == SignupRequest.id)
-        .order_by(MentorUpliftAction.created_at.desc())
+    )
+    status_norm = (status or "pending").strip().lower()
+    if status_norm == "pending":
+        stmt = stmt.where(MentorUpliftAction.verified.is_(False))
+    elif status_norm == "verified":
+        stmt = stmt.where(MentorUpliftAction.verified.is_(True))
+    stmt = stmt.order_by(
+        MentorUpliftAction.verified.asc(),
+        MentorUpliftAction.created_at.desc(),
     )
     result = await db.execute(stmt)
     rows = result.all()
-    
+
     return [
         AdminUpliftActionResponse(
             id=action.id,
@@ -429,12 +441,18 @@ async def admin_list_uplift_actions(db: AsyncSession = Depends(get_db)):
             mentor_id=profile.id,
             mentor_name=signup.full_name,
             mentor_specialty=profile.specialty,
+            inspire_index=round(float(profile.inspire_index), 1),
+            zenq_contribution=round(float(profile.zenq_contribution), 1),
         )
         for action, profile, signup in rows
     ]
 
 @router.patch("/admin/uplift-actions/{action_id}/verify", response_model=AdminUpliftActionResponse)
-async def admin_verify_uplift_action(action_id: str, db: AsyncSession = Depends(get_db)):
+async def admin_verify_uplift_action(
+    action_id: str,
+    _: None = Depends(require_admin_api_key),
+    db: AsyncSession = Depends(get_db),
+):
     """Verify an uplift action and rebuild mentor KPIs."""
     stmt = (
         select(MentorUpliftAction, MentorProfile, SignupRequest)
@@ -481,10 +499,16 @@ async def admin_verify_uplift_action(action_id: str, db: AsyncSession = Depends(
         mentor_id=profile.id,
         mentor_name=signup.full_name,
         mentor_specialty=profile.specialty,
+        inspire_index=round(float(profile.inspire_index), 1),
+        zenq_contribution=round(float(profile.zenq_contribution), 1),
     )
 
 @router.delete("/admin/uplift-actions/{action_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def admin_reject_uplift_action(action_id: str, db: AsyncSession = Depends(get_db)):
+async def admin_reject_uplift_action(
+    action_id: str,
+    _: None = Depends(require_admin_api_key),
+    db: AsyncSession = Depends(get_db),
+):
     """Reject (delete) an uplift action."""
     stmt = select(MentorUpliftAction).where(MentorUpliftAction.id == action_id)
     result = await db.execute(stmt)
@@ -569,6 +593,55 @@ async def mentor_kia_chat(
     await db.commit()
 
     return MentorKiaChatResponse(reply=reply)
+
+
+# ── Student text mentoring (Phase 2 — no video/voice) ─────────────────────────
+
+@router.get("/student-mentoring/inbox")
+async def mentor_student_mentoring_inbox(
+    db: AsyncSession = Depends(get_db),
+    user: SignupRequest = Depends(get_current_user),
+):
+    """Open student mentoring threads for mentors assigned to circles."""
+    _require_mentor(user)
+    from sqlalchemy import select
+    from app.models.student_portal import StudentMentoringThread, StudentMentoringMessage
+    from app.models.signup import SignupRequest as SignupRow
+
+    profile_res = await db.execute(select(MentorProfile).where(MentorProfile.id == user.id))
+    profile = profile_res.scalar_one_or_none()
+    circle_ids = []
+    if profile and profile.circle_id:
+        circle_ids.append(profile.circle_id)
+    if profile and profile.assigned_circles:
+        circle_ids.extend([c for c in profile.assigned_circles if c])
+
+    if not circle_ids:
+        return {"threads": []}
+
+    threads_res = await db.execute(
+        select(StudentMentoringThread)
+        .where(StudentMentoringThread.circle_id.in_(circle_ids))
+        .order_by(StudentMentoringThread.updated_at.desc())
+    )
+    out = []
+    for thread in threads_res.scalars().all():
+        stu_res = await db.execute(select(SignupRow).where(SignupRow.id == thread.student_signup_id))
+        student = stu_res.scalar_one_or_none()
+        last_res = await db.execute(
+            select(StudentMentoringMessage)
+            .where(StudentMentoringMessage.thread_id == thread.id)
+            .order_by(StudentMentoringMessage.created_at.desc())
+            .limit(1)
+        )
+        last = last_res.scalar_one_or_none()
+        out.append({
+            "thread_id": thread.id,
+            "title": thread.title,
+            "student_pseudonym": student.full_name if student else "Student",
+            "last_preview": (last.body[:100] if last else None),
+        })
+    return {"threads": out}
 
 
 # ── Statement ─────────────────────────────────────────────────────────────────

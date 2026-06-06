@@ -14,13 +14,6 @@ from app.models.signup import SignupRequest
 
 LEADER_ROLES = frozenset({"lead", "sponsor_leader", "coordinator"})
 
-DEFAULT_TXNS = [
-    {"date": "Mar 20", "description": "New Member Kit", "amount": 5000, "category": "Operational"},
-    {"date": "Mar 15", "description": "Kia AI Tokens", "amount": 3500, "category": "Platform"},
-    {"date": "Mar 10", "description": "School Supplies", "amount": 12000, "category": "Student"},
-]
-
-
 def _fy_display(label: Optional[str]) -> str:
     raw = (label or "2025-26").strip()
     return f"FY {raw}" if not raw.upper().startswith("FY") else raw
@@ -54,24 +47,31 @@ async def resolve_user_circle(
     return row[0], row[1]
 
 
-def build_budget_payload(circle: SponsorCircle, role: Optional[str]) -> dict:
-    total = int(circle.annual_budget or 150_000)
-    spent = int(circle.budget_spent or 94_200)
-    collected = int(circle.budget_collected or 124_500)
-    balance_to_spend = max(0, total - spent)
+def build_budget_payload(
+    circle: SponsorCircle,
+    role: Optional[str],
+    *,
+    spent: Optional[int] = None,
+    transactions: Optional[list] = None,
+) -> dict:
+    total = int(circle.annual_budget or 0)
+    spent_val = int(spent if spent is not None else (circle.budget_spent or 0))
+    collected = int(circle.budget_collected or 0)
+    balance_to_spend = max(0, total - spent_val) if total > 0 else 0
 
     return {
         "circle_id": circle.id,
         "circle_name": circle.name,
         "total_budget": total,
-        "spent": spent,
+        "spent": spent_val,
         "collected": collected,
         "balance_to_spend": balance_to_spend,
         "fy_label": _fy_display(circle.fy_label),
         "fy_key": circle.fy_label or "2025-26",
-        "transactions": DEFAULT_TXNS,
+        "transactions": transactions if transactions is not None else [],
         "can_set_budget": _can_set_budget(role),
         "budget_set_at": circle.budget_set_at,
+        "budget_configured": circle.budget_set_at is not None and total > 0,
     }
 
 
@@ -98,6 +98,15 @@ async def set_circle_budget(
         circle.fy_label = cleaned or circle.fy_label
     circle.budget_set_at = datetime.now(timezone.utc)
     circle.budget_set_by = user.id
+    from app.services.kia_event_briefings import emit_budget_updated
+
+    await emit_budget_updated(
+        db,
+        circle=circle,
+        leader=user,
+        annual_budget=annual_budget,
+        fy_label=fy_label,
+    )
     await db.commit()
     await db.refresh(circle)
     return build_budget_payload(circle, role)

@@ -219,19 +219,20 @@ async def import_quarterly_csv(
         if sid.startswith("#") or sid.lower() in ("instructions", "example"):
             continue
         try:
-            if not (row.get("narrative") or "").strip():
-                raise ValueError("narrative is required")
+            async with db.begin_nested():
+                if not (row.get("narrative") or "").strip():
+                    raise ValueError("narrative is required")
 
-            student = _resolve_student(row, by_id, by_name)
-            payload = _build_payload(row)
-            submission = await apply_quarterly_report(
-                db,
-                school_id=school_id,
-                student=student,
-                user=user,
-                payload=payload,
-                source="csv",
-            )
+                student = _resolve_student(row, by_id, by_name)
+                payload = _build_payload(row)
+                submission = await apply_quarterly_report(
+                    db,
+                    school_id=school_id,
+                    student=student,
+                    user=user,
+                    payload=payload,
+                    source="csv",
+                )
             success_count += 1
             imported.append({
                 "row": str(row_idx),

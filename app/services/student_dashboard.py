@@ -1,0 +1,245 @@
+"""Student dashboard data — pseudonym-first, school-linked progress."""
+
+from __future__ import annotations
+
+from typing import Any, Optional
+
+from sqlalchemy import select, func
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.chat.gamified_persona import get_or_create_persona
+from app.chat.models import CircleMember, SponsorCircle
+from app.models.enums import Persona
+from app.models.school import SchoolStudent
+from app.models.signup import SignupRequest
+from app.models.student_family import StudentFamilyLink
+from app.services.student_family import has_recorded_parental_consent
+
+
+def mask_circle_label(name: Optional[str]) -> str:
+    if not name or len(name) < 3:
+        return "Your circle"
+    return f"{name[0]}*** Circle"
+
+
+async def resolve_school_student(
+    db: AsyncSession,
+    signup: SignupRequest,
+) -> Optional[SchoolStudent]:
+    is_v2 = (signup.onboarding_version or "v1") == "v2"
+
+    link_res = await db.execute(
+        select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == signup.id)
+    )
+    link = link_res.scalar_one_or_none()
+    if link and link.school_student_id:
+        res = await db.execute(select(SchoolStudent).where(SchoolStudent.id == link.school_student_id))
+        row = res.scalar_one_or_none()
+        if row:
+            if is_v2 and not row.signup_request_id:
+                row.signup_request_id = signup.id
+            return row
+
+    res = await db.execute(
+        select(SchoolStudent).where(SchoolStudent.signup_request_id == signup.id).limit(1)
+    )
+    row = res.scalar_one_or_none()
+    if row:
+        return row
+
+    if not is_v2:
+        res = await db.execute(
+            select(SchoolStudent).where(SchoolStudent.zenk_id == signup.id).limit(1)
+        )
+        row = res.scalar_one_or_none()
+        if row:
+            if not row.signup_request_id:
+                row.signup_request_id = signup.id
+            return row
+
+        if signup.school_or_college_name and signup.full_name:
+            res = await db.execute(
+                select(SchoolStudent)
+                .where(
+                    func.lower(SchoolStudent.full_name) == signup.full_name.strip().lower(),
+                    SchoolStudent.grade == (signup.grade_or_year or ""),
+                )
+                .limit(1)
+            )
+            return res.scalar_one_or_none()
+    return None
+
+
+async def resolve_student_circle_id(
+    db: AsyncSession,
+    signup: SignupRequest,
+    school_student: Optional[SchoolStudent],
+) -> Optional[str]:
+    if school_student and school_student.circle_id:
+        return school_student.circle_id
+    link_res = await db.execute(
+        select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == signup.id)
+    )
+    link = link_res.scalar_one_or_none()
+    if link and link.circle_id:
+        return link.circle_id
+    if school_student and school_student.circle_id:
+        return school_student.circle_id
+    mem_res = await db.execute(
+        select(CircleMember.circle_id).where(CircleMember.user_id == signup.id).limit(1)
+    )
+    row = mem_res.scalar_one_or_none()
+    return row[0] if row else None
+
+
+async def build_student_profile(db: AsyncSession, signup: SignupRequest) -> dict[str, Any]:
+    persona = await get_or_create_persona(signup, db)
+    school_student = await resolve_school_student(db, signup)
+    circle_id = await resolve_student_circle_id(db, signup, school_student)
+    circle_name = None
+    if circle_id:
+        c_res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+        circle = c_res.scalar_one_or_none()
+        circle_name = circle.name if circle else None
+
+    consent = await has_recorded_parental_consent(db, signup.id)
+
+    return {
+        "signup_id": signup.id,
+        "pseudonym": persona.nickname,
+        "avatar_key": persona.avatar_key,
+        "grade": signup.grade_or_year or (school_student.grade if school_student else None),
+        "school_label": "Partner school" if school_student else signup.school_or_college_name,
+        "login_access_tier": signup.login_access_tier,
+        "has_parental_consent": consent,
+        "kyc_status": signup.kyc_status.value,
+        "circle_id": circle_id,
+        "circle_name_masked": mask_circle_label(circle_name),
+        "school_linked": school_student is not None,
+        "school_student_id": school_student.id if school_student else None,
+    }
+
+
+async def build_student_overview(db: AsyncSession, signup: SignupRequest) -> dict[str, Any]:
+    profile = await build_student_profile(db, signup)
+    school_student = await resolve_school_student(db, signup)
+
+    zqa = 0
+    attendance = 0
+    avg_score = 0
+    risk = "—"
+    improvement = 0
+    school_note = None
+
+    if school_student:
+        zqa = int(school_student.zqa_score or 0)
+        attendance = int(school_student.attendance_pct or 0)
+        avg_score = int(school_student.avg_score or 0)
+        risk = school_student.risk_level or "Low"
+        improvement = max(0, int(school_student.zqa_baseline_delta or 0))
+        if school_student.tutor_recommendation:
+            school_note = (school_student.tutor_recommendation or "")[:280]
+
+    member_count = 0
+    if profile.get("circle_id"):
+        cnt_res = await db.execute(
+            select(func.count()).select_from(CircleMember).where(
+                CircleMember.circle_id == profile["circle_id"]
+            )
+        )
+        member_count = int(cnt_res.scalar() or 0)
+
+    return {
+        **profile,
+        "kpis": {
+            "zqa_score": zqa,
+            "attendance_pct": attendance,
+            "avg_score": avg_score,
+            "risk_level": risk,
+            "improvement_pts": improvement,
+            "circle_members": member_count,
+        },
+        "school_note": school_note,
+        "milestones": _milestones(zqa, attendance),
+    }
+
+
+def _milestones(zqa: int, attendance: int) -> list[dict[str, str]]:
+    items: list[dict[str, str]] = []
+    if zqa >= 70:
+        items.append({"label": "Strong ZQA", "status": "achieved"})
+    elif zqa > 0:
+        items.append({"label": "Reach ZQA 70", "status": "in_progress"})
+    if attendance >= 85:
+        items.append({"label": "Attendance champion", "status": "achieved"})
+    elif attendance > 0:
+        items.append({"label": "85% attendance goal", "status": "in_progress"})
+    if not items:
+        items.append({"label": "Join your circle & school", "status": "pending"})
+    return items
+
+
+async def build_student_progress(
+    db: AsyncSession,
+    signup: SignupRequest,
+    *,
+    quarter: str = "Q4",
+) -> dict[str, Any]:
+    from app.services.sponsor_sponsored_student import build_sponsored_student_profile
+
+    school_student = await resolve_school_student(db, signup)
+    profile = await build_student_profile(db, signup)
+    if not school_student:
+        return {
+            "linked": False,
+            "pseudonym": profile["pseudonym"],
+            "message": "Progress unlocks when your school admits you to your partner school.",
+        }
+
+    record = await build_sponsored_student_profile(
+        db,
+        school_student,
+        quarter=quarter,
+        viewer="student",
+    )
+    return {
+        "linked": True,
+        "quarter": quarter.upper(),
+        **record,
+    }
+
+
+async def build_student_circle_view(db: AsyncSession, signup: SignupRequest) -> dict[str, Any]:
+    profile = await build_student_profile(db, signup)
+    circle_id = profile.get("circle_id")
+    if not circle_id:
+        return {
+            "in_circle": False,
+            "message": "Your circle connects when school enrollment is approved.",
+        }
+
+    mem_res = await db.execute(
+        select(CircleMember, SignupRequest)
+        .join(SignupRequest, SignupRequest.id == CircleMember.user_id)
+        .where(
+            CircleMember.circle_id == circle_id,
+            SignupRequest.persona.in_([Persona.sponsor_leader, Persona.sponsor_member, Persona.mentor]),
+        )
+    )
+    members = []
+    for idx, (cm, user) in enumerate(mem_res.all()):
+        role_label = "Leader" if cm.role in ("lead", "leader") else ("Mentor" if user.persona == Persona.mentor else "Sponsor")
+        members.append(
+            {
+                "masked_name": f"Sponsor #{idx + 1}",
+                "role": role_label,
+            }
+        )
+
+    return {
+        "in_circle": True,
+        "circle_name_masked": profile["circle_name_masked"],
+        "member_count": len(members),
+        "members": members[:8],
+        "impact_hint": "Your circle supports your learning journey — names stay private for your safety.",
+    }

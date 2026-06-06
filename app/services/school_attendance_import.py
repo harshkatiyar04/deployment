@@ -197,50 +197,51 @@ async def import_attendance_csv(
         if not any(row.values()):
             continue
         try:
-            student = _resolve_student(row, by_id, by_name)
-            month = int(row.get("month") or "")
-            year = int(row.get("year") or "")
-            if month < 1 or month > 12:
-                raise ValueError("month must be 1–12")
-            if year < 2020 or year > 2035:
-                raise ValueError("year out of range")
+            async with db.begin_nested():
+                student = _resolve_student(row, by_id, by_name)
+                month = int(row.get("month") or "")
+                year = int(row.get("year") or "")
+                if month < 1 or month > 12:
+                    raise ValueError("month must be 1–12")
+                if year < 2020 or year > 2035:
+                    raise ValueError("year out of range")
 
-            working_days = int(row.get("working_days") or 0)
-            days_present_raw = row.get("days_present", "")
-            pct_raw = row.get("attendance_pct", "")
+                working_days = int(row.get("working_days") or 0)
+                days_present_raw = row.get("days_present", "")
+                pct_raw = row.get("attendance_pct", "")
 
-            if working_days >= 1 and days_present_raw != "":
-                days_present = int(days_present_raw)
-                if working_days > 31:
-                    raise ValueError("working_days must be 1–31")
-                await upsert_monthly_attendance(
-                    db,
-                    student=student,
-                    month=month,
-                    year=year,
-                    working_days=working_days,
-                    days_present=days_present,
-                )
-            elif pct_raw != "":
-                pct = float(pct_raw)
-                if pct < 0 or pct > 100:
-                    raise ValueError("attendance_pct must be 0–100")
-                wd = working_days if working_days >= 1 else 22
-                if wd > 31:
-                    raise ValueError("working_days must be 1–31")
-                dp = int(days_present_raw) if days_present_raw else int(round((pct / 100.0) * wd))
-                await upsert_monthly_attendance(
-                    db,
-                    student=student,
-                    month=month,
-                    year=year,
-                    working_days=wd,
-                    days_present=dp,
-                )
-            else:
-                raise ValueError(
-                    "Provide working_days and days_present, or attendance_pct"
-                )
+                if working_days >= 1 and days_present_raw != "":
+                    days_present = int(days_present_raw)
+                    if working_days > 31:
+                        raise ValueError("working_days must be 1–31")
+                    await upsert_monthly_attendance(
+                        db,
+                        student=student,
+                        month=month,
+                        year=year,
+                        working_days=working_days,
+                        days_present=days_present,
+                    )
+                elif pct_raw != "":
+                    pct = float(pct_raw)
+                    if pct < 0 or pct > 100:
+                        raise ValueError("attendance_pct must be 0–100")
+                    wd = working_days if working_days >= 1 else 22
+                    if wd > 31:
+                        raise ValueError("working_days must be 1–31")
+                    dp = int(days_present_raw) if days_present_raw else int(round((pct / 100.0) * wd))
+                    await upsert_monthly_attendance(
+                        db,
+                        student=student,
+                        month=month,
+                        year=year,
+                        working_days=wd,
+                        days_present=dp,
+                    )
+                else:
+                    raise ValueError(
+                        "Provide working_days and days_present, or attendance_pct"
+                    )
 
             touched_students.add(student.id)
             success_count += 1

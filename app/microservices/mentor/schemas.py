@@ -102,6 +102,8 @@ class AdminUpliftActionResponse(UpliftActionResponse):
     mentor_id: str
     mentor_name: str
     mentor_specialty: str
+    inspire_index: Optional[float] = None
+    zenq_contribution: Optional[float] = None
 
 
 # ── Kia Chat ─────────────────────────────────────────────────────────────────

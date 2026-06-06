@@ -32,9 +32,32 @@ class SignupResponse(BaseModel):
     documents: list[KycDocumentOut] = []
 
 
-class AdminSignupListItem(SignupResponse):
+class LinkedSignupSummary(BaseModel):
+    """Linked student or parent/guardian on a family signup."""
+
+    id: str
+    full_name: str
+    kyc_status: KycStatus
+    member_kind: Optional[str] = None
+    documents_count: int = 0
+
+
+class AdminSignupListItem(BaseModel):
+    """Admin queue item — email is plain str so dev/stored values like user@zenk still serialize."""
+
+    id: str
+    persona: Persona
+    full_name: str
+    mobile: str
+    email: str
+    kyc_status: KycStatus
+    documents: list[KycDocumentOut] = []
     created_at: Optional[str] = None
     documents_count: int = 0
+    member_kind: Optional[str] = None
+    linked_student_signup_id: Optional[str] = None
+    onboarding_version: Optional[str] = None
+    display_role: Optional[str] = None
 
 
 class AdminDecisionRequest(BaseModel):
@@ -54,14 +77,14 @@ class FullSignupDetails(BaseModel):
     # Common fields
     full_name: str
     mobile: str
-    email: EmailStr
+    email: str
     address_line1: str
     address_line2: str
     city: str
     state: str
     pincode: str
     country: str
-    
+
     # Sponsor fields
     sponsor_type: Optional[str] = None
     pan_number: Optional[str] = None
@@ -80,9 +103,17 @@ class FullSignupDetails(BaseModel):
     # Student fields
     date_of_birth: Optional[str] = None  # ISO date string
     school_or_college_name: Optional[str] = None
+    selected_school_id: Optional[str] = None
     grade_or_year: Optional[str] = None
     guardian_name: Optional[str] = None
     guardian_mobile: Optional[str] = None
+    guardian_relationship: Optional[str] = None
+    login_access_tier: Optional[str] = None
+    member_kind: Optional[str] = None
+    linked_student_signup_id: Optional[str] = None
+    onboarding_version: Optional[str] = None
+    linked_guardian: Optional[LinkedSignupSummary] = None
+    linked_student: Optional[LinkedSignupSummary] = None
     
     # Documents metadata
     documents: list[KycDocumentOut] = []
@@ -138,6 +169,15 @@ class StudentSignupRequest(AddressFields):
     grade_or_year: str
     guardian_name: str
     guardian_mobile: str
+    guardian_relationship: str = Field(default="parent", description="parent, guardian, mother, father, etc.")
+    circle_invite_code: Optional[str] = None
+    parent_pan_number: Optional[str] = None
     kyc_docs: list[KycDocumentBase64] = Field(..., min_length=1, description="List of base64-encoded KYC documents")
+
+
+class StudentFamilySignupResponse(SignupResponse):
+    parent_signup_id: Optional[str] = None
+    login_access_tier: Optional[str] = None
+    family_link_id: Optional[str] = None
 
 
