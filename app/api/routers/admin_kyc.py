@@ -209,6 +209,11 @@ def _signup_full_details(r: SignupRequest) -> FullSignupDetails:
         business_type=r.business_type,
         product_categories=r.product_categories,
         website=r.website,
+        school_name=r.school_name,
+        school_principal_name=r.school_principal_name,
+        school_affiliation=r.school_affiliation,
+        school_affiliation_number=r.school_affiliation_number,
+        school_enrollment_year=r.school_enrollment_year,
         date_of_birth=r.date_of_birth.isoformat() if r.date_of_birth else None,
         school_or_college_name=r.school_or_college_name,
         selected_school_id=r.selected_school_id,
@@ -451,7 +456,7 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
     signup.updated_at = datetime.utcnow()
 
     if body.decision == KycStatus.approved and signup.persona == Persona.school:
-        await ensure_school_profile(db, signup)
+        await ensure_school_profile(db, signup, is_partner=True, onboarding_source="public_signup")
 
     await db.commit()
 

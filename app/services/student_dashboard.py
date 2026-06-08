@@ -14,6 +14,7 @@ from app.models.school import SchoolStudent
 from app.models.signup import SignupRequest
 from app.models.student_family import StudentFamilyLink
 from app.services.student_family import has_recorded_parental_consent
+from app.services.student_pseudonym import pseudonym_meta
 
 
 def mask_circle_label(name: Optional[str]) -> str:
@@ -107,6 +108,7 @@ async def build_student_profile(db: AsyncSession, signup: SignupRequest) -> dict
     return {
         "signup_id": signup.id,
         "pseudonym": persona.nickname,
+        **pseudonym_meta(persona.nickname),
         "avatar_key": persona.avatar_key,
         "grade": signup.grade_or_year or (school_student.grade if school_student else None),
         "school_label": "Partner school" if school_student else signup.school_or_college_name,

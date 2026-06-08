@@ -29,6 +29,7 @@ from app.services.student_onboarding_v2 import (
     list_public_schools,
 )
 from app.models.school import SchoolProfile
+from app.services.school_constants import SCHOOL_AFFILIATIONS, VALID_AFFILIATION_IDS
 
 
 router = APIRouter(prefix="/signup", tags=["signup"])
@@ -208,8 +209,12 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         Persona.sponsor_member: "Circle Member",
         Persona.vendor: "Vendor",
         Persona.student: "Student",
+        Persona.school: "School Partner",
     }
     label = persona_labels.get(persona, "User")
+    school_line = ""
+    if persona == Persona.school and signup.school_name:
+        school_line = f"- School: {signup.school_name}\n- Affiliation: {signup.school_affiliation or '—'}\n"
 
     subject = f"New {label} Registration Pending KYC Approval"
     text_body = (
@@ -219,6 +224,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         f"- Name: {signup.full_name}\n"
         f"- Email: {signup.email}\n"
         f"- Mobile: {signup.mobile}\n"
+        f"{school_line}"
         f"- Current Status: {signup.kyc_status.value}\n\n"
         f"Please login to Zenk ({settings.website_url}) to review the KYC documents and approve.\n\n"
         "Regards,\n"
@@ -733,10 +739,117 @@ async def signup_vendor(
     )
 
 
+@router.get("/school/affiliations")
+async def list_school_affiliations():
+    """Affiliation board options for public school partner signup."""
+    return SCHOOL_AFFILIATIONS
+
+
 @router.get("/schools")
 async def list_signup_schools(db: AsyncSession = Depends(get_db)):
     """Registered partner schools for student signup dropdown."""
     return await list_public_schools(db)
+
+
+@router.post(
+    "/school",
+    response_model=SignupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup_school(
+    full_name: str = Form(...),
+    mobile: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    address_line1: str = Form(...),
+    address_line2: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    pincode: str = Form(...),
+    country: str = Form(...),
+    school_name: str = Form(...),
+    school_principal_name: str = Form(...),
+    school_affiliation: str = Form(...),
+    school_affiliation_number: Optional[str] = Form(default=None),
+    school_enrollment_year: Optional[str] = Form(default=None),
+    kyc_doc: Optional[UploadFile] = File(default=None),
+    kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    db: AsyncSession = Depends(get_db),
+):
+    """Public school partner signup — principal account; ZenK admin reviews KYC."""
+    _require(password == confirm_password, "Password and confirm password do not match")
+    _require(len(password) >= 8, "Password must be at least 8 characters long")
+
+    affiliation_key = (school_affiliation or "").strip().upper()
+    _require(affiliation_key in VALID_AFFILIATION_IDS, "Please select a valid school affiliation.")
+
+    all_files: list[UploadFile] = []
+    if kyc_doc:
+        all_files.append(kyc_doc)
+    if kyc_docs:
+        all_files.extend(kyc_docs)
+    _require(len(all_files) > 0, "At least one KYC document is required (affiliation or registration proof).")
+
+    if school_enrollment_year and school_enrollment_year.strip():
+        year = school_enrollment_year.strip()
+        _require(year.isdigit() and 1950 <= int(year) <= 2100, "Enrollment year must be a valid year.")
+
+    existing_res = await db.execute(
+        select(SignupRequest).where(
+            SignupRequest.persona == Persona.school,
+            func.lower(SignupRequest.email) == email.strip().lower(),
+        )
+    )
+    signup = existing_res.scalar_one_or_none()
+
+    signup = await _process_signup_common(
+        persona=Persona.school,
+        signup=signup,
+        full_name=full_name,
+        mobile=mobile,
+        email=email,
+        password=password,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        city=city,
+        state=state,
+        pincode=pincode,
+        country=country,
+        kyc_docs=all_files,
+        db=db,
+    )
+
+    signup.school_name = school_name.strip()[:300]
+    signup.school_principal_name = (school_principal_name or full_name).strip()[:200]
+    signup.school_affiliation = affiliation_key
+    signup.school_affiliation_number = (school_affiliation_number or "").strip()[:64] or None
+    signup.school_enrollment_year = (school_enrollment_year or "").strip()[:10] or None
+    await db.commit()
+    await db.refresh(signup)
+
+    await _send_admin_notification(Persona.school, signup, db)
+
+    docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
+    docs = docs_res.scalars().all()
+
+    return SignupResponse(
+        id=signup.id,
+        persona=signup.persona,
+        full_name=signup.full_name,
+        mobile=signup.mobile,
+        email=signup.email,
+        kyc_status=signup.kyc_status,
+        documents=[
+            {
+                "id": d.id,
+                "original_filename": d.original_filename,
+                "stored_filename": d.stored_filename,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in docs
+        ],
+    )
 
 
 @router.post(

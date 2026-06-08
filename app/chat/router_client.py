@@ -42,6 +42,7 @@ from app.models.signup import SignupRequest
 from app.chat.schemas import (
     ChannelCreate,
     ChannelOut,
+    CircleBanStatusOut,
     MessageOut,
     MessageSend,
     SOSReportIn,
@@ -653,6 +654,41 @@ async def circle_websocket(
         logger.info(
             "User persona %s disconnected from circle %s", persona.id, circle_id
         )
+
+
+# REST: GET /chat/circle/{circle_id}/ban-status
+
+
+@router.get("/chat/circle/{circle_id}/ban-status", response_model=CircleBanStatusOut)
+async def circle_ban_status(
+    circle_id: str,
+    token: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Return whether the current user is banned from this circle."""
+    user = await get_current_user_from_token(token, db)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+    if circle_id == "corporate-kia":
+        return CircleBanStatusOut(banned=False)
+
+    from app.chat.models import ChatBan
+
+    ban_result = await db.execute(
+        select(ChatBan).where(
+            ChatBan.circle_id == circle_id,
+            ChatBan.user_id == user.id,
+        )
+    )
+    ban = ban_result.scalar_one_or_none()
+    if ban is None:
+        return CircleBanStatusOut(banned=False)
+    return CircleBanStatusOut(
+        banned=True,
+        reason=ban.reason,
+        banned_at=ban.created_at,
+    )
 
 
 # REST: GET /chat/channels/{circle_id}

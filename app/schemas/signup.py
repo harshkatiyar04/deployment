@@ -94,6 +94,13 @@ class FullSignupDetails(BaseModel):
     authorized_signatory_name: Optional[str] = None
     authorized_signatory_designation: Optional[str] = None
     
+    # School partner fields
+    school_name: Optional[str] = None
+    school_principal_name: Optional[str] = None
+    school_affiliation: Optional[str] = None
+    school_affiliation_number: Optional[str] = None
+    school_enrollment_year: Optional[str] = None
+
     # Vendor fields
     business_name: Optional[str] = None
     business_type: Optional[str] = None

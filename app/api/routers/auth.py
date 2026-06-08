@@ -48,6 +48,14 @@ class CircleAccessOut(BaseModel):
     is_leader: bool = False
 
 
+class CircleBanOut(BaseModel):
+    banned: bool = True
+    circle_id: str
+    circle_name: Optional[str] = None
+    reason: str
+    banned_at: Optional[str] = None
+
+
 class LoginResponse(BaseModel):
     id: str
     persona: Persona
@@ -60,6 +68,7 @@ class LoginResponse(BaseModel):
     refresh_token: Optional[str] = None
     token_type: Optional[str] = "bearer"
     circle_access: Optional[CircleAccessOut] = None
+    circle_ban: Optional[CircleBanOut] = None
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
@@ -126,7 +135,7 @@ async def login(
     access_token, refresh_token = await issue_token_pair(db, signup.id)
 
     if signup.persona == Persona.school and signup.kyc_status == KycStatus.approved:
-        await ensure_school_profile(db, signup)
+        await ensure_school_profile(db, signup, is_partner=True, onboarding_source="public_signup")
 
     await db.commit()
 
@@ -138,6 +147,16 @@ async def login(
                 "Your circle leader still needs to approve your membership — "
                 "we'll notify you when you can enter the circle."
             )
+
+    from app.services.circle_ban_access import resolve_user_circle_ban
+
+    ban_payload = await resolve_user_circle_ban(db, signup.id)
+    circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
+    if circle_ban:
+        status_message = (
+            "Your account has been restricted following a safety report. "
+            "Contact ZenK Admin below to request a review."
+        )
 
     return LoginResponse(
         id=signup.id,
@@ -151,7 +170,15 @@ async def login(
         refresh_token=refresh_token,
         token_type="bearer",
         circle_access=CircleAccessOut(**access),
+        circle_ban=circle_ban,
     )
+
+
+class SchoolOrgSummary(BaseModel):
+    school_name: Optional[str] = None
+    school_code: Optional[str] = None
+    school_affiliation: Optional[str] = None
+    profile_complete: Optional[bool] = None
 
 
 class SessionUserResponse(BaseModel):
@@ -163,6 +190,32 @@ class SessionUserResponse(BaseModel):
     kyc_status: KycStatus
     admin_note: Optional[str] = None
     circle_access: Optional[CircleAccessOut] = None
+    circle_ban: Optional[CircleBanOut] = None
+    school_org: Optional[SchoolOrgSummary] = None
+
+
+async def _school_org_summary(db: AsyncSession, user: SignupRequest) -> Optional[SchoolOrgSummary]:
+    if user.persona != Persona.school:
+        return None
+    from sqlalchemy import select
+    from app.models.school import SchoolProfile
+    from app.services.school_profile_completion import is_profile_complete
+
+    res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == user.id))
+    profile = res.scalar_one_or_none()
+    if profile:
+        return SchoolOrgSummary(
+            school_name=profile.school_name,
+            school_code=profile.school_code,
+            school_affiliation=profile.affiliation,
+            profile_complete=is_profile_complete(profile),
+        )
+    return SchoolOrgSummary(
+        school_name=user.school_name,
+        school_code=None,
+        school_affiliation=user.school_affiliation,
+        profile_complete=False,
+    )
 
 
 @router.get("/me", response_model=SessionUserResponse, status_code=status.HTTP_200_OK)
@@ -171,7 +224,11 @@ async def get_session_user(
     db: AsyncSession = Depends(get_db),
 ):
     """Current user profile and KYC status (for verification tracking / refresh)."""
+    from app.services.circle_ban_access import resolve_user_circle_ban
+
     access = await resolve_circle_access(db, user)
+    ban_payload = await resolve_user_circle_ban(db, user.id)
+    circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
     return SessionUserResponse(
         id=user.id,
         persona=user.persona,
@@ -181,6 +238,8 @@ async def get_session_user(
         kyc_status=user.kyc_status,
         admin_note=user.admin_note,
         circle_access=CircleAccessOut(**access),
+        circle_ban=circle_ban,
+        school_org=await _school_org_summary(db, user),
     )
 
 

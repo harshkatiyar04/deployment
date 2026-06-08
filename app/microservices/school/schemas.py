@@ -27,6 +27,28 @@ class SchoolProfileResponse(BaseModel):
     actor_name: Optional[str] = None
     login_email: Optional[str] = None
     can_manage_portal_access: bool = False
+    affiliation_number: Optional[str] = None
+    enrollment_year: Optional[str] = None
+    profile_completed_at: Optional[str] = None
+    profile_complete: bool = False
+    onboarding_source: Optional[str] = None
+
+
+class SchoolProfileCompletionResponse(BaseModel):
+    complete: bool
+    missing_fields: List[str] = Field(default_factory=list)
+    school_code: str
+    profile_completed_at: Optional[str] = None
+
+
+class SchoolProfileUpdateRequest(BaseModel):
+    school_name: Optional[str] = Field(None, min_length=2, max_length=300)
+    principal_name: Optional[str] = Field(None, min_length=2, max_length=200)
+    affiliation: Optional[str] = Field(None, min_length=2, max_length=100)
+    affiliation_number: Optional[str] = Field(None, max_length=64)
+    enrollment_year: Optional[str] = Field(None, max_length=10)
+    city: Optional[str] = Field(None, min_length=2, max_length=120)
+    district: Optional[str] = Field(None, min_length=2, max_length=120)
 
 
 class SchoolPortalMemberResponse(BaseModel):

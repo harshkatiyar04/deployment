@@ -10,6 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.enums import Persona
 from app.models.school import SchoolKiaWelcome, SchoolProfile
 from app.models.signup import SignupRequest
+from app.services.school_profile_completion import (
+    apply_profile_completion_timestamp,
+    school_fields_from_signup,
+)
 
 
 def _school_code_from_id(signup_id: str) -> str:
@@ -17,24 +21,13 @@ def _school_code_from_id(signup_id: str) -> str:
     return f"ZNK-SCH-{compact}"
 
 
-def _derive_school_fields(signup: SignupRequest) -> dict:
-    name = (signup.address_line1 or "").strip()
-    if not name or name.lower() in ("school portal member", "n/a"):
-        name = (signup.full_name or "Partner School").strip()
-        if "school" not in name.lower():
-            name = f"{name} School"
-    city = (signup.city or "Mumbai").strip() or "Mumbai"
-    district = (signup.state or signup.city or "Maharashtra").strip() or "Maharashtra"
-    principal = (signup.full_name or "Principal").strip()
-    return {
-        "school_name": name[:300],
-        "city": city[:120],
-        "district": district[:120],
-        "principal_name": principal[:200],
-    }
-
-
-async def ensure_school_profile(db: AsyncSession, signup: SignupRequest) -> SchoolProfile | None:
+async def ensure_school_profile(
+    db: AsyncSession,
+    signup: SignupRequest,
+    *,
+    is_partner: bool = True,
+    onboarding_source: str = "public_signup",
+) -> SchoolProfile | None:
     """
     Ensure school_profiles row exists for an approved school principal (signup.id == profile.id).
     Idempotent — safe on login and KYC approval.
@@ -45,16 +38,25 @@ async def ensure_school_profile(db: AsyncSession, signup: SignupRequest) -> Scho
 
     res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == signup.id))
     profile = res.scalar_one_or_none()
-    fields = _derive_school_fields(signup)
+    fields = school_fields_from_signup(signup)
     now = datetime.utcnow()
 
     if profile:
-        profile.school_name = profile.school_name or fields["school_name"]
-        profile.principal_name = profile.principal_name or fields["principal_name"]
-        profile.city = profile.city or fields["city"]
-        profile.district = profile.district or fields["district"]
+        profile.school_name = fields["school_name"] or profile.school_name
+        profile.principal_name = fields["principal_name"] or profile.principal_name
+        profile.affiliation = fields["affiliation"] or profile.affiliation
+        profile.city = fields["city"] or profile.city
+        profile.district = fields["district"] or profile.district
+        if fields["affiliation_number"]:
+            profile.affiliation_number = fields["affiliation_number"]
+        if fields["enrollment_year"]:
+            profile.enrollment_year = fields["enrollment_year"]
         profile.portal_role = profile.portal_role or "principal"
+        if is_partner:
+            profile.is_partner = True
+        profile.onboarding_source = profile.onboarding_source or onboarding_source
         profile.updated_at = now
+        apply_profile_completion_timestamp(profile)
         await db.flush()
         return profile
 
@@ -62,17 +64,21 @@ async def ensure_school_profile(db: AsyncSession, signup: SignupRequest) -> Scho
         id=signup.id,
         school_name=fields["school_name"],
         school_code=_school_code_from_id(signup.id),
-        affiliation="CBSE",
+        affiliation=fields["affiliation"],
+        affiliation_number=fields["affiliation_number"],
+        enrollment_year=fields["enrollment_year"],
         city=fields["city"],
         district=fields["district"],
         principal_name=fields["principal_name"],
-        partner_since=str(now.year),
-        is_partner=True,
+        partner_since=fields["enrollment_year"] or str(now.year),
+        is_partner=is_partner,
         fy_current="2025-26",
         portal_role="principal",
+        onboarding_source=onboarding_source,
         created_at=now,
         updated_at=now,
     )
+    apply_profile_completion_timestamp(profile)
     db.add(profile)
     await db.flush()
 
@@ -94,9 +100,10 @@ async def ensure_school_profile(db: AsyncSession, signup: SignupRequest) -> Scho
                 welcome_sent=False,
                 welcome_message=(
                     "Welcome to your ZenK School Dashboard. "
-                    "Add students, submit reports, and track ZQA from this portal."
+                    "Complete your school profile, then add students and submit reports."
                 ),
                 task_list=[
+                    "Complete school profile",
                     "Review students",
                     "Submit quarterly report",
                     "Enter monthly attendance",

@@ -3,9 +3,30 @@ from typing import Any, Optional
 from pydantic import BaseModel, Field
 
 
+class StudentPseudonymCheckOut(BaseModel):
+    available: bool
+    pseudonym: str
+    min_length: int = 8
+    max_length: int = 24
+    reason: Optional[str] = None
+
+
+class StudentPseudonymSetRequest(BaseModel):
+    pseudonym: str = Field(..., min_length=8, max_length=24)
+
+
+class StudentPseudonymSetOut(BaseModel):
+    pseudonym: str
+    pseudonym_needs_setup: bool = False
+    message: str = "Pseudonym saved."
+
+
 class StudentProfileOut(BaseModel):
     signup_id: str
     pseudonym: str
+    pseudonym_needs_setup: bool = False
+    pseudonym_min_length: int = 8
+    pseudonym_max_length: int = 24
     avatar_key: Optional[str] = None
     grade: Optional[str] = None
     school_label: Optional[str] = None

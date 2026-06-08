@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.gamified_persona import get_or_create_persona
-from app.chat.models import CircleMember, SponsorCircle
+from app.chat.models import CircleMember, Enrollment, SponsorCircle
 from app.models.enums import KycStatus, Persona
 from app.models.school import SchoolProfile, SchoolStudent
 from app.models.signup import SignupRequest
@@ -23,9 +23,14 @@ from app.models.student_onboarding import (
 from app.services.family_circle_provision import provision_parent_after_student_enrollment
 from app.services.school_student_admit import admit_student_signup
 from app.services.student_dashboard import resolve_school_student
+from app.services.circle_student_enrollment_gate import circle_enrolled_student_count
+from app.services.school_circle_sync import resolve_circle_leader_signup
+from app.services.student_pseudonym import pseudonym_needs_setup
 
 PROBE_DAYS = 7
 ONBOARDING_V2 = "v2"
+CORPORATE_KIA_CIRCLE_PREFIX = "Corporate Kia -"
+CORPORATE_KIA_CIRCLE_DESC = "Private corporate Kia channel"
 
 
 def _utcnow() -> datetime:
@@ -281,14 +286,39 @@ async def build_onboarding_timeline(db: AsyncSession, student: SignupRequest) ->
     }
 
 
+def _is_student_joinable_circle(circle: SponsorCircle) -> bool:
+    if (circle.status or "active").lower() not in ("active",):
+        return False
+    if (circle.description or "").strip() == CORPORATE_KIA_CIRCLE_DESC:
+        return False
+    if (circle.name or "").startswith(CORPORATE_KIA_CIRCLE_PREFIX):
+        return False
+    return True
+
+
 async def _circle_has_student(db: AsyncSession, circle_id: str) -> bool:
-    cnt_res = await db.execute(
-        select(func.count())
-        .select_from(SchoolStudent)
-        .where(SchoolStudent.circle_id == circle_id)
-    )
-    if int(cnt_res.scalar() or 0) > 0:
+    if await circle_enrolled_student_count(db, circle_id) > 0:
         return True
+
+    mem_res = await db.execute(
+        select(func.count())
+        .select_from(CircleMember)
+        .where(
+            CircleMember.circle_id == circle_id,
+            CircleMember.role == "student",
+        )
+    )
+    if int(mem_res.scalar() or 0) > 0:
+        return True
+
+    enr_res = await db.execute(
+        select(func.count())
+        .select_from(Enrollment)
+        .where(Enrollment.circle_id == circle_id)
+    )
+    if int(enr_res.scalar() or 0) > 0:
+        return True
+
     acc_res = await db.execute(
         select(func.count())
         .select_from(StudentCircleInterestRequest)
@@ -327,11 +357,27 @@ async def list_student_circle_interests(
 
 
 async def list_open_circles_for_students(db: AsyncSession) -> list[dict[str, str]]:
-    res = await db.execute(select(SponsorCircle).order_by(SponsorCircle.name))
-    out = []
+    res = await db.execute(
+        select(SponsorCircle)
+        .where(SponsorCircle.status == "active")
+        .order_by(SponsorCircle.name)
+    )
+    out: list[dict[str, str]] = []
     for circle in res.scalars().all():
-        if not await _circle_has_student(db, circle.id):
-            out.append({"id": circle.id, "name": circle.name, "description": circle.description or ""})
+        if not _is_student_joinable_circle(circle):
+            continue
+        if await _circle_has_student(db, circle.id):
+            continue
+        leader = await resolve_circle_leader_signup(db, circle.id)
+        if not leader or leader.persona != Persona.sponsor_leader:
+            continue
+        leader_name = (leader.full_name or "").strip() or "Circle leader"
+        out.append({
+            "id": circle.id,
+            "name": circle.name,
+            "description": circle.description or "",
+            "leader_name": leader_name,
+        })
     return out
 
 
@@ -379,6 +425,11 @@ async def submit_circle_interest(
         raise HTTPException(status_code=409, detail="You already have a pending request to this circle")
 
     persona = await get_or_create_persona(student, db)
+    if pseudonym_needs_setup(persona.nickname):
+        raise HTTPException(
+            status_code=400,
+            detail="Choose your circle pseudonym in Settings before requesting a sponsorship circle.",
+        )
     expires = _utcnow() + timedelta(days=PROBE_DAYS)
 
     row = StudentCircleInterestRequest(

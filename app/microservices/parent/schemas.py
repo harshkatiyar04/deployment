@@ -72,3 +72,14 @@ class ParentReviewRequest(BaseModel):
 
 class ParentRejectRequest(BaseModel):
     note: str = Field(..., min_length=1, max_length=2000)
+
+
+class ParentGradeExtractOut(BaseModel):
+    filled: bool = False
+    quarter: Optional[str] = None
+    maths_grade: Optional[str] = None
+    science_grade: Optional[str] = None
+    english_grade: Optional[str] = None
+    confidence: Optional[str] = None
+    notes: Optional[str] = None
+    message: Optional[str] = None

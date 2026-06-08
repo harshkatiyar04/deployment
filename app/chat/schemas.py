@@ -108,6 +108,21 @@ class SOSReportOut(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class CircleBanStatusOut(BaseModel):
+    banned: bool
+    reason: Optional[str] = None
+    banned_at: Optional[datetime] = None
+
+
+class AdminRecentMessageOut(BaseModel):
+    id: str
+    channel_name: str
+    sender_nickname: str
+    sender_user_id: Optional[str] = None
+    content_text: Optional[str] = None
+    created_at: datetime
+
+
 class BanCreate(BaseModel):
     circle_id: UUID
     user_identifier: str  # Can be UUID or Email

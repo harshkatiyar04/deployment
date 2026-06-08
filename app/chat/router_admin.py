@@ -3,15 +3,24 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select, text, cast, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from app.db.session import get_db
-from app.chat.models import ChatBan
+from app.chat.models import ChatBan, ChatChannel, ChatMessage, GamifiedPersona, SOSReport, AdminAccessLog
 from app.core.admin_deps import require_admin_api_key, resolve_admin_actor_id
 from app.chat.services import manager
-from app.chat.schemas import BanCreate, BanResponse, BanListResponse, ActivityResponse, WarnedMessageOut
+from app.chat.schemas import (
+    BanCreate,
+    BanResponse,
+    BanListResponse,
+    ActivityResponse,
+    WarnedMessageOut,
+    SOSReportOut,
+    AdminRecentMessageOut,
+)
 
 router = APIRouter(
     prefix="/admin/chat",
@@ -166,6 +175,121 @@ async def list_activity(db: AsyncSession = Depends(get_db)):
             changes_json=log.changes_json,
             created_at=log.created_at
         ))
+    return out
+
+
+@router.get("/sos-reports", response_model=List[SOSReportOut])
+async def list_sos_reports(db: AsyncSession = Depends(get_db)):
+    """Return unresolved SOS reports for the admin dashboard."""
+    SenderPersona = aliased(GamifiedPersona)
+    ReporterPersona = aliased(GamifiedPersona)
+
+    result = await db.execute(
+        select(SOSReport, ChatMessage, SenderPersona, ChatChannel, ReporterPersona)
+        .join(ChatMessage, SOSReport.message_id == ChatMessage.id)
+        .join(
+            SenderPersona,
+            ChatMessage.gamified_persona_id == SenderPersona.id,
+            isouter=True,
+        )
+        .join(ChatChannel, ChatMessage.channel_id == ChatChannel.id)
+        .join(
+            ReporterPersona,
+            SOSReport.reporter_persona_id == ReporterPersona.id,
+            isouter=True,
+        )
+        .where(SOSReport.resolved_at.is_(None))
+        .order_by(SOSReport.created_at.desc())
+    )
+    rows = result.all()
+
+    output = []
+    for sos, msg, sender, channel, reporter in rows:
+        output.append(
+            SOSReportOut(
+                id=sos.id,
+                message_id=sos.message_id,
+                reporter_persona_id=sos.reporter_persona_id,
+                reporter_nickname=reporter.nickname if reporter else "Unknown Reporter",
+                hidden_at=sos.hidden_at,
+                admin_notified_at=sos.admin_notified_at,
+                resolved_at=sos.resolved_at,
+                notes=sos.notes,
+                created_at=sos.created_at,
+                message_content=msg.content_text,
+                media_url=msg.media_url,
+                sender_user_id=sender.user_id if sender else None,
+                sender_nickname=sender.nickname if sender else "Unknown Sender",
+                circle_id=channel.circle_id,
+            )
+        )
+    return output
+
+
+@router.patch("/sos-reports/{report_id}/resolve")
+async def resolve_sos_report(
+    report_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Mark an SOS report as resolved."""
+    admin_id = await resolve_admin_actor_id(db)
+    result = await db.execute(select(SOSReport).where(SOSReport.id == report_id))
+    report = result.scalar_one_or_none()
+    if report is None:
+        raise HTTPException(status_code=404, detail="SOS report not found")
+
+    report.resolved_at = datetime.now(timezone.utc)
+
+    log = AdminAccessLog(
+        admin_id=admin_id,
+        action="RESOLVE_REPORT",
+        target_table="sos_reports",
+        target_id=str(report_id),
+        changes_json={"resolved": True},
+    )
+    db.add(log)
+    await db.commit()
+    return {"id": report_id, "resolved_at": report.resolved_at.isoformat()}
+
+
+@router.get("/circles/{circle_id}/recent-messages", response_model=List[AdminRecentMessageOut])
+async def circle_recent_messages(
+    circle_id: str,
+    limit: int = 3,
+    db: AsyncSession = Depends(get_db),
+):
+    """Last N chat messages in a circle (all channels) for admin ban context."""
+    cap = max(1, min(limit, 10))
+    stmt = (
+        select(ChatMessage, ChatChannel, GamifiedPersona)
+        .join(ChatChannel, ChatMessage.channel_id == ChatChannel.id)
+        .join(
+            GamifiedPersona,
+            ChatMessage.gamified_persona_id == GamifiedPersona.id,
+            isouter=True,
+        )
+        .where(
+            ChatChannel.circle_id == circle_id,
+            ChatMessage.hidden_at.is_(None),
+            ChatMessage.deleted_at.is_(None),
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .limit(cap)
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+    out: list[AdminRecentMessageOut] = []
+    for msg, channel, persona in rows:
+        out.append(
+            AdminRecentMessageOut(
+                id=str(msg.id),
+                channel_name=channel.name or "general",
+                sender_nickname=persona.nickname if persona else "Unknown",
+                sender_user_id=str(persona.user_id) if persona and persona.user_id else None,
+                content_text=msg.content_text,
+                created_at=msg.created_at,
+            )
+        )
     return out
 
 

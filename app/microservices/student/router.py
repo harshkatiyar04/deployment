@@ -21,6 +21,16 @@ from app.microservices.student.schemas import (
     StudentMentoringPostRequest,
     StudentOverviewOut,
     StudentProfileOut,
+    StudentPseudonymCheckOut,
+    StudentPseudonymSetOut,
+    StudentPseudonymSetRequest,
+)
+from app.services.student_pseudonym import (
+    check_pseudonym_available,
+    pseudonym_needs_setup,
+    set_student_pseudonym,
+    validate_pseudonym_against_name,
+    validate_pseudonym_format,
 )
 from app.services.kia_student import (
     fetch_student_context,
@@ -139,6 +149,41 @@ async def student_profile(
     _require_student(user)
     data = await build_student_profile(db, user)
     return StudentProfileOut(**{k: data[k] for k in StudentProfileOut.model_fields})
+
+
+@router.get("/pseudonym/check", response_model=StudentPseudonymCheckOut)
+async def student_pseudonym_check(
+    pseudonym: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_student(user)
+    try:
+        value = validate_pseudonym_format(pseudonym)
+        validate_pseudonym_against_name(value, user.full_name)
+        result = await check_pseudonym_available(db, value, exclude_user_id=user.id)
+        return StudentPseudonymCheckOut(**result)
+    except HTTPException as exc:
+        return StudentPseudonymCheckOut(
+            available=False,
+            pseudonym=(pseudonym or "").strip()[:24],
+            reason=str(exc.detail) if exc.detail else "Invalid pseudonym",
+        )
+
+
+@router.put("/pseudonym", response_model=StudentPseudonymSetOut)
+async def student_pseudonym_set(
+    body: StudentPseudonymSetRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_student(user)
+    persona = await set_student_pseudonym(db, user, body.pseudonym)
+    return StudentPseudonymSetOut(
+        pseudonym=persona.nickname,
+        pseudonym_needs_setup=pseudonym_needs_setup(persona.nickname),
+        message="Your pseudonym is set. Sponsors and circle chat will only see this name.",
+    )
 
 
 @router.get("/overview", response_model=StudentOverviewOut)

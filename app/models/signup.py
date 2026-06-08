@@ -46,6 +46,13 @@ class SignupRequest(Base):
     authorized_signatory_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     authorized_signatory_designation: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
 
+    # School partner fields (persona=school principal signup)
+    school_name: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)
+    school_principal_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    school_affiliation: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    school_affiliation_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    school_enrollment_year: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+
     # Vendor fields
     business_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     business_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)

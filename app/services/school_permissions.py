@@ -18,6 +18,7 @@ PRINCIPAL_ONLY: FrozenSet[str] = frozenset({
     "manage_profile_photos",
     "view_audit_log",
     "manage_portal_access",
+    "manage_school_identity",
     "manage_faculty_registry",
     "remove_student",
     "review_parent_upload",

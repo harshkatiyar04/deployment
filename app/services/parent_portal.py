@@ -35,6 +35,23 @@ ALLOWED_MIMES = frozenset({
 MAX_FILE_BYTES = 10 * 1024 * 1024
 
 
+def resolve_upload_mime(content_type: str, filename: str = "") -> str:
+    """Normalize browser upload MIME (Windows often sends application/octet-stream for PDFs)."""
+    mime = (content_type or "").lower().split(";")[0].strip()
+    if mime in ALLOWED_MIMES:
+        return mime
+    name = (filename or "").lower()
+    if name.endswith(".pdf"):
+        return "application/pdf"
+    if name.endswith(".jpg") or name.endswith(".jpeg"):
+        return "image/jpeg"
+    if name.endswith(".png"):
+        return "image/png"
+    if name.endswith(".webp"):
+        return "image/webp"
+    return mime
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -344,7 +361,7 @@ async def create_parent_submission(
     url: Optional[str] = None
     original_filename: Optional[str] = None
     if has_file:
-        content_type = (file.content_type or "").lower()
+        content_type = resolve_upload_mime(file.content_type or "", file.filename or "")
         if content_type not in ALLOWED_MIMES:
             raise HTTPException(status_code=400, detail="Use PDF, JPG, PNG, or WebP")
 

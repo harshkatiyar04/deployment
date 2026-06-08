@@ -60,11 +60,19 @@ from app.microservices.school.schemas import (
     SchoolPortalMemberCreateRequest,
     SchoolPortalMemberUpdateRequest,
     SchoolPortalInviteResponse,
+    SchoolProfileCompletionResponse,
+    SchoolProfileUpdateRequest,
     SchoolPartnerCircleResponse,
     SchoolPartnerMessageResponse,
     SchoolPartnerMessageRequest,
 )
 from app.services.school_portal_invite import create_portal_invite, build_join_url
+from app.services.school_profile_completion import (
+    is_profile_complete,
+    profile_completion_payload,
+    update_school_profile_fields,
+)
+from app.services.school_constants import VALID_AFFILIATION_IDS
 from app.services.school_invite_email import send_school_portal_invite_email
 from app.models.school import SchoolPortalInvite
 from app.services.school_reports import apply_quarterly_report, latest_submission_map, _recalc_school_profile
@@ -266,7 +274,22 @@ def _profile_to_response(ctx: SchoolContext) -> SchoolProfileResponse:
         actor_name=ctx.actor_name,
         login_email=ctx.actor_email,
         can_manage_portal_access=ctx.can_manage_portal_access,
+        affiliation_number=profile.affiliation_number,
+        enrollment_year=profile.enrollment_year,
+        profile_completed_at=(
+            profile.profile_completed_at.isoformat() if profile.profile_completed_at else None
+        ),
+        profile_complete=is_profile_complete(profile),
+        onboarding_source=profile.onboarding_source,
     )
+
+
+async def _require_profile_complete(ctx: SchoolContext) -> None:
+    if not is_profile_complete(ctx.profile):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Complete your school profile (affiliation number and ZenK enrollment year) before admitting students.",
+        )
 
 
 _ALLOWED_IMAGE_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
@@ -305,6 +328,47 @@ async def get_profile(
 ):
     _require_school(user)
     return _profile_to_response(_school_ctx())
+
+
+@router.get("/profile/completion", response_model=SchoolProfileCompletionResponse)
+async def get_profile_completion(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_school(user)
+    ctx = _school_ctx()
+    return SchoolProfileCompletionResponse(**profile_completion_payload(ctx.profile))
+
+
+@router.patch("/profile", response_model=SchoolProfileResponse)
+async def patch_profile(
+    body: SchoolProfileUpdateRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    profile = await _enforce_school_permission(
+        db, user, "manage_school_identity", audit_action="update_school_profile"
+    )
+    ctx = _school_ctx()
+    if body.affiliation and body.affiliation.strip().upper() not in VALID_AFFILIATION_IDS:
+        raise HTTPException(status_code=400, detail="Invalid affiliation.")
+    if body.enrollment_year and body.enrollment_year.strip():
+        year = body.enrollment_year.strip()
+        if not (year.isdigit() and 1950 <= int(year) <= 2100):
+            raise HTTPException(status_code=400, detail="Enrollment year must be a valid year.")
+    await update_school_profile_fields(
+        db,
+        profile,
+        school_name=body.school_name,
+        principal_name=body.principal_name,
+        affiliation=body.affiliation,
+        affiliation_number=body.affiliation_number,
+        enrollment_year=body.enrollment_year,
+        city=body.city,
+        district=body.district,
+    )
+    await db.commit()
+    return _profile_to_response(ctx)
 
 
 @router.get("/audit-log", response_model=List[SchoolAuditLogEntry])
@@ -792,6 +856,7 @@ async def school_approve_student_interest(
     db: AsyncSession = Depends(get_db),
 ):
     await _enforce_school_permission(db, user, "submit_enrollment")
+    await _require_profile_complete(_school_ctx())
     return await approve_school_interest(
         db,
         interest_id=interest_id,
@@ -840,6 +905,8 @@ async def school_admit_student_signup(
     Circle join is requested later from the student dashboard.
     """
     profile = await _enforce_school_permission(db, user, "submit_enrollment")
+    ctx = _school_ctx()
+    await _require_profile_complete(ctx)
     try:
         student = await admit_student_signup(
             db,

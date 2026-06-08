@@ -35,6 +35,10 @@ class SchoolProfile(Base):
     school_logo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     principal_photo_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     portal_role: Mapped[str] = mapped_column(String(20), nullable=False, default="principal")
+    affiliation_number: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    enrollment_year: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
+    profile_completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    onboarding_source: Mapped[Optional[str]] = mapped_column(String(32), nullable=True, default="zenk_ops")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
