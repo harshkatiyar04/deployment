@@ -14,7 +14,7 @@ from app.models.circle_ops import CircleAdminRequest, STATUS_PENDING
 from app.models.enums import KycStatus, Persona
 from app.models.mentor import MentorUpliftAction
 from app.models.signup import SignupRequest
-from app.services.admin_circle_overview import admin_circles_summary
+from app.services.admin_circle_overview import admin_circles_summary_light
 
 DELIVERED_STATUSES = (
     OrderStatus.delivered,
@@ -89,7 +89,7 @@ async def build_admin_dashboard_overview(db: AsyncSession) -> dict[str, Any]:
     users_last_month = await _count_signups_between(db, last_month_start, this_month)
 
     # ── Circles ───────────────────────────────────────────────────────────
-    circle_summary = await admin_circles_summary(db)
+    circle_summary = await admin_circles_summary_light(db)
     circles_this_month = await _count_circles_since(db, this_month)
     circles_last_month_res = await db.execute(
         select(func.count())

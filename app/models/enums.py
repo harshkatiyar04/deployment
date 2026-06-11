@@ -16,6 +16,7 @@ class KycStatus(str, enum.Enum):
     pending = "pending"
     approved = "approved"
     rejected = "rejected"
+    info_required = "info_required"
 
 
 class MemberKind(str, enum.Enum):

@@ -61,7 +61,7 @@ class AdminSignupListItem(BaseModel):
 
 
 class AdminDecisionRequest(BaseModel):
-    decision: KycStatus  # only approved/rejected should be used by admin
+    decision: KycStatus  # approved | rejected | info_required
     note: Optional[str] = None
 
 

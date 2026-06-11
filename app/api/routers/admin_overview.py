@@ -2,17 +2,26 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.admin_deps import require_admin_api_key
-from app.db.session import get_db
-from app.services.admin_dashboard_overview import build_admin_dashboard_overview
+from app.core.rate_limit import limiter
+from app.db.resilience import safe_service_unavailable_detail, with_db_retry
+from app.db.session import SessionLocal, get_db
 from app.services.admin_analytics_overview import build_admin_analytics_overview
+from app.services.admin_dashboard_overview import build_admin_dashboard_overview
 from app.services.admin_financial_overview import build_admin_financial_overview
+from app.services.admin_overview_cache import (
+    build_and_cache_dashboard_overview,
+    get_cached_dashboard_overview,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/admin/overview",
@@ -72,10 +81,50 @@ class AdminDashboardOverviewOut(BaseModel):
     recent_activity: list[AdminActivityItem] = Field(default_factory=list)
 
 
+async def _build_dashboard_overview(session: AsyncSession) -> dict[str, Any]:
+    return await build_and_cache_dashboard_overview(
+        session,
+        build_admin_dashboard_overview,
+    )
+
+
+async def _run_with_db_retry(build_fn) -> dict[str, Any]:
+    """Retry once with a fresh session when the pool hands back a dead connection."""
+
+    async def _once() -> dict[str, Any]:
+        async with SessionLocal() as db:
+            return await build_fn(db)
+
+    return await with_db_retry(_once)
+
+
 @router.get("", response_model=AdminDashboardOverviewOut)
-async def get_admin_dashboard_overview(db: AsyncSession = Depends(get_db)):
-    data: dict[str, Any] = await build_admin_dashboard_overview(db)
-    return AdminDashboardOverviewOut(**data)
+@limiter.limit("30/minute")
+async def get_admin_dashboard_overview(
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    cached = get_cached_dashboard_overview()
+    if cached is not None:
+        return AdminDashboardOverviewOut(**cached)
+
+    try:
+        data = await _build_dashboard_overview(db)
+        return AdminDashboardOverviewOut(**data)
+    except HTTPException:
+        raise
+    except Exception:
+        try:
+            data = await _run_with_db_retry(_build_dashboard_overview)
+            return AdminDashboardOverviewOut(**data)
+        except HTTPException:
+            raise
+        except Exception:
+            logger.exception("admin_dashboard_overview_failed")
+            raise HTTPException(
+                status_code=503,
+                detail=safe_service_unavailable_detail(),
+            ) from None
 
 
 class AdminFinancialSummaryOut(BaseModel):
@@ -117,13 +166,25 @@ class AdminFinancialOverviewOut(BaseModel):
 
 
 @router.get("/financial", response_model=AdminFinancialOverviewOut)
+@limiter.limit("30/minute")
 async def get_admin_financial_overview(
+    request: Request,
     period: str = "month",
     txn_type: str = "all",
-    db: AsyncSession = Depends(get_db),
 ):
-    data = await build_admin_financial_overview(db, period=period, txn_type=txn_type)
-    return AdminFinancialOverviewOut(**data)
+    try:
+        data = await _run_with_db_retry(
+            lambda db: build_admin_financial_overview(db, period=period, txn_type=txn_type),
+        )
+        return AdminFinancialOverviewOut(**data)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("admin_financial_overview_failed")
+        raise HTTPException(
+            status_code=503,
+            detail=safe_service_unavailable_detail(),
+        ) from None
 
 
 class AdminAnalyticsKpisOut(BaseModel):
@@ -156,8 +217,21 @@ class AdminAnalyticsOverviewOut(BaseModel):
 
 
 @router.get("/analytics", response_model=AdminAnalyticsOverviewOut)
+@limiter.limit("30/minute")
 async def get_admin_analytics_overview(
+    request: Request,
     period: str = "month",
-    db: AsyncSession = Depends(get_db),
 ):
-    return AdminAnalyticsOverviewOut(**await build_admin_analytics_overview(db, period=period))
+    try:
+        payload = await _run_with_db_retry(
+            lambda db: build_admin_analytics_overview(db, period=period),
+        )
+        return AdminAnalyticsOverviewOut(**payload)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("admin_analytics_overview_failed")
+        raise HTTPException(
+            status_code=503,
+            detail=safe_service_unavailable_detail(),
+        ) from None

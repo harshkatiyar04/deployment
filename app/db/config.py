@@ -27,6 +27,11 @@ class DbSettings(BaseSettings):
     db_user: str = Field(default="postgres")
     db_password: str = Field(default="Iamstark@123")
 
+    db_pool_size: int = Field(default=5, alias="DB_POOL_SIZE")
+    db_max_overflow: int = Field(default=10, alias="DB_MAX_OVERFLOW")
+    db_pool_recycle_seconds: int = Field(default=280, alias="DB_POOL_RECYCLE_SECONDS")
+    db_pool_timeout_seconds: int = Field(default=30, alias="DB_POOL_TIMEOUT_SECONDS")
+
     @property
     def database_url(self) -> str:
         if self.database_url_override:

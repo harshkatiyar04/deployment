@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,8 @@ from app.models.auth_log import AuthAuditLog
 from app.services.signup_auth import resolve_signup_for_credentials
 from app.core.jwt_auth import get_current_user
 from app.services.circle_access import resolve_circle_access
+from app.services.kyc_resubmit import list_signup_kyc_documents, resubmit_kyc_documents
+from app.services.kyc_review import extract_kyc_review_note
 from app.services.school_provision import ensure_school_profile
 from app.services.student_family import (
     build_family_hats_context,
@@ -63,6 +65,7 @@ class LoginResponse(BaseModel):
     email: str
     mobile: str
     kyc_status: KycStatus
+    kyc_review_note: Optional[str] = None
     message: str
     access_token: Optional[str] = None
     refresh_token: Optional[str] = None
@@ -121,6 +124,12 @@ async def login(
             "You can resubmit updated details and ID documents from your verification page — "
             "use the same email and password."
         )
+    elif signup.kyc_status == KycStatus.info_required:
+        status_message = (
+            "We need a few more documents to complete your verification. "
+            "Sign in to your verification page and upload what we've requested — "
+            "you do not need to fill out the full application again."
+        )
     
     log = AuthAuditLog(
         email=body.email, 
@@ -165,6 +174,7 @@ async def login(
         email=signup.email,
         mobile=signup.mobile,
         kyc_status=signup.kyc_status,
+        kyc_review_note=extract_kyc_review_note(signup.admin_note),
         message=status_message,
         access_token=access_token,
         refresh_token=refresh_token,
@@ -189,9 +199,16 @@ class SessionUserResponse(BaseModel):
     mobile: str
     kyc_status: KycStatus
     admin_note: Optional[str] = None
+    kyc_review_note: Optional[str] = None
     circle_access: Optional[CircleAccessOut] = None
     circle_ban: Optional[CircleBanOut] = None
     school_org: Optional[SchoolOrgSummary] = None
+
+
+class UserKycDocumentOut(BaseModel):
+    id: str
+    original_filename: str
+    created_at: Optional[str] = None
 
 
 async def _school_org_summary(db: AsyncSession, user: SignupRequest) -> Optional[SchoolOrgSummary]:
@@ -237,9 +254,55 @@ async def get_session_user(
         mobile=user.mobile,
         kyc_status=user.kyc_status,
         admin_note=user.admin_note,
+        kyc_review_note=extract_kyc_review_note(user.admin_note),
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
         school_org=await _school_org_summary(db, user),
+    )
+
+
+@router.get("/me/kyc-documents", response_model=list[UserKycDocumentOut])
+async def list_my_kyc_documents(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List documents already on file for the signed-in applicant."""
+    docs = await list_signup_kyc_documents(db, user.id)
+    return [
+        UserKycDocumentOut(
+            id=d.id,
+            original_filename=d.original_filename,
+            created_at=d.created_at.isoformat() if d.created_at else None,
+        )
+        for d in docs
+    ]
+
+
+@router.post("/me/kyc-documents/resubmit", response_model=SessionUserResponse)
+async def resubmit_my_kyc_documents(
+    kyc_docs: list[UploadFile] = File(...),
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Upload additional KYC documents when admin requested more information."""
+    updated = await resubmit_kyc_documents(db, user, kyc_docs)
+    access = await resolve_circle_access(db, updated)
+    from app.services.circle_ban_access import resolve_user_circle_ban
+
+    ban_payload = await resolve_user_circle_ban(db, updated.id)
+    circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
+    return SessionUserResponse(
+        id=updated.id,
+        persona=updated.persona,
+        full_name=updated.full_name,
+        email=updated.email,
+        mobile=updated.mobile,
+        kyc_status=updated.kyc_status,
+        admin_note=updated.admin_note,
+        kyc_review_note=extract_kyc_review_note(updated.admin_note),
+        circle_access=CircleAccessOut(**access),
+        circle_ban=circle_ban,
+        school_org=await _school_org_summary(db, updated),
     )
 
 

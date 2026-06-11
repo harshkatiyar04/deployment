@@ -8,6 +8,10 @@ from app.db.config import db_settings
 engine: AsyncEngine = create_async_engine(
     db_settings.database_url,
     pool_pre_ping=True,
+    pool_size=db_settings.db_pool_size,
+    max_overflow=db_settings.db_max_overflow,
+    pool_recycle=db_settings.db_pool_recycle_seconds,
+    pool_timeout=db_settings.db_pool_timeout_seconds,
 )
 
 SessionLocal = async_sessionmaker(

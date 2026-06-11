@@ -5,9 +5,10 @@ import os
 import asyncio
 import logging
 
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+
+from app.core.rate_limit import limiter
 
 from app.api.router import api_router
 from app.db.init_db import init_db
@@ -25,9 +26,6 @@ if jwt_settings.secret_key in _INSECURE_DEFAULTS:
         " SECURITY ERROR: SECRET_KEY is not set or is using an insecure default. "
         "Set a strong SECRET_KEY environment variable before starting the server."
     )
-
-# ── Rate Limiter ──────────────────────────────────────────────────────────────
-limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
 
 app = FastAPI(title="ZENK BE")
 

@@ -79,7 +79,11 @@ async def resolve_circle_access(db: AsyncSession, signup: SignupRequest) -> dict
     persona = signup.persona
     kyc = signup.kyc_status.value if hasattr(signup.kyc_status, "value") else str(signup.kyc_status)
 
-    if kyc in (KycStatus.pending.value, KycStatus.rejected.value):
+    if kyc in (
+        KycStatus.pending.value,
+        KycStatus.rejected.value,
+        KycStatus.info_required.value,
+    ):
         return {
             "access_state": "verification",
             "redirect_to": _redirect_for_state("verification", persona),

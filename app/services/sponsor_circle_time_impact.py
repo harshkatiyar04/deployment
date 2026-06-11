@@ -105,6 +105,38 @@ async def circle_hours_since(
     return _minutes_to_hours(msgs, orders, reviews)
 
 
+async def platform_hours_since(db: AsyncSession, since: datetime) -> float:
+    """Platform-wide impact hours in one pass — for admin dashboard KPIs only."""
+    since_naive = _since_naive(since)
+    msgs_res = await db.execute(
+        select(func.count(ChatMessage.id))
+        .select_from(ChatMessage)
+        .join(ChatChannel, ChatChannel.id == ChatMessage.channel_id)
+        .where(
+            ChatMessage.created_at >= since_naive,
+            ChatMessage.hidden_at.is_(None),
+            ChatMessage.deleted_at.is_(None),
+            ChatMessage.content_text.isnot(None),
+            func.length(func.trim(ChatMessage.content_text)) > 0,
+        )
+    )
+    orders_res = await db.execute(
+        select(func.count(VendorOrder.id)).where(VendorOrder.created_at >= since_naive)
+    )
+    reviews_res = await db.execute(
+        select(func.count(SchoolStudentEnrollmentRequest.id)).where(
+            SchoolStudentEnrollmentRequest.status == ENROLLMENT_APPROVED,
+            SchoolStudentEnrollmentRequest.reviewed_at.isnot(None),
+            SchoolStudentEnrollmentRequest.reviewed_at >= since_naive,
+        )
+    )
+    return _minutes_to_hours(
+        int(msgs_res.scalar() or 0),
+        int(orders_res.scalar() or 0),
+        int(reviews_res.scalar() or 0),
+    )
+
+
 async def _count_user_messages_in_circle(
     db: AsyncSession, user_id: str, circle_id: str, since: datetime
 ) -> int:

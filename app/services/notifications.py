@@ -187,3 +187,28 @@ async def notify_user_kyc_rejected(
         db=db,
     )
 
+
+async def notify_user_kyc_info_required(
+    *,
+    signup_id: str,
+    full_name: str,
+    persona: str,
+    admin_note: Optional[str],
+    db: AsyncSession,
+) -> None:
+    """Create user notification when admin needs more KYC documents."""
+    note_text = f" {admin_note}" if admin_note else ""
+    await create_notification(
+        recipient_id=signup_id,
+        recipient_type="user",
+        notification_type="kyc_info_required",
+        title="Additional documents required",
+        message=(
+            f"Hello {full_name}, we need more information to complete your {persona} verification."
+            f"{note_text} Sign in and upload the requested documents from your verification page."
+        ),
+        related_entity_id=signup_id,
+        related_entity_type="signup",
+        db=db,
+    )
+

@@ -11,7 +11,11 @@ from app.chat.models import CircleMember, SponsorCircle
 from app.models.circle_ops import CircleAdminRequest, REQUEST_MEMBER_REMOVAL, STATUS_PENDING
 from app.models.signup import SignupRequest
 from app.services.circle_membership_ops import circle_member_limit, count_circle_members
-from app.services.sponsor_circle_time_impact import _month_start, member_activity_since
+from app.services.sponsor_circle_time_impact import (
+    _month_start,
+    member_activity_since,
+    platform_hours_since,
+)
 
 LEADER_ROLES = frozenset({"lead", "sponsor_leader", "coordinator"})
 
@@ -151,7 +155,36 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
     }
 
 
+async def admin_circles_summary_light(db: AsyncSession) -> dict[str, Any]:
+    """
+    Fast circle KPIs for the admin dashboard — aggregate counts only (no per-circle loop).
+    Full roster + per-member hours remain on list_admin_circles / circle detail pages.
+    """
+    circles_res = await db.execute(select(func.count()).select_from(SponsorCircle))
+    total_circles = int(circles_res.scalar_one() or 0)
+
+    members_res = await db.execute(select(func.count()).select_from(CircleMember))
+    total_members = int(members_res.scalar_one() or 0)
+
+    pending_res = await db.execute(
+        select(func.count())
+        .select_from(CircleAdminRequest)
+        .where(CircleAdminRequest.status == STATUS_PENDING)
+    )
+    pending_ops = int(pending_res.scalar_one() or 0)
+
+    total_hours = await platform_hours_since(db, _month_start())
+
+    return {
+        "total_circles": total_circles,
+        "total_members": total_members,
+        "pending_ops_count": pending_ops,
+        "total_hours_month": round(total_hours, 1),
+    }
+
+
 async def admin_circles_summary(db: AsyncSession) -> dict[str, Any]:
+    """Full summary including per-member hours — use on circle ops pages, not main dashboard."""
     circles = await list_admin_circles(db)
     pending_res = await db.execute(
         select(func.count())

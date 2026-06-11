@@ -40,7 +40,7 @@ def _kyc_value(s: KycStatus | str) -> str:
 def _account_status(kyc: KycStatus) -> str:
     if kyc == KycStatus.approved:
         return "active"
-    if kyc == KycStatus.pending:
+    if kyc in (KycStatus.pending, KycStatus.info_required):
         return "pending"
     return "suspended"
 

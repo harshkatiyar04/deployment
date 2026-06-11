@@ -27,7 +27,12 @@ from app.schemas.signup import (
 )
 from app.services.email import send_email
 from app.services.email_templates import render_user_approval_html
-from app.services.notifications import notify_user_kyc_approved, notify_user_kyc_rejected
+from app.services.kyc_review import extract_kyc_review_note
+from app.services.notifications import (
+    notify_user_kyc_approved,
+    notify_user_kyc_info_required,
+    notify_user_kyc_rejected,
+)
 from app.services.school_provision import ensure_school_profile
 
 
@@ -235,7 +240,10 @@ def _parse_status_filter(status: Optional[str]) -> Optional[KycStatus]:
     try:
         return KycStatus(status)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail="status must be pending, approved, rejected, or all") from exc
+        raise HTTPException(
+            status_code=400,
+            detail="status must be pending, approved, rejected, info_required, or all",
+        ) from exc
 
 
 @router.get("/summary")
@@ -246,10 +254,13 @@ async def signup_summary(db: AsyncSession = Depends(get_db)):
         .group_by(SignupRequest.persona, SignupRequest.member_kind, SignupRequest.kyc_status)
     )
     by_persona: dict[str, dict[str, int]] = {}
-    totals = {"pending": 0, "approved": 0, "rejected": 0, "all": 0}
+    totals = {"pending": 0, "approved": 0, "rejected": 0, "info_required": 0, "all": 0}
     for persona, member_kind, kyc_status, count in res.all():
         key = persona.value if hasattr(persona, "value") else str(persona)
-        by_persona.setdefault(key, {"pending": 0, "approved": 0, "rejected": 0, "all": 0})
+        by_persona.setdefault(
+            key,
+            {"pending": 0, "approved": 0, "rejected": 0, "info_required": 0, "all": 0},
+        )
         status_key = kyc_status.value if hasattr(kyc_status, "value") else str(kyc_status)
         by_persona[key][status_key] = by_persona[key].get(status_key, 0) + count
         by_persona[key]["all"] += count
@@ -441,18 +452,35 @@ async def view_all_documents_base64(signup_id: str, db: AsyncSession = Depends(g
 
 @router.post("/{signup_id}/decision")
 async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = Depends(get_db)):
-    if body.decision not in {KycStatus.approved, KycStatus.rejected}:
-        raise HTTPException(status_code=400, detail="Decision must be approved or rejected")
+    allowed = {KycStatus.approved, KycStatus.rejected, KycStatus.info_required}
+    if body.decision not in allowed:
+        raise HTTPException(
+            status_code=400,
+            detail="Decision must be approved, rejected, or info_required",
+        )
+
+    note = (body.note or "").strip()
+    if body.decision in {KycStatus.rejected, KycStatus.info_required} and not note:
+        raise HTTPException(
+            status_code=400,
+            detail="A comment is required when rejecting or requesting additional information.",
+        )
 
     res = await db.execute(select(SignupRequest).where(SignupRequest.id == signup_id))
     signup = res.scalar_one_or_none()
     if not signup:
         raise HTTPException(status_code=404, detail="Signup not found")
 
+    if signup.kyc_status != KycStatus.pending:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Cannot decide on signup with status '{signup.kyc_status.value}'.",
+        )
+
     from app.services.circle_member_invite import merge_admin_kyc_note
 
     signup.kyc_status = body.decision
-    signup.admin_note = merge_admin_kyc_note(signup.admin_note, body.note)
+    signup.admin_note = merge_admin_kyc_note(signup.admin_note, note or body.note)
     signup.updated_at = datetime.utcnow()
 
     if body.decision == KycStatus.approved and signup.persona == Persona.school:
@@ -503,18 +531,37 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
             logger.exception("Failed to create approval notification for signup_id=%s", signup.id)
     
     elif signup.kyc_status == KycStatus.rejected:
-        # In-app notification for rejection
         try:
             await notify_user_kyc_rejected(
                 signup_id=signup.id,
                 full_name=signup.full_name,
                 persona=label.lower(),
-                admin_note=body.note,
+                admin_note=extract_kyc_review_note(signup.admin_note),
                 db=db,
             )
         except Exception:
             logger.exception("Failed to create rejection notification for signup_id=%s", signup.id)
 
-    return {"id": signup.id, "kyc_status": signup.kyc_status, "note": signup.admin_note}
+    elif signup.kyc_status == KycStatus.info_required:
+        try:
+            await notify_user_kyc_info_required(
+                signup_id=signup.id,
+                full_name=signup.full_name,
+                persona=label.lower(),
+                admin_note=extract_kyc_review_note(signup.admin_note),
+                db=db,
+            )
+        except Exception:
+            logger.exception(
+                "Failed to create info_required notification for signup_id=%s",
+                signup.id,
+            )
+
+    return {
+        "id": signup.id,
+        "kyc_status": signup.kyc_status,
+        "note": signup.admin_note,
+        "review_note": extract_kyc_review_note(signup.admin_note),
+    }
 
 
