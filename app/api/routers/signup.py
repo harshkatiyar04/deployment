@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Optional
 import logging
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -30,6 +30,7 @@ from app.services.student_onboarding_v2 import (
 )
 from app.models.school import SchoolProfile
 from app.services.school_constants import SCHOOL_AFFILIATIONS, VALID_AFFILIATION_IDS
+from app.services.legal_terms import enforce_signup_legal_bundle
 
 
 router = APIRouter(prefix="/signup", tags=["signup"])
@@ -268,6 +269,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_sponsor(
+    request: Request,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -291,6 +293,10 @@ async def signup_sponsor(
     # KYC docs - accept single file (kyc_doc) or multiple files (kyc_docs)
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Sponsor signup endpoint (form-data with file uploads)."""
@@ -347,6 +353,15 @@ async def signup_sponsor(
     signup.gst_number = gst_number
     signup.authorized_signatory_name = authorized_signatory_name
     signup.authorized_signatory_designation = authorized_signatory_designation
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+    )
     await db.commit()
     await db.refresh(signup)
 
@@ -380,6 +395,7 @@ async def signup_sponsor(
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_sponsor_leader(
+    request: Request,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -400,6 +416,10 @@ async def signup_sponsor_leader(
     authorized_signatory_designation: Optional[str] = Form(default=None),
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Sponsor circle leader signup — full KYC before circle setup."""
@@ -455,6 +475,15 @@ async def signup_sponsor_leader(
     signup.gst_number = gst_number
     signup.authorized_signatory_name = authorized_signatory_name
     signup.authorized_signatory_designation = authorized_signatory_designation
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+    )
     await db.commit()
     await db.refresh(signup)
 
@@ -488,6 +517,7 @@ async def signup_sponsor_leader(
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_sponsor_member(
+    request: Request,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -505,6 +535,12 @@ async def signup_sponsor_member(
     linked_student_signup_id: Optional[str] = Form(default=None),
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
+    parent_member_version: Optional[str] = Form(default=None),
+    parent_member_accepted: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Circle member signup — joins a sponsor circle after leader invite."""
@@ -578,6 +614,19 @@ async def signup_sponsor_member(
             circle_id="",
             student_signup_id=linked_student_signup_id,
         )
+    member_role = "parent_guardian" if is_parent_guardian else "self"
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+        parent_member_version=parent_member_version if is_parent_guardian else None,
+        parent_member_accepted=parent_member_accepted if is_parent_guardian else None,
+        acceptance_role=member_role,
+    )
     await db.commit()
     await db.refresh(signup)
 
@@ -645,6 +694,7 @@ async def signup_sponsor_member(
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_vendor(
+    request: Request,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -667,6 +717,10 @@ async def signup_vendor(
     # KYC docs - accept single file (kyc_doc) or multiple files (kyc_docs)
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Vendor/Service Provider signup endpoint (form-data with file uploads)."""
@@ -712,6 +766,15 @@ async def signup_vendor(
     signup.pan_number = pan_number
     signup.product_categories = product_categories
     signup.website = website
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+    )
     await db.commit()
     await db.refresh(signup)
 
@@ -757,6 +820,7 @@ async def list_signup_schools(db: AsyncSession = Depends(get_db)):
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_school(
+    request: Request,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -775,6 +839,10 @@ async def signup_school(
     school_enrollment_year: Optional[str] = Form(default=None),
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
     db: AsyncSession = Depends(get_db),
 ):
     """Public school partner signup — principal account; ZenK admin reviews KYC."""
@@ -825,6 +893,15 @@ async def signup_school(
     signup.school_affiliation = affiliation_key
     signup.school_affiliation_number = (school_affiliation_number or "").strip()[:64] or None
     signup.school_enrollment_year = (school_enrollment_year or "").strip()[:10] or None
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+    )
     await db.commit()
     await db.refresh(signup)
 
@@ -858,6 +935,7 @@ async def signup_school(
     status_code=status.HTTP_201_CREATED,
 )
 async def signup_student(
+    request: Request,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -885,6 +963,14 @@ async def signup_student(
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
     parent_kyc_doc: Optional[UploadFile] = File(default=None),
     parent_kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
+    parent_member_version: Optional[str] = Form(default=None),
+    parent_member_accepted: Optional[str] = Form(default=None),
+    student_declaration_version: Optional[str] = Form(default=None),
+    student_declaration_accepted: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Student signup — also creates linked parent/guardian member account (same email + password)."""
@@ -980,6 +1066,30 @@ async def signup_student(
         circle_id=invite_circle_id or None,
     )
     await create_school_interest(db, student_signup_id=signup.id, school_id=school_profile.id)
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+        student_declaration_version=student_declaration_version,
+        student_declaration_accepted=student_declaration_accepted,
+        acceptance_role="guardian_on_behalf",
+    )
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        parent_signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+        parent_member_version=parent_member_version,
+        parent_member_accepted=parent_member_accepted,
+        acceptance_role="parent_guardian",
+    )
     await db.commit()
     await db.refresh(parent_signup)
     await db.refresh(family_link)

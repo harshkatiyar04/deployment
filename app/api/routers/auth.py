@@ -20,6 +20,12 @@ from app.services.circle_access import resolve_circle_access
 from app.services.kyc_resubmit import list_signup_kyc_documents, resubmit_kyc_documents
 from app.services.kyc_review import extract_kyc_review_note
 from app.services.school_provision import ensure_school_profile
+from app.services.legal_terms import (
+    get_active_document,
+    list_pending_reacceptances,
+    user_needs_terms_reacceptance,
+    DOC_TYPE_PLATFORM,
+)
 from app.services.student_family import (
     build_family_hats_context,
     resolve_linked_signup,
@@ -58,6 +64,15 @@ class CircleBanOut(BaseModel):
     banned_at: Optional[str] = None
 
 
+class PendingLegalDocOut(BaseModel):
+    doc_type: str
+    version: str
+    title: str
+    legal_entity: str
+    effective_date: str
+    content_sha256: str
+
+
 class LoginResponse(BaseModel):
     id: str
     persona: Persona
@@ -72,6 +87,9 @@ class LoginResponse(BaseModel):
     token_type: Optional[str] = "bearer"
     circle_access: Optional[CircleAccessOut] = None
     circle_ban: Optional[CircleBanOut] = None
+    terms_reacceptance_required: bool = False
+    current_terms_version: Optional[str] = None
+    pending_legal_documents: list[PendingLegalDocOut] = []
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
@@ -167,6 +185,16 @@ async def login(
             "Contact ZenK Admin below to request a review."
         )
 
+    pending_legal = await list_pending_reacceptances(db, signup)
+    terms_required = bool(pending_legal)
+    terms_version = None
+    if pending_legal:
+        platform_pending = next((p for p in pending_legal if p["doc_type"] == DOC_TYPE_PLATFORM), None)
+        terms_version = platform_pending["version"] if platform_pending else pending_legal[0]["version"]
+    else:
+        active_terms = await get_active_document(db, DOC_TYPE_PLATFORM)
+        terms_version = active_terms.version if active_terms else None
+
     return LoginResponse(
         id=signup.id,
         persona=signup.persona,
@@ -181,6 +209,9 @@ async def login(
         token_type="bearer",
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
+        terms_reacceptance_required=terms_required,
+        current_terms_version=terms_version,
+        pending_legal_documents=pending_legal,
     )
 
 
@@ -203,6 +234,9 @@ class SessionUserResponse(BaseModel):
     circle_access: Optional[CircleAccessOut] = None
     circle_ban: Optional[CircleBanOut] = None
     school_org: Optional[SchoolOrgSummary] = None
+    terms_reacceptance_required: bool = False
+    current_terms_version: Optional[str] = None
+    pending_legal_documents: list[PendingLegalDocOut] = []
 
 
 class UserKycDocumentOut(BaseModel):
@@ -235,6 +269,17 @@ async def _school_org_summary(db: AsyncSession, user: SignupRequest) -> Optional
     )
 
 
+async def _session_legal_fields(db: AsyncSession, user: SignupRequest) -> dict:
+    pending = await list_pending_reacceptances(db, user)
+    active_platform = await get_active_document(db, DOC_TYPE_PLATFORM)
+    terms_required, terms_version = await user_needs_terms_reacceptance(db, user.id)
+    return {
+        "terms_reacceptance_required": terms_required or bool(pending),
+        "current_terms_version": terms_version or (active_platform.version if active_platform else None),
+        "pending_legal_documents": pending,
+    }
+
+
 @router.get("/me", response_model=SessionUserResponse, status_code=status.HTTP_200_OK)
 async def get_session_user(
     user: SignupRequest = Depends(get_current_user),
@@ -246,6 +291,7 @@ async def get_session_user(
     access = await resolve_circle_access(db, user)
     ban_payload = await resolve_user_circle_ban(db, user.id)
     circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
+    legal_fields = await _session_legal_fields(db, user)
     return SessionUserResponse(
         id=user.id,
         persona=user.persona,
@@ -258,6 +304,7 @@ async def get_session_user(
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
         school_org=await _school_org_summary(db, user),
+        **legal_fields,
     )
 
 

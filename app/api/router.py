@@ -9,7 +9,9 @@ from app.api.routers import (
     user_support,
     admin_circle_ops,
     admin_overview,
+    admin_legal,
     auth,
+    legal,
     notifications,
     signup,
     consent,
@@ -28,6 +30,7 @@ from app.microservices.parent.router import router as parent_router
 
 api_router = APIRouter()
 api_router.include_router(auth.router)
+api_router.include_router(legal.router)
 api_router.include_router(signup.router)
 api_router.include_router(admin_kyc.router)
 api_router.include_router(admin_circle_ops.router)
@@ -37,6 +40,7 @@ api_router.include_router(admin_suppliers.router)
 api_router.include_router(admin_support.router)
 api_router.include_router(user_support.router)
 api_router.include_router(admin_overview.router)
+api_router.include_router(admin_legal.router)
 api_router.include_router(notifications.router)
 api_router.include_router(router_client.router)
 api_router.include_router(consent.router)
