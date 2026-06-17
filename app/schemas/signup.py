@@ -186,5 +186,6 @@ class StudentFamilySignupResponse(SignupResponse):
     parent_signup_id: Optional[str] = None
     login_access_tier: Optional[str] = None
     family_link_id: Optional[str] = None
+    school_referral_url: Optional[str] = None
 
 

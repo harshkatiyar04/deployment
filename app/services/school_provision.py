@@ -58,58 +58,65 @@ async def ensure_school_profile(
         profile.updated_at = now
         apply_profile_completion_timestamp(profile)
         await db.flush()
-        return profile
-
-    profile = SchoolProfile(
-        id=signup.id,
-        school_name=fields["school_name"],
-        school_code=_school_code_from_id(signup.id),
-        affiliation=fields["affiliation"],
-        affiliation_number=fields["affiliation_number"],
-        enrollment_year=fields["enrollment_year"],
-        city=fields["city"],
-        district=fields["district"],
-        principal_name=fields["principal_name"],
-        partner_since=fields["enrollment_year"] or str(now.year),
-        is_partner=is_partner,
-        fy_current="2025-26",
-        portal_role="principal",
-        onboarding_source=onboarding_source,
-        created_at=now,
-        updated_at=now,
-    )
-    apply_profile_completion_timestamp(profile)
-    db.add(profile)
-    await db.flush()
-
-    from app.services.kia_event_briefings import emit_school_onboarded
-
-    await emit_school_onboarded(
-        db,
-        profile=profile,
-        principal_name=fields["principal_name"],
-    )
-
-    welcome_res = await db.execute(
-        select(SchoolKiaWelcome).where(SchoolKiaWelcome.id == signup.id)
-    )
-    if not welcome_res.scalar_one_or_none():
-        db.add(
-            SchoolKiaWelcome(
-                id=signup.id,
-                welcome_sent=False,
-                welcome_message=(
-                    "Welcome to your ZenK School Dashboard. "
-                    "Complete your school profile, then add students and submit reports."
-                ),
-                task_list=[
-                    "Complete school profile",
-                    "Review students",
-                    "Submit quarterly report",
-                    "Enter monthly attendance",
-                ],
-            )
+    else:
+        profile = SchoolProfile(
+            id=signup.id,
+            school_name=fields["school_name"],
+            school_code=_school_code_from_id(signup.id),
+            affiliation=fields["affiliation"],
+            affiliation_number=fields["affiliation_number"],
+            enrollment_year=fields["enrollment_year"],
+            city=fields["city"],
+            district=fields["district"],
+            principal_name=fields["principal_name"],
+            partner_since=fields["enrollment_year"] or str(now.year),
+            is_partner=is_partner,
+            fy_current="2025-26",
+            portal_role="principal",
+            onboarding_source=onboarding_source,
+            created_at=now,
+            updated_at=now,
         )
+        apply_profile_completion_timestamp(profile)
+        db.add(profile)
         await db.flush()
+
+        from app.services.kia_event_briefings import emit_school_onboarded
+
+        await emit_school_onboarded(
+            db,
+            profile=profile,
+            principal_name=fields["principal_name"],
+        )
+
+        welcome_res = await db.execute(
+            select(SchoolKiaWelcome).where(SchoolKiaWelcome.id == signup.id)
+        )
+        if not welcome_res.scalar_one_or_none():
+            db.add(
+                SchoolKiaWelcome(
+                    id=signup.id,
+                    welcome_sent=False,
+                    welcome_message=(
+                        "Welcome to your ZenK School Dashboard. "
+                        "Complete your school profile, then add students and submit reports."
+                    ),
+                    task_list=[
+                        "Complete school profile",
+                        "Review students",
+                        "Submit quarterly report",
+                        "Enter monthly attendance",
+                    ],
+                )
+            )
+            await db.flush()
+
+    from app.services.school_referral_invite import complete_referral_after_school_profile
+
+    await complete_referral_after_school_profile(
+        db,
+        school_signup_id=signup.id,
+        school_profile_id=profile.id,
+    )
 
     return profile

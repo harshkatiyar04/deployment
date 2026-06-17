@@ -51,6 +51,13 @@ class StudentOverviewOut(BaseModel):
     milestones: list[dict[str, str]] = []
 
 
+class StudentDashboardBundleOut(BaseModel):
+    profile: StudentProfileOut
+    overview: StudentOverviewOut
+    timeline: dict[str, Any] = {}
+    progress: dict[str, Any] = {}
+
+
 class StudentCircleJoinRequest(BaseModel):
     circle_id: str = Field(..., min_length=1)
 

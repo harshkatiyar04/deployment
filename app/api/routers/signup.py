@@ -2,6 +2,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Optional
 import logging
+import re
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
@@ -28,9 +29,21 @@ from app.services.student_onboarding_v2 import (
     create_school_interest,
     list_public_schools,
 )
+from app.services.school_referral_invite import (
+    attach_school_signup_to_referral,
+    create_referral_for_student,
+    is_school_not_listed,
+    resolve_referral_token,
+)
 from app.models.school import SchoolProfile
 from app.services.school_constants import SCHOOL_AFFILIATIONS, VALID_AFFILIATION_IDS
 from app.services.legal_terms import enforce_signup_legal_bundle
+from app.services.signup_validation import (
+    assert_email_available_for_new_signup,
+    assert_signup_resubmit_allowed,
+    find_signup_by_persona_email,
+    validate_email_format,
+)
 
 
 router = APIRouter(prefix="/signup", tags=["signup"])
@@ -56,7 +69,12 @@ async def check_signup_availability(
     }
 
     if email and email.strip():
-        norm_email = email.strip().lower()
+        try:
+            norm_email = validate_email_format(email)
+        except HTTPException as exc:
+            out["email_available"] = False
+            out["message"] = str(exc.detail)
+            return out
         res = await db.execute(
             select(SignupRequest).where(func.lower(SignupRequest.email) == norm_email)
         )
@@ -85,6 +103,32 @@ def _require(condition: bool, message: str) -> None:
         raise HTTPException(status_code=400, detail=message)
 
 
+def _digits_only(value: str) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def _validate_mobile_field(mobile: str) -> str:
+    digits = _digits_only(mobile)
+    _require(len(digits) == 10, "Mobile must be a valid 10-digit number")
+    return digits
+
+
+def _validate_pincode_field(pincode: str) -> str:
+    digits = _digits_only(pincode)
+    _require(len(digits) == 6, "PIN code must be 6 digits")
+    return digits
+
+
+def _validate_pan_field(pan_number: str) -> str:
+    pan = (pan_number or "").strip().upper()
+    _require(bool(pan), "PAN number is required")
+    _require(
+        bool(re.fullmatch(r"[A-Z]{5}[0-9]{4}[A-Z]", pan)),
+        "Invalid PAN format (example: ABCDE1234F)",
+    )
+    return pan
+
+
 async def _process_signup_common(
     *,
     persona: Persona,
@@ -107,39 +151,23 @@ async def _process_signup_common(
     Accepts kyc_docs as a list of files (can be empty list if kyc_doc is provided).
     """
     """Common logic for creating/updating signup and saving KYC docs."""
-    norm_email = email.strip().lower()
+    norm_email = validate_email_format(email)
     if signup:
-        if signup.kyc_status == KycStatus.approved:
-            raise HTTPException(status_code=409, detail="Signup already approved; changes are not allowed")
-        if signup.kyc_status == KycStatus.pending:
-            raise HTTPException(
-                status_code=409,
-                detail="This email is already registered. Sign in instead.",
-            )
+        assert_signup_resubmit_allowed(signup)
     else:
-        clash_res = await db.execute(
-            select(SignupRequest).where(func.lower(SignupRequest.email) == norm_email)
-        )
-        for row in clash_res.scalars().all():
-            if row.persona == persona and row.kyc_status == KycStatus.rejected:
-                signup = row
-                break
-            raise HTTPException(
-                status_code=409,
-                detail="This email is already registered. Sign in instead.",
-            )
+        await assert_email_available_for_new_signup(db, norm_email)
 
     _require(len(kyc_docs) > 0, "At least one KYC document is required")
 
     now = datetime.utcnow()
     password_hash = hash_password(password)
-    
+
     if not signup:
         signup = SignupRequest(
             persona=persona,
             full_name=full_name,
             mobile=mobile,
-            email=email,
+            email=norm_email,
             password_hash=password_hash,
             address_line1=address_line1,
             address_line2=address_line2,
@@ -323,10 +351,8 @@ async def signup_sponsor(
     
     _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
 
-    existing_res = await db.execute(
-        select(SignupRequest).where(SignupRequest.persona == Persona.sponsor, SignupRequest.email == email)
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.sponsor, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.sponsor,
@@ -443,13 +469,8 @@ async def signup_sponsor_leader(
         all_files.extend(kyc_docs)
     _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
 
-    existing_res = await db.execute(
-        select(SignupRequest).where(
-            SignupRequest.persona == Persona.sponsor_leader,
-            SignupRequest.email == email,
-        )
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.sponsor_leader, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.sponsor_leader,
@@ -546,6 +567,9 @@ async def signup_sponsor_member(
     """Circle member signup — joins a sponsor circle after leader invite."""
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
+    mobile = _validate_mobile_field(mobile)
+    pincode = _validate_pincode_field(pincode)
+    pan_number = _validate_pan_field(pan_number or "")
 
     all_files: list[UploadFile] = []
     if kyc_doc:
@@ -554,13 +578,8 @@ async def signup_sponsor_member(
         all_files.extend(kyc_docs)
     _require(len(all_files) > 0, "At least one ID document is required (use kyc_doc or kyc_docs)")
 
-    existing_res = await db.execute(
-        select(SignupRequest).where(
-            SignupRequest.persona == Persona.sponsor_member,
-            SignupRequest.email == email,
-        )
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.sponsor_member, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.sponsor_member,
@@ -737,10 +756,8 @@ async def signup_vendor(
     
     _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
     
-    existing_res = await db.execute(
-        select(SignupRequest).where(SignupRequest.persona == Persona.vendor, SignupRequest.email == email)
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.vendor, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.vendor,
@@ -814,6 +831,12 @@ async def list_signup_schools(db: AsyncSession = Depends(get_db)):
     return await list_public_schools(db)
 
 
+@router.get("/school-referral/resolve")
+async def resolve_school_referral(token: str, db: AsyncSession = Depends(get_db)):
+    """Public preview for a student-generated school invite link."""
+    return await resolve_referral_token(db, token)
+
+
 @router.post(
     "/school",
     response_model=SignupResponse,
@@ -843,6 +866,7 @@ async def signup_school(
     terms_accepted: str = Form(...),
     privacy_version: str = Form(...),
     privacy_accepted: str = Form(...),
+    school_referral_token: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """Public school partner signup — principal account; ZenK admin reviews KYC."""
@@ -863,13 +887,8 @@ async def signup_school(
         year = school_enrollment_year.strip()
         _require(year.isdigit() and 1950 <= int(year) <= 2100, "Enrollment year must be a valid year.")
 
-    existing_res = await db.execute(
-        select(SignupRequest).where(
-            SignupRequest.persona == Persona.school,
-            func.lower(SignupRequest.email) == email.strip().lower(),
-        )
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.school, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.school,
@@ -904,6 +923,14 @@ async def signup_school(
     )
     await db.commit()
     await db.refresh(signup)
+
+    if school_referral_token and school_referral_token.strip():
+        await attach_school_signup_to_referral(
+            db,
+            token=school_referral_token.strip(),
+            school_signup_id=signup.id,
+        )
+        await db.commit()
 
     await _send_admin_notification(Persona.school, signup, db)
 
@@ -952,6 +979,9 @@ async def signup_student(
     date_of_birth: date = Form(...),
     school_id: str = Form(...),
     school_or_college_name: Optional[str] = Form(default=None),
+    proposed_school_city: Optional[str] = Form(default=None),
+    proposed_school_state: Optional[str] = Form(default=None),
+    proposed_school_contact_email: Optional[str] = Form(default=None),
     grade_or_year: str = Form(...),
     guardian_name: str = Form(...),
     guardian_mobile: str = Form(...),
@@ -977,6 +1007,10 @@ async def signup_student(
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
     _require(guardian_relationship.strip(), "Guardian relationship is required")
+    mobile = _validate_mobile_field(mobile)
+    guardian_mobile = _validate_mobile_field(guardian_mobile)
+    pincode = _validate_pincode_field(pincode)
+    parent_pan_number = _validate_pan_field(parent_pan_number or "")
 
     all_files: list[UploadFile] = []
     if kyc_doc:
@@ -992,10 +1026,8 @@ async def signup_student(
         parent_files.extend(parent_kyc_docs)
     _require(len(parent_files) > 0, "Parent/guardian KYC documents are required (use parent_kyc_doc or parent_kyc_docs)")
 
-    existing_res = await db.execute(
-        select(SignupRequest).where(SignupRequest.persona == Persona.student, SignupRequest.email == email)
-    )
-    signup = existing_res.scalar_one_or_none()
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.student, email=email)
 
     signup = await _process_signup_common(
         persona=Persona.student,
@@ -1016,21 +1048,41 @@ async def signup_student(
 
     school_res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == school_id.strip()))
     school_profile = school_res.scalar_one_or_none()
-    if not school_profile:
-        raise HTTPException(status_code=400, detail="Please select a registered school from the list")
+    school_referral_url: Optional[str] = None
 
-    access_tier = compute_login_access_tier(date_of_birth)
-    signup.date_of_birth = date_of_birth
-    signup.selected_school_id = school_profile.id
-    signup.school_or_college_name = school_or_college_name or school_profile.school_name
-    signup.onboarding_version = ONBOARDING_V2
-    signup.grade_or_year = grade_or_year
-    signup.guardian_name = guardian_name
-    signup.guardian_mobile = guardian_mobile
-    signup.guardian_relationship = guardian_relationship.strip()
-    signup.login_access_tier = access_tier.value
-    await db.commit()
-    await db.refresh(signup)
+    if is_school_not_listed(school_id):
+        proposed_name = (school_or_college_name or "").strip()
+        proposed_city = (proposed_school_city or "").strip()
+        _require(proposed_name, "Enter your school name")
+        _require(proposed_city, "Enter your school city")
+        access_tier = compute_login_access_tier(date_of_birth)
+        signup.date_of_birth = date_of_birth
+        signup.selected_school_id = None
+        signup.school_or_college_name = proposed_name[:300]
+        signup.onboarding_version = ONBOARDING_V2
+        signup.grade_or_year = grade_or_year
+        signup.guardian_name = guardian_name
+        signup.guardian_mobile = guardian_mobile
+        signup.guardian_relationship = guardian_relationship.strip()
+        signup.login_access_tier = access_tier.value
+        await db.commit()
+        await db.refresh(signup)
+    else:
+        if not school_profile:
+            raise HTTPException(status_code=400, detail="Please select a registered school from the list")
+
+        access_tier = compute_login_access_tier(date_of_birth)
+        signup.date_of_birth = date_of_birth
+        signup.selected_school_id = school_profile.id
+        signup.school_or_college_name = school_or_college_name or school_profile.school_name
+        signup.onboarding_version = ONBOARDING_V2
+        signup.grade_or_year = grade_or_year
+        signup.guardian_name = guardian_name
+        signup.guardian_mobile = guardian_mobile
+        signup.guardian_relationship = guardian_relationship.strip()
+        signup.login_access_tier = access_tier.value
+        await db.commit()
+        await db.refresh(signup)
 
     invite_circle_id = ""
     if circle_invite_code and circle_invite_code.strip():
@@ -1065,7 +1117,18 @@ async def signup_student(
         relationship=guardian_relationship.strip(),
         circle_id=invite_circle_id or None,
     )
-    await create_school_interest(db, student_signup_id=signup.id, school_id=school_profile.id)
+    school_referral_url: Optional[str] = None
+    if is_school_not_listed(school_id):
+        _, school_referral_url = await create_referral_for_student(
+            db,
+            student_signup_id=signup.id,
+            proposed_school_name=signup.school_or_college_name or "",
+            proposed_city=proposed_school_city or "",
+            proposed_state=proposed_school_state,
+            proposed_contact_email=proposed_school_contact_email,
+        )
+    else:
+        await create_school_interest(db, student_signup_id=signup.id, school_id=school_profile.id)
     await enforce_signup_legal_bundle(
         db,
         request,
@@ -1112,6 +1175,7 @@ async def signup_student(
         parent_signup_id=parent_signup.id,
         login_access_tier=access_tier.value,
         family_link_id=family_link.id,
+        school_referral_url=school_referral_url,
         documents=[
             {
                 "id": d.id,

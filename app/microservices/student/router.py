@@ -20,6 +20,7 @@ from app.microservices.student.schemas import (
     StudentKiaMessageOut,
     StudentMentoringPostRequest,
     StudentOverviewOut,
+    StudentDashboardBundleOut,
     StudentProfileOut,
     StudentPseudonymCheckOut,
     StudentPseudonymSetOut,
@@ -39,6 +40,7 @@ from app.services.kia_student import (
 )
 from app.services.student_dashboard import (
     build_student_circle_view,
+    build_student_dashboard_bundle,
     build_student_overview,
     build_student_profile,
     build_student_progress,
@@ -149,6 +151,23 @@ async def student_profile(
     _require_student(user)
     data = await build_student_profile(db, user)
     return StudentProfileOut(**{k: data[k] for k in StudentProfileOut.model_fields})
+
+
+@router.get("/dashboard-bundle", response_model=StudentDashboardBundleOut)
+async def student_dashboard_bundle(
+    quarter: str = "Q4",
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Profile, overview, onboarding timeline, and progress in one authenticated request."""
+    _require_student(user)
+    bundle = await build_student_dashboard_bundle(db, user, quarter=quarter)
+    return StudentDashboardBundleOut(
+        profile=StudentProfileOut(**{k: bundle["profile"][k] for k in StudentProfileOut.model_fields}),
+        overview=StudentOverviewOut(**bundle["overview"]),
+        timeline=bundle["timeline"],
+        progress=bundle["progress"],
+    )
 
 
 @router.get("/pseudonym/check", response_model=StudentPseudonymCheckOut)

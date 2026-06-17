@@ -129,7 +129,7 @@ async def create_parent_guardian_signup(
     existing_res = await db.execute(
         select(SignupRequest).where(
             SignupRequest.persona == Persona.sponsor_member,
-            SignupRequest.email == email,
+            func.lower(SignupRequest.email) == normalize_email(email),
         )
     )
     parent = existing_res.scalar_one_or_none()

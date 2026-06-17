@@ -198,7 +198,12 @@ def _step(status: str, *, done: bool, detail: str = "") -> dict[str, Any]:
     return {"status": status, "done": done, "detail": detail}
 
 
-async def build_onboarding_timeline(db: AsyncSession, student: SignupRequest) -> dict[str, Any]:
+async def build_onboarding_timeline(
+    db: AsyncSession,
+    student: SignupRequest,
+    *,
+    school_student: Optional[SchoolStudent] = None,
+) -> dict[str, Any]:
     if (student.onboarding_version or "v1") != ONBOARDING_V2:
         return {"onboarding_version": "v1", "legacy": True, "unlocked": True}
 
@@ -217,7 +222,8 @@ async def build_onboarding_timeline(db: AsyncSession, student: SignupRequest) ->
         select(StudentSchoolInterest).where(StudentSchoolInterest.student_signup_id == student.id)
     )
     interest = interest_res.scalar_one_or_none()
-    school_student = await resolve_school_student(db, student)
+    if school_student is None:
+        school_student = await resolve_school_student(db, student)
 
     accepted_circle = await db.execute(
         select(StudentCircleInterestRequest).where(

@@ -45,6 +45,27 @@ class StudentCircleInterestRequest(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 
+class StudentSchoolReferral(Base):
+    """Student-invited school onboarding — share link with principal when school is not listed."""
+
+    __tablename__ = "student_school_referrals"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid4()))
+    token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    student_signup_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
+    proposed_school_name: Mapped[str] = mapped_column(String(300), nullable=False)
+    proposed_city: Mapped[str] = mapped_column(String(120), nullable=False)
+    proposed_state: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    proposed_contact_email: Mapped[Optional[str]] = mapped_column(String(320), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), nullable=False, default="pending")
+    school_signup_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True, index=True)
+    school_profile_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+
+
 class StudentProbeMessage(Base):
     __tablename__ = "student_probe_messages"
     __table_args__ = {"schema": "ZENK"}

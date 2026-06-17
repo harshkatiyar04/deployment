@@ -142,10 +142,42 @@ def _infer_content_type(doc: KycDocument) -> str | None:
     return None
 
 
+def _cloudinary_delivery_url(stored: str, doc: KycDocument) -> str:
+    """
+    Cloudinary raw assets omit file extensions; mobile browsers often download them
+    when embedded. Append a suffix so delivery uses the correct MIME type.
+    """
+    url = stored.rstrip("/")
+    if "/raw/upload/" not in url.lower():
+        return stored
+
+    lower = url.lower().split("?")[0]
+    if any(lower.endswith(ext) for ext in (".pdf", ".jpg", ".jpeg", ".png", ".webp", ".gif")):
+        return stored
+
+    mime = _infer_content_type(doc)
+    suffix_by_mime = {
+        "application/pdf": ".pdf",
+        "image/jpeg": ".jpg",
+        "image/png": ".png",
+        "image/webp": ".webp",
+        "image/gif": ".gif",
+    }
+    suffix = suffix_by_mime.get(mime or "")
+    if not suffix:
+        return stored
+    query = ""
+    if "?" in stored:
+        base, query = stored.split("?", 1)
+        query = f"?{query}"
+        url = base.rstrip("/")
+    return f"{url}{suffix}{query}"
+
+
 def _preview_url_for_doc(doc: KycDocument) -> str:
     path = _normalize_stored_path(doc.stored_path)
     if _is_remote_storage(path):
-        return path
+        return _cloudinary_delivery_url(path, doc)
     return f"/admin/kyc/documents/{doc.id}"
 
 
@@ -373,7 +405,7 @@ async def preview_document(doc_id: str, db: AsyncSession = Depends(get_db)):
 
     stored = _normalize_stored_path(doc.stored_path)
     if _is_remote_storage(stored):
-        return RedirectResponse(url=stored, status_code=302)
+        return RedirectResponse(url=_cloudinary_delivery_url(stored, doc), status_code=302)
 
     path = Path(stored)
     if not path.exists():

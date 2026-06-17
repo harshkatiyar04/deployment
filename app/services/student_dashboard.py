@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from sqlalchemy import select, func
@@ -15,6 +16,15 @@ from app.models.signup import SignupRequest
 from app.models.student_family import StudentFamilyLink
 from app.services.student_family import has_recorded_parental_consent
 from app.services.student_pseudonym import pseudonym_meta
+
+
+@dataclass
+class StudentDashboardContext:
+    persona: Any
+    school_student: Optional[SchoolStudent]
+    circle_id: Optional[str]
+    circle_name: Optional[str]
+    consent: bool
 
 
 def mask_circle_label(name: Optional[str]) -> str:
@@ -93,7 +103,11 @@ async def resolve_student_circle_id(
     return row[0] if row else None
 
 
-async def build_student_profile(db: AsyncSession, signup: SignupRequest) -> dict[str, Any]:
+async def load_student_dashboard_context(
+    db: AsyncSession,
+    signup: SignupRequest,
+) -> StudentDashboardContext:
+    """Resolve shared student dashboard entities once per request."""
     persona = await get_or_create_persona(signup, db)
     school_student = await resolve_school_student(db, signup)
     circle_id = await resolve_student_circle_id(db, signup, school_student)
@@ -102,29 +116,56 @@ async def build_student_profile(db: AsyncSession, signup: SignupRequest) -> dict
         c_res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
         circle = c_res.scalar_one_or_none()
         circle_name = circle.name if circle else None
-
     consent = await has_recorded_parental_consent(db, signup.id)
+    return StudentDashboardContext(
+        persona=persona,
+        school_student=school_student,
+        circle_id=circle_id,
+        circle_name=circle_name,
+        consent=consent,
+    )
 
+
+def _profile_from_context(signup: SignupRequest, ctx: StudentDashboardContext) -> dict[str, Any]:
+    school_student = ctx.school_student
     return {
         "signup_id": signup.id,
-        "pseudonym": persona.nickname,
-        **pseudonym_meta(persona.nickname),
-        "avatar_key": persona.avatar_key,
+        "pseudonym": ctx.persona.nickname,
+        **pseudonym_meta(ctx.persona.nickname),
+        "avatar_key": ctx.persona.avatar_key,
         "grade": signup.grade_or_year or (school_student.grade if school_student else None),
         "school_label": "Partner school" if school_student else signup.school_or_college_name,
         "login_access_tier": signup.login_access_tier,
-        "has_parental_consent": consent,
+        "has_parental_consent": ctx.consent,
         "kyc_status": signup.kyc_status.value,
-        "circle_id": circle_id,
-        "circle_name_masked": mask_circle_label(circle_name),
+        "circle_id": ctx.circle_id,
+        "circle_name_masked": mask_circle_label(ctx.circle_name),
         "school_linked": school_student is not None,
         "school_student_id": school_student.id if school_student else None,
     }
 
 
-async def build_student_overview(db: AsyncSession, signup: SignupRequest) -> dict[str, Any]:
-    profile = await build_student_profile(db, signup)
-    school_student = await resolve_school_student(db, signup)
+async def build_student_profile(
+    db: AsyncSession,
+    signup: SignupRequest,
+    *,
+    ctx: Optional[StudentDashboardContext] = None,
+) -> dict[str, Any]:
+    if ctx is None:
+        ctx = await load_student_dashboard_context(db, signup)
+    return _profile_from_context(signup, ctx)
+
+
+async def build_student_overview(
+    db: AsyncSession,
+    signup: SignupRequest,
+    *,
+    ctx: Optional[StudentDashboardContext] = None,
+) -> dict[str, Any]:
+    if ctx is None:
+        ctx = await load_student_dashboard_context(db, signup)
+    profile = _profile_from_context(signup, ctx)
+    school_student = ctx.school_student
 
     zqa = 0
     attendance = 0
@@ -186,11 +227,14 @@ async def build_student_progress(
     signup: SignupRequest,
     *,
     quarter: str = "Q4",
+    ctx: Optional[StudentDashboardContext] = None,
 ) -> dict[str, Any]:
     from app.services.sponsor_sponsored_student import build_sponsored_student_profile
 
-    school_student = await resolve_school_student(db, signup)
-    profile = await build_student_profile(db, signup)
+    if ctx is None:
+        ctx = await load_student_dashboard_context(db, signup)
+    school_student = ctx.school_student
+    profile = _profile_from_context(signup, ctx)
     if not school_student:
         return {
             "linked": False,
@@ -244,4 +288,48 @@ async def build_student_circle_view(db: AsyncSession, signup: SignupRequest) -> 
         "member_count": len(members),
         "members": members[:8],
         "impact_hint": "Your circle supports your learning journey — names stay private for your safety.",
+    }
+
+
+def _normalize_quarter(quarter: str) -> str:
+    q = (quarter or "Q4").strip().upper()
+    if q not in {"Q1", "Q2", "Q3", "Q4"}:
+        return "Q4"
+    return q
+
+
+async def build_student_dashboard_bundle(
+    db: AsyncSession,
+    signup: SignupRequest,
+    *,
+    quarter: str = "Q4",
+) -> dict[str, Any]:
+    """Single round-trip payload for the student dashboard shell."""
+    from app.services.student_onboarding_v2 import build_onboarding_timeline
+
+    q = _normalize_quarter(quarter)
+    ctx = await load_student_dashboard_context(db, signup)
+    profile = _profile_from_context(signup, ctx)
+    overview = await build_student_overview(db, signup, ctx=ctx)
+    timeline = await build_onboarding_timeline(db, signup, school_student=ctx.school_student)
+    progress = await build_student_progress(db, signup, quarter=q, ctx=ctx)
+    return {
+        "profile": profile,
+        "overview": {
+            k: overview[k]
+            for k in (
+                "signup_id",
+                "pseudonym",
+                "avatar_key",
+                "grade",
+                "school_label",
+                "circle_name_masked",
+                "school_linked",
+                "kpis",
+                "school_note",
+                "milestones",
+            )
+        },
+        "timeline": timeline,
+        "progress": progress,
     }

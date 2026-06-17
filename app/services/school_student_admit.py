@@ -13,7 +13,10 @@ from app.models.enums import KycStatus, Persona
 from app.models.school import SchoolProfile, SchoolStudent
 from app.models.signup import SignupRequest
 from app.models.student_family import StudentFamilyLink
+from app.models.student_onboarding import StudentSchoolInterest
 from app.services.school_reports import _recalc_school_profile
+
+ONBOARDING_V2 = "v2"
 
 
 def _normalize_grade(grade_or_year: Optional[str]) -> str:
@@ -55,11 +58,37 @@ async def _already_admitted(
     return res.scalar_one_or_none() is not None
 
 
+async def student_targets_school(
+    db: AsyncSession,
+    signup: SignupRequest,
+    profile: SchoolProfile,
+) -> bool:
+    """True when this student selected or expressed interest in this school only."""
+    if signup.selected_school_id:
+        return signup.selected_school_id == profile.id
+
+    interest_res = await db.execute(
+        select(StudentSchoolInterest).where(
+            StudentSchoolInterest.student_signup_id == signup.id,
+            StudentSchoolInterest.school_id == profile.id,
+        )
+    )
+    interest = interest_res.scalar_one_or_none()
+    if interest and interest.status not in ("rejected", "declined"):
+        return True
+
+    onboarding = (signup.onboarding_version or "v1").strip()
+    if onboarding != ONBOARDING_V2 and not signup.selected_school_id:
+        return _school_name_matches(signup.school_or_college_name, profile)
+
+    return False
+
+
 async def list_pending_student_signups(
     db: AsyncSession,
     profile: SchoolProfile,
 ) -> list[dict[str, Any]]:
-    """KYC-approved students not yet admitted to this school."""
+    """KYC-approved students scoped to this school — not yet admitted."""
     linked_res = await db.execute(
         select(SchoolStudent.signup_request_id).where(
             SchoolStudent.school_id == profile.id,
@@ -81,6 +110,8 @@ async def list_pending_student_signups(
         if signup.id in linked_ids:
             continue
         if await _already_admitted(db, school_id=profile.id, signup_id=signup.id):
+            continue
+        if not await student_targets_school(db, signup, profile):
             continue
         rows.append({
             "signup_id": signup.id,
@@ -120,6 +151,9 @@ async def admit_student_signup(
         raise ValueError("Student signup not found.")
     if signup.kyc_status != KycStatus.approved:
         raise ValueError("Student KYC must be approved before school admission.")
+
+    if not await student_targets_school(db, signup, profile):
+        raise ValueError("This student did not select your school.")
 
     if await _already_admitted(db, school_id=school_id, signup_id=signup.id):
         raise ValueError("This student is already admitted to your school.")

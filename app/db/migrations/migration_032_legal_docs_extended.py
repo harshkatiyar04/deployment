@@ -23,9 +23,9 @@ DOCUMENTS = [
     {
         "doc_type": "privacy_policy",
         "version": VERSION,
-        "title": "ZenK Privacy Policy",
-        "pdf_path": "/static/legal/zenk-privacy-2026.06.15.pdf",
-        "sha": _sha("zenk-privacy-policy-v2026.06.15"),
+        "title": "ZENK Privacy Policy",
+        "pdf_path": "/static/legal/zenk-privacy-policy-2026.06.15.pdf",
+        "sha": "ed2657ee136ae7a566ff5842e1f33ba9f5376baa726769966690e28c1e3f2bfa",
         "effective_date": "2026-06-15",
     },
     {

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_password
 from app.models.enums import KycStatus, LoginAccessTier, MemberKind, Persona
 from app.models.signup import SignupRequest
+from app.services.signup_validation import normalize_email
 
 # When one email has multiple persona rows, prefer the account matching the mailbox role.
 _EMAIL_PERSONA_PREFERENCE: dict[str, Persona] = {
@@ -77,10 +78,11 @@ async def resolve_signup_for_credentials(
     When persona is omitted and several rows share the email, pick the best match
     (approved first, then pending, then most recently updated).
     """
+    norm_email = normalize_email(email)
     if persona is not None:
         res = await db.execute(
             select(SignupRequest).where(
-                SignupRequest.email == email,
+                func.lower(SignupRequest.email) == norm_email,
                 SignupRequest.persona == persona,
             )
         )
@@ -91,11 +93,11 @@ async def resolve_signup_for_credentials(
 
     res = await db.execute(
         select(SignupRequest)
-        .where(SignupRequest.email == email)
+        .where(func.lower(SignupRequest.email) == norm_email)
         .order_by(SignupRequest.updated_at.desc())
     )
     candidates = list(res.scalars().all())
     matches = [c for c in candidates if verify_password(password, c.password_hash)]
     if not matches:
         return None
-    return _pick_best_match(email, matches)
+    return _pick_best_match(norm_email, matches)
