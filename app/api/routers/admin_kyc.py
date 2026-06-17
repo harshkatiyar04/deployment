@@ -5,7 +5,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import RedirectResponse, Response
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -176,7 +176,8 @@ def _cloudinary_delivery_url(stored: str, doc: KycDocument) -> str:
 
 def _preview_url_for_doc(doc: KycDocument) -> str:
     path = _normalize_stored_path(doc.stored_path)
-    if _is_remote_storage(path):
+    mime = _infer_content_type(doc)
+    if _is_remote_storage(path) and mime != "application/pdf":
         return _cloudinary_delivery_url(path, doc)
     return f"/admin/kyc/documents/{doc.id}"
 
@@ -392,20 +393,53 @@ async def list_documents(signup_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/documents/{doc_id}")
-async def preview_document(doc_id: str, db: AsyncSession = Depends(get_db)):
+async def preview_document(
+    doc_id: str,
+    download: bool = Query(False, description="Force download attachment instead of inline view"),
+    db: AsyncSession = Depends(get_db),
+):
     """
-    Preview document in browser (inline display, not download).
-    
-    Use this URL in <img>, <iframe>, or <embed> tags to display the document.
+    Stream KYC document with correct MIME headers.
+    Proxies Cloudinary raw/PDF assets so browsers open valid PDFs (admin auth required).
     """
+    import httpx
+
     res = await db.execute(select(KycDocument).where(KycDocument.id == doc_id))
     doc = res.scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="KYC document not found")
 
     stored = _normalize_stored_path(doc.stored_path)
+    filename = doc.original_filename or "kyc-document"
+    media_type = _infer_content_type(doc) or "application/octet-stream"
+    if media_type == "application/octet-stream" and filename.lower().endswith(".pdf"):
+        media_type = "application/pdf"
+        if not filename.lower().endswith(".pdf"):
+            filename = f"{filename}.pdf"
+
+    disposition = "attachment" if download else "inline"
+
     if _is_remote_storage(stored):
-        return RedirectResponse(url=_cloudinary_delivery_url(stored, doc), status_code=302)
+        delivery_url = _cloudinary_delivery_url(stored, doc)
+        try:
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                remote = await client.get(delivery_url)
+                remote.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Cloudinary fetch failed for doc %s: %s", doc_id, exc)
+            raise HTTPException(status_code=502, detail="Could not retrieve document from storage.") from exc
+
+        remote_type = (remote.headers.get("content-type") or "").split(";")[0].strip()
+        if remote_type and remote_type != "application/octet-stream":
+            media_type = remote_type
+        elif media_type == "application/octet-stream":
+            media_type = "application/pdf" if filename.lower().endswith(".pdf") else media_type
+
+        headers = {
+            "Content-Disposition": f'{disposition}; filename="{filename}"',
+            "Cache-Control": "private, max-age=300",
+        }
+        return Response(content=remote.content, media_type=media_type, headers=headers)
 
     path = Path(stored)
     if not path.exists():
@@ -414,12 +448,11 @@ async def preview_document(doc_id: str, db: AsyncSession = Depends(get_db)):
     with path.open("rb") as f:
         file_content = f.read()
 
-    media_type = _infer_content_type(doc) or "application/octet-stream"
     headers = {
-        "Content-Disposition": f'inline; filename="{doc.original_filename or path.name}"',
-        "Content-Type": media_type,
+        "Content-Disposition": f'{disposition}; filename="{filename}"',
+        "Cache-Control": "private, max-age=300",
     }
-    
+
     return Response(content=file_content, headers=headers, media_type=media_type)
 
 
