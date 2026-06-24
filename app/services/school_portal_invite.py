@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password
 from app.core.settings import settings
+from app.core.signup_locales import validate_and_normalize_mobile
 from app.models.enums import KycStatus, Persona
 from app.models.signup import SignupRequest
 from app.models.school import SchoolPortalInvite, SchoolPortalMember, SchoolProfile
@@ -137,6 +138,7 @@ async def accept_invite(
     password: Optional[str] = None,
     full_name: Optional[str] = None,
     mobile: Optional[str] = None,
+    country: str = "IN",
     current_user: Optional[SignupRequest] = None,
 ) -> Tuple[SignupRequest, bool]:
     """
@@ -159,8 +161,7 @@ async def accept_invite(
         name = (full_name or invite.display_name or "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="Full name is required.")
-        if not mobile or len(mobile.strip()) < 8:
-            raise HTTPException(status_code=400, detail="Mobile number is required.")
+        mobile_norm = validate_and_normalize_mobile(mobile or "", country)
 
         existing = await db.execute(
             select(SignupRequest).where(
@@ -186,7 +187,7 @@ async def accept_invite(
             signup = SignupRequest(
                 persona=Persona.school,
                 full_name=name,
-                mobile=mobile.strip(),
+                mobile=mobile_norm,
                 email=email_key,
                 password_hash=hash_password(password),
                 address_line1=profile.school_name[:300],
@@ -203,7 +204,7 @@ async def accept_invite(
             await db.flush()
         else:
             signup.full_name = name
-            signup.mobile = mobile.strip()
+            signup.mobile = mobile_norm
             signup.password_hash = hash_password(password)
             if signup.kyc_status == KycStatus.pending:
                 signup.kyc_status = school_kyc

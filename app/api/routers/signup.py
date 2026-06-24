@@ -20,7 +20,12 @@ from app.services.student_family import (
 )
 from app.core.settings import settings
 from app.core.security import hash_password
+from app.core.signup_locales import (
+    validate_and_normalize_mobile,
+    validate_signup_contact_address,
+)
 from app.services.email import send_email
+from app.core.signup_locales import format_mobile_display
 from app.services.email_templates import render_admin_notification_html
 from app.services.notifications import notify_admin_new_signup, notify_circle_leaders_member_application
 from app.services.storage import save_kyc_file
@@ -41,6 +46,7 @@ from app.services.legal_terms import enforce_signup_legal_bundle
 from app.services.signup_validation import (
     assert_email_available_for_new_signup,
     assert_signup_resubmit_allowed,
+    availability_flags_for_signup,
     find_signup_by_persona_email,
     validate_email_format,
 )
@@ -65,6 +71,8 @@ async def check_signup_availability(
         "pan_available": True,
         "email_registered": False,
         "pan_registered": False,
+        "email_resubmit_allowed": False,
+        "pan_resubmit_allowed": False,
         "message": None,
     }
 
@@ -80,20 +88,27 @@ async def check_signup_availability(
         )
         rows = res.scalars().all()
         if rows:
-            out["email_available"] = False
-            out["email_registered"] = True
-            out["message"] = "This email is already registered. Sign in instead."
+            # Same email should not exist on multiple rows; use first for gate flags.
+            flags = availability_flags_for_signup(rows[0])
+            out["email_available"] = flags["available"]
+            out["email_registered"] = flags["registered"]
+            out["email_resubmit_allowed"] = flags["resubmit_allowed"]
+            if flags["message"]:
+                out["message"] = flags["message"]
 
     if pan and pan.strip():
         norm_pan = pan.strip().upper()
         res = await db.execute(
             select(SignupRequest).where(func.upper(SignupRequest.pan_number) == norm_pan)
         )
-        if res.scalars().first():
-            out["pan_available"] = False
-            out["pan_registered"] = True
-            if not out["message"]:
-                out["message"] = "This PAN is already on file. Sign in or contact support."
+        signup = res.scalars().first()
+        if signup:
+            flags = availability_flags_for_signup(signup)
+            out["pan_available"] = flags["available"]
+            out["pan_registered"] = flags["registered"]
+            out["pan_resubmit_allowed"] = flags["resubmit_allowed"]
+            if flags["message"] and not out["message"]:
+                out["message"] = flags["message"].replace("email", "PAN")
 
     return out
 
@@ -102,21 +117,6 @@ def _require(condition: bool, message: str) -> None:
     if not condition:
         raise HTTPException(status_code=400, detail=message)
 
-
-def _digits_only(value: str) -> str:
-    return re.sub(r"\D", "", value or "")
-
-
-def _validate_mobile_field(mobile: str) -> str:
-    digits = _digits_only(mobile)
-    _require(len(digits) == 10, "Mobile must be a valid 10-digit number")
-    return digits
-
-
-def _validate_pincode_field(pincode: str) -> str:
-    digits = _digits_only(pincode)
-    _require(len(digits) == 6, "PIN code must be 6 digits")
-    return digits
 
 
 def _validate_pan_field(pan_number: str) -> str:
@@ -146,11 +146,25 @@ async def _process_signup_common(
     kyc_docs: list[UploadFile],
     db: AsyncSession,
 ) -> SignupRequest:
-    """Common logic for creating/updating signup and saving KYC docs.
-    
-    Accepts kyc_docs as a list of files (can be empty list if kyc_doc is provided).
-    """
     """Common logic for creating/updating signup and saving KYC docs."""
+    (
+        mobile,
+        country,
+        pincode,
+        state,
+        city,
+        address_line1,
+        address_line2,
+    ) = validate_signup_contact_address(
+        mobile=mobile,
+        country=country,
+        pincode=pincode,
+        state=state,
+        city=city,
+        address_line1=address_line1,
+        address_line2=address_line2,
+    )
+
     norm_email = validate_email_format(email)
     if signup:
         assert_signup_resubmit_allowed(signup)
@@ -245,6 +259,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
     if persona == Persona.school and signup.school_name:
         school_line = f"- School: {signup.school_name}\n- Affiliation: {signup.school_affiliation or '—'}\n"
 
+    mobile_display = format_mobile_display(signup.mobile, signup.country)
     subject = f"New {label} Registration Pending KYC Approval"
     text_body = (
         f"Hello Admin,\n\n"
@@ -252,7 +267,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         f"- Signup ID: {signup.id}\n"
         f"- Name: {signup.full_name}\n"
         f"- Email: {signup.email}\n"
-        f"- Mobile: {signup.mobile}\n"
+        f"- Mobile: {mobile_display}\n"
         f"{school_line}"
         f"- Current Status: {signup.kyc_status.value}\n\n"
         f"Please login to Zenk ({settings.website_url}) to review the KYC documents and approve.\n\n"
@@ -264,7 +279,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         signup_id=signup.id,
         full_name=signup.full_name,
         email=signup.email,
-        mobile=signup.mobile,
+        mobile=mobile_display,
         kyc_status=signup.kyc_status.value,
         website_url=settings.website_url,
     )
@@ -567,8 +582,6 @@ async def signup_sponsor_member(
     """Circle member signup — joins a sponsor circle after leader invite."""
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
-    mobile = _validate_mobile_field(mobile)
-    pincode = _validate_pincode_field(pincode)
     pan_number = _validate_pan_field(pan_number or "")
 
     all_files: list[UploadFile] = []
@@ -1007,9 +1020,6 @@ async def signup_student(
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
     _require(guardian_relationship.strip(), "Guardian relationship is required")
-    mobile = _validate_mobile_field(mobile)
-    guardian_mobile = _validate_mobile_field(guardian_mobile)
-    pincode = _validate_pincode_field(pincode)
     parent_pan_number = _validate_pan_field(parent_pan_number or "")
 
     all_files: list[UploadFile] = []
@@ -1045,6 +1055,7 @@ async def signup_student(
         kyc_docs=all_files,
         db=db,
     )
+    guardian_mobile = validate_and_normalize_mobile(guardian_mobile, signup.country)
 
     school_res = await db.execute(select(SchoolProfile).where(SchoolProfile.id == school_id.strip()))
     school_profile = school_res.scalar_one_or_none()

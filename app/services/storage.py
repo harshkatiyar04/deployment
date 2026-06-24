@@ -62,15 +62,22 @@ async def save_kyc_file_base64(*, signup_id: str, filename: str, content_base64:
 
     import cloudinary.uploader
 
-    is_image = content_type in ["image/jpeg", "image/png", "image/webp"] if content_type else True
+    if content_type:
+        is_image = content_type in ["image/jpeg", "image/png", "image/webp"]
+    elif filename.lower().endswith(".pdf"):
+        is_image = False
+    else:
+        is_image = True
     folder = f"zenk/kyc/{signup_id}"
     
     try:
-        result = cloudinary.uploader.upload(
-            file_content,
-            folder=folder,
-            resource_type="image" if is_image else "raw"
-        )
+        upload_kwargs: dict = {
+            "folder": folder,
+            "resource_type": "image" if is_image else "raw",
+        }
+        if not is_image and filename.lower().endswith(".pdf"):
+            upload_kwargs["format"] = "pdf"
+        result = cloudinary.uploader.upload(file_content, **upload_kwargs)
         url = result.get("secure_url")
         if not url:
             raise ValueError("Cloudinary upload failed")

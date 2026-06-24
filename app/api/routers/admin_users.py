@@ -32,6 +32,8 @@ class AdminUserOut(BaseModel):
     full_name: str
     email: str
     mobile: str
+    mobile_display: Optional[str] = None
+    country_label: Optional[str] = None
     persona: str
     persona_label: str
     kyc_status: str

@@ -49,6 +49,8 @@ class AdminSignupListItem(BaseModel):
     persona: Persona
     full_name: str
     mobile: str
+    mobile_display: Optional[str] = None
+    country_label: Optional[str] = None
     email: str
     kyc_status: KycStatus
     documents: list[KycDocumentOut] = []
@@ -63,6 +65,21 @@ class AdminSignupListItem(BaseModel):
 class AdminDecisionRequest(BaseModel):
     decision: KycStatus  # approved | rejected | info_required
     note: Optional[str] = None
+
+
+class SignupContactDisplay(BaseModel):
+    """Locale-aware contact formatting for admin review."""
+
+    country_code: str
+    country_label: str
+    mobile_display: str
+    mobile_e164: Optional[str] = None
+    guardian_mobile_display: Optional[str] = None
+    guardian_mobile_e164: Optional[str] = None
+    postcode_label: str
+    postcode_display: str
+    state_label: str
+    city_label: str
 
 
 class FullSignupDetails(BaseModel):
@@ -84,6 +101,7 @@ class FullSignupDetails(BaseModel):
     state: str
     pincode: str
     country: str
+    contact_display: Optional[SignupContactDisplay] = None
 
     # Sponsor fields
     sponsor_type: Optional[str] = None

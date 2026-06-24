@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.admin_deps import require_admin_api_key
 from app.core.settings import settings
+from app.core.signup_locales import build_contact_display
 from app.db.session import get_db
 from app.models.enums import KycStatus, MemberKind
 from app.models.enums import Persona
@@ -24,6 +25,7 @@ from app.schemas.signup import (
     KycDocumentOut,
     KycDocumentView,
     LinkedSignupSummary,
+    SignupContactDisplay,
 )
 from app.services.email import send_email
 from app.services.email_templates import render_user_approval_html
@@ -34,6 +36,7 @@ from app.services.notifications import (
     notify_user_kyc_rejected,
 )
 from app.services.school_provision import ensure_school_profile
+from app.services.cloudinary_service import fetch_cloudinary_bytes
 
 
 router = APIRouter(
@@ -201,12 +204,24 @@ def _doc_out(d: KycDocument) -> KycDocumentOut:
     )
 
 
+def _contact_display_for_signup(r: SignupRequest) -> SignupContactDisplay:
+    return SignupContactDisplay(**build_contact_display(
+        mobile=r.mobile,
+        guardian_mobile=r.guardian_mobile,
+        country=r.country,
+        pincode=r.pincode,
+    ))
+
+
 def _signup_list_item(r: SignupRequest) -> AdminSignupListItem:
+    contact = build_contact_display(mobile=r.mobile, country=r.country, pincode=r.pincode)
     return AdminSignupListItem(
         id=r.id,
         persona=r.persona,
         full_name=r.full_name,
         mobile=r.mobile,
+        mobile_display=contact["mobile_display"],
+        country_label=contact["country_label"],
         email=r.email,
         kyc_status=r.kyc_status,
         created_at=r.created_at.isoformat() if r.created_at else None,
@@ -236,6 +251,7 @@ def _signup_full_details(r: SignupRequest) -> FullSignupDetails:
         state=r.state,
         pincode=r.pincode,
         country=r.country,
+        contact_display=_contact_display_for_signup(r),
         sponsor_type=r.sponsor_type,
         pan_number=r.pan_number,
         company_name=r.company_name,
@@ -402,8 +418,6 @@ async def preview_document(
     Stream KYC document with correct MIME headers.
     Proxies Cloudinary raw/PDF assets so browsers open valid PDFs (admin auth required).
     """
-    import httpx
-
     res = await db.execute(select(KycDocument).where(KycDocument.id == doc_id))
     doc = res.scalar_one_or_none()
     if not doc:
@@ -420,26 +434,22 @@ async def preview_document(
     disposition = "attachment" if download else "inline"
 
     if _is_remote_storage(stored):
-        delivery_url = _cloudinary_delivery_url(stored, doc)
+        format_hint = None
+        if media_type == "application/pdf" or filename.lower().endswith(".pdf"):
+            format_hint = "pdf"
         try:
-            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-                remote = await client.get(delivery_url)
-                remote.raise_for_status()
-        except httpx.HTTPError as exc:
+            file_content = await fetch_cloudinary_bytes(stored, format_hint=format_hint)
+        except ValueError as exc:
             logger.warning("Cloudinary fetch failed for doc %s: %s", doc_id, exc)
-            raise HTTPException(status_code=502, detail="Could not retrieve document from storage.") from exc
-
-        remote_type = (remote.headers.get("content-type") or "").split(";")[0].strip()
-        if remote_type and remote_type != "application/octet-stream":
-            media_type = remote_type
-        elif media_type == "application/octet-stream":
-            media_type = "application/pdf" if filename.lower().endswith(".pdf") else media_type
+            detail = str(exc) if "not found" in str(exc).lower() else "Could not retrieve document from storage."
+            status = 404 if "not found" in str(exc).lower() else 502
+            raise HTTPException(status_code=status, detail=detail) from exc
 
         headers = {
             "Content-Disposition": f'{disposition}; filename="{filename}"',
             "Cache-Control": "private, max-age=300",
         }
-        return Response(content=remote.content, media_type=media_type, headers=headers)
+        return Response(content=file_content, media_type=media_type, headers=headers)
 
     path = Path(stored)
     if not path.exists():

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
 from app.models.enums import KycStatus, Persona
+from app.core.signup_locales import format_country_display, format_mobile_display
 from app.models.mentor import MentorProfile
 from app.models.refresh_token import RefreshToken
 from app.models.school import SchoolStudent
@@ -207,6 +208,8 @@ async def build_admin_users_registry(
             "full_name": u.full_name,
             "email": u.email,
             "mobile": u.mobile,
+            "mobile_display": format_mobile_display(u.mobile, u.country),
+            "country_label": format_country_display(u.country),
             "persona": _persona_value(u.persona),
             "persona_label": PERSONA_LABELS.get(u.persona, _persona_value(u.persona)),
             "kyc_status": _kyc_value(u.kyc_status),

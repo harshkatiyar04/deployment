@@ -2,7 +2,7 @@
 import logging
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,11 +15,19 @@ from app.models.signup import SignupRequest
 from app.core.security import verify_password
 from app.models.auth_log import AuthAuditLog
 from app.services.signup_auth import resolve_signup_for_credentials
-from app.core.jwt_auth import get_current_user
+from app.core.jwt_auth import create_access_token, get_current_user
+from app.core.auth_cookies import (
+    access_expires_in_seconds,
+    clear_auth_cookies,
+    read_refresh_token,
+    set_auth_cookies,
+)
 from app.services.circle_access import resolve_circle_access
 from app.services.kyc_resubmit import list_signup_kyc_documents, resubmit_kyc_documents
 from app.services.kyc_review import extract_kyc_review_note
 from app.services.school_provision import ensure_school_profile
+from app.services.signup_contact import session_contact_extras, update_signup_contact
+from app.schemas.signup import SignupContactDisplay
 from app.services.legal_terms import (
     get_active_document,
     list_pending_reacceptances,
@@ -79,6 +87,7 @@ class LoginResponse(BaseModel):
     full_name: str
     email: str
     mobile: str
+    mobile_display: Optional[str] = None
     kyc_status: KycStatus
     kyc_review_note: Optional[str] = None
     message: str
@@ -90,12 +99,15 @@ class LoginResponse(BaseModel):
     terms_reacceptance_required: bool = False
     current_terms_version: Optional[str] = None
     pending_legal_documents: list[PendingLegalDocOut] = []
+    session_mode: str = "cookie"
+    access_expires_in: int = 0
 
 
 @router.post("/login", response_model=LoginResponse, status_code=status.HTTP_200_OK)
 @limiter.limit("5/minute")  # Brute-force protection
 async def login(
     request: Request,
+    response: Response,
     body: LoginRequest,
     db: AsyncSession = Depends(get_db),
 ):
@@ -195,23 +207,30 @@ async def login(
         active_terms = await get_active_document(db, DOC_TYPE_PLATFORM)
         terms_version = active_terms.version if active_terms else None
 
+    contact_extra = session_contact_extras(signup)
+
+    set_auth_cookies(response, access_token, refresh_token)
+
     return LoginResponse(
         id=signup.id,
         persona=signup.persona,
         full_name=signup.full_name,
         email=signup.email,
         mobile=signup.mobile,
+        mobile_display=contact_extra["mobile_display"],
         kyc_status=signup.kyc_status,
         kyc_review_note=extract_kyc_review_note(signup.admin_note),
         message=status_message,
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=None,
+        refresh_token=None,
         token_type="bearer",
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
         terms_reacceptance_required=terms_required,
         current_terms_version=terms_version,
         pending_legal_documents=pending_legal,
+        session_mode="cookie",
+        access_expires_in=access_expires_in_seconds(),
     )
 
 
@@ -228,6 +247,15 @@ class SessionUserResponse(BaseModel):
     full_name: str
     email: str
     mobile: str
+    mobile_display: Optional[str] = None
+    country: Optional[str] = None
+    address_line1: Optional[str] = None
+    address_line2: Optional[str] = None
+    city: Optional[str] = None
+    state: Optional[str] = None
+    pincode: Optional[str] = None
+    contact_display: Optional[SignupContactDisplay] = None
+    contact_editable: bool = False
     kyc_status: KycStatus
     admin_note: Optional[str] = None
     kyc_review_note: Optional[str] = None
@@ -237,6 +265,16 @@ class SessionUserResponse(BaseModel):
     terms_reacceptance_required: bool = False
     current_terms_version: Optional[str] = None
     pending_legal_documents: list[PendingLegalDocOut] = []
+
+
+class UpdateContactRequest(BaseModel):
+    mobile: str
+    address_line1: str
+    address_line2: str = ""
+    city: str
+    state: str = ""
+    pincode: str
+    country: str
 
 
 class UserKycDocumentOut(BaseModel):
@@ -280,18 +318,14 @@ async def _session_legal_fields(db: AsyncSession, user: SignupRequest) -> dict:
     }
 
 
-@router.get("/me", response_model=SessionUserResponse, status_code=status.HTTP_200_OK)
-async def get_session_user(
-    user: SignupRequest = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Current user profile and KYC status (for verification tracking / refresh)."""
+async def _build_session_user_response(db: AsyncSession, user: SignupRequest) -> SessionUserResponse:
     from app.services.circle_ban_access import resolve_user_circle_ban
 
     access = await resolve_circle_access(db, user)
     ban_payload = await resolve_user_circle_ban(db, user.id)
     circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
     legal_fields = await _session_legal_fields(db, user)
+    contact_extra = session_contact_extras(user)
     return SessionUserResponse(
         id=user.id,
         persona=user.persona,
@@ -304,8 +338,40 @@ async def get_session_user(
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
         school_org=await _school_org_summary(db, user),
+        **contact_extra,
         **legal_fields,
     )
+
+
+@router.get("/me", response_model=SessionUserResponse, status_code=status.HTTP_200_OK)
+async def get_session_user(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Current user profile and KYC status (for verification tracking / refresh)."""
+    return await _build_session_user_response(db, user)
+
+
+@router.patch("/me/contact", response_model=SessionUserResponse, status_code=status.HTTP_200_OK)
+async def update_session_contact(
+    body: UpdateContactRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update contact/address while KYC is pending or additional info was requested."""
+    updated = await update_signup_contact(
+        db,
+        user,
+        mobile=body.mobile,
+        address_line1=body.address_line1,
+        address_line2=body.address_line2,
+        city=body.city,
+        state=body.state,
+        pincode=body.pincode,
+        country=body.country,
+    )
+    await db.commit()
+    return await _build_session_user_response(db, updated)
 
 
 @router.get("/me/kyc-documents", response_model=list[UserKycDocumentOut])
@@ -333,24 +399,8 @@ async def resubmit_my_kyc_documents(
 ):
     """Upload additional KYC documents when admin requested more information."""
     updated = await resubmit_kyc_documents(db, user, kyc_docs)
-    access = await resolve_circle_access(db, updated)
-    from app.services.circle_ban_access import resolve_user_circle_ban
-
-    ban_payload = await resolve_user_circle_ban(db, updated.id)
-    circle_ban = CircleBanOut(**ban_payload) if ban_payload else None
-    return SessionUserResponse(
-        id=updated.id,
-        persona=updated.persona,
-        full_name=updated.full_name,
-        email=updated.email,
-        mobile=updated.mobile,
-        kyc_status=updated.kyc_status,
-        admin_note=updated.admin_note,
-        kyc_review_note=extract_kyc_review_note(updated.admin_note),
-        circle_access=CircleAccessOut(**access),
-        circle_ban=circle_ban,
-        school_org=await _school_org_summary(db, updated),
-    )
+    await db.commit()
+    return await _build_session_user_response(db, updated)
 
 
 # -- ADD: /auth/token � issues a JWT for WebSocket chat auth ----------------
@@ -368,13 +418,15 @@ class TokenResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: Optional[str] = None
 
 
 class RefreshResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
+    session_mode: str = "cookie"
+    access_expires_in: int = 0
 
 
 class LogoutRequest(BaseModel):
@@ -453,38 +505,73 @@ async def issue_token(
 @limiter.limit("30/minute")
 async def refresh_tokens(
     request: Request,
-    body: RefreshRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
+    body: Optional[RefreshRequest] = None,
 ):
-    """Exchange a valid refresh token for a new access + refresh token pair."""
+    """Exchange refresh token (HttpOnly cookie or body) for a new token pair."""
     from app.services.auth_tokens import refresh_access_token
 
-    result = await refresh_access_token(db, body.refresh_token.strip())
+    plain = read_refresh_token(request, body.refresh_token if body else None)
+    if not plain:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired refresh token",
+        )
+
+    result = await refresh_access_token(db, plain)
     if not result:
+        clear_auth_cookies(response)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
     access_token, refresh_token, _user = result
+    set_auth_cookies(response, access_token, refresh_token)
     return RefreshResponse(
-        access_token=access_token,
-        refresh_token=refresh_token,
+        session_mode="cookie",
+        access_expires_in=access_expires_in_seconds(),
     )
+
+
+@router.get("/ws-token", status_code=status.HTTP_200_OK)
+@limiter.limit("60/minute")
+async def issue_ws_token(
+    request: Request,
+    user: SignupRequest = Depends(get_current_user),
+):
+    """
+    Short-lived JWT for WebSocket / chat query auth.
+    Session must be valid (HttpOnly cookie or Bearer). Token is not HttpOnly by design.
+    """
+    from datetime import timedelta
+
+    token = create_access_token(
+        data={"sub": user.id, "scope": "ws"},
+        expires_delta=timedelta(minutes=5),
+    )
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "expires_in": 300,
+    }
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
 @limiter.limit("30/minute")
 async def logout(
     request: Request,
-    body: LogoutRequest,
+    response: Response,
     db: AsyncSession = Depends(get_db),
+    body: Optional[LogoutRequest] = None,
 ):
-    """Revoke refresh token so it cannot be used again."""
-    if not body.refresh_token:
-        return None
+    """Revoke refresh token and clear HttpOnly session cookies."""
     from app.services.auth_tokens import revoke_refresh_token
 
-    await revoke_refresh_token(db, body.refresh_token.strip())
+    plain = read_refresh_token(request, body.refresh_token if body else None)
+    if plain:
+        await revoke_refresh_token(db, plain)
+    clear_auth_cookies(response)
     return None
 
 
@@ -509,11 +596,13 @@ class SwitchHatResponse(BaseModel):
     full_name: str
     email: str
     kyc_status: KycStatus
-    access_token: str
-    refresh_token: str
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
     token_type: str = "bearer"
     circle_access: Optional[CircleAccessOut] = None
     message: str = ""
+    session_mode: str = "cookie"
+    access_expires_in: int = 0
 
 
 @router.get("/family-hats", response_model=FamilyHatsResponse, status_code=status.HTTP_200_OK)
@@ -530,6 +619,7 @@ async def get_family_hats(
 @limiter.limit("10/minute")
 async def switch_hat(
     request: Request,
+    response: Response,
     body: SwitchHatRequest,
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -568,6 +658,8 @@ async def switch_hat(
     access = await resolve_circle_access(db, target_signup)
     active_hat = "student" if target_signup.persona == Persona.student else "parent"
 
+    set_auth_cookies(response, access_token, refresh_token)
+
     return SwitchHatResponse(
         id=target_signup.id,
         persona=target_signup.persona,
@@ -575,8 +667,10 @@ async def switch_hat(
         full_name=target_signup.full_name,
         email=target_signup.email,
         kyc_status=target_signup.kyc_status,
-        access_token=access_token,
-        refresh_token=refresh_token,
+        access_token=None,
+        refresh_token=None,
         circle_access=CircleAccessOut(**access),
         message=f"Switched to {active_hat} view.",
+        session_mode="cookie",
+        access_expires_in=access_expires_in_seconds(),
     )

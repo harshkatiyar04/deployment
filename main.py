@@ -10,6 +10,8 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.rate_limit import limiter
 
+from app.core.security_headers import SecurityHeadersMiddleware
+
 from app.api.router import api_router
 from app.db.init_db import init_db
 from app.db.session import SessionLocal
@@ -50,12 +52,14 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5175",
 ]
 
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    allow_headers=["Authorization", "Content-Type", "Accept", "X-Zenk-Admin-Key"],
 )
 
 os.makedirs("static/uploads", exist_ok=True)

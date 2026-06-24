@@ -66,25 +66,47 @@ async def get_current_user_from_token(
 
 
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer, OAuth2PasswordBearer
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from app.db.session import get_db
+from app.core.auth_cookies import read_access_token
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token", auto_error=False)
 http_bearer_optional = HTTPBearer(auto_error=False)
 
 
+async def resolve_access_token(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer_optional),
+) -> Optional[str]:
+    bearer = credentials.credentials if credentials else None
+    return read_access_token(request, bearer)
+
+
 async def get_optional_current_user(
+    request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer_optional),
     db: AsyncSession = Depends(get_db),
 ):
-    """Return user when Bearer token is present and valid; otherwise None."""
-    if not credentials or not credentials.credentials:
+    """Return user when Bearer or HttpOnly access cookie is present and valid."""
+    token = read_access_token(request, credentials.credentials if credentials else None)
+    if not token:
         return None
-    return await get_current_user_from_token(credentials.credentials, db)
+    return await get_current_user_from_token(token, db)
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: AsyncSession = Depends(get_db)):
-    """FastAPI Dependency for extracting and verifying JWT from Bearer header."""
+async def get_current_user(
+    request: Request,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer_optional),
+    db: AsyncSession = Depends(get_db),
+):
+    """FastAPI dependency — JWT from Authorization header or HttpOnly cookie."""
+    token = read_access_token(request, credentials.credentials if credentials else None)
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     user = await get_current_user_from_token(token, db)
     if not user:
         raise HTTPException(

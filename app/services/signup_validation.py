@@ -62,6 +62,37 @@ async def email_exists_globally(db: AsyncSession, email: str) -> bool:
     return res.scalar_one_or_none() is not None
 
 
+_RESUBMIT_KYC = frozenset({KycStatus.rejected, KycStatus.info_required})
+
+
+def signup_resubmit_allowed(signup: SignupRequest) -> bool:
+    return signup.kyc_status in _RESUBMIT_KYC
+
+
+def availability_flags_for_signup(signup: Optional[SignupRequest]) -> dict:
+    """Map an existing signup row to /signup/check-availability flags."""
+    if signup is None:
+        return {
+            "available": True,
+            "registered": False,
+            "resubmit_allowed": False,
+            "message": None,
+        }
+    if signup_resubmit_allowed(signup):
+        return {
+            "available": True,
+            "registered": False,
+            "resubmit_allowed": True,
+            "message": "We will update your existing application when you submit.",
+        }
+    return {
+        "available": False,
+        "registered": True,
+        "resubmit_allowed": False,
+        "message": "This email is already registered. Sign in instead.",
+    }
+
+
 async def assert_email_available_for_new_signup(
     db: AsyncSession,
     email: str,
@@ -84,7 +115,7 @@ async def assert_email_available_for_new_signup(
 
 
 def assert_signup_resubmit_allowed(signup: SignupRequest) -> None:
-    """Only info_required may be updated via public signup resubmit."""
+    """Rejected and info_required applicants may resubmit via public signup."""
     if signup.kyc_status == KycStatus.approved:
         raise HTTPException(
             status_code=409,
@@ -93,15 +124,11 @@ def assert_signup_resubmit_allowed(signup: SignupRequest) -> None:
     if signup.kyc_status == KycStatus.pending:
         raise HTTPException(
             status_code=409,
-            detail="This email is already registered. Sign in instead.",
+            detail="Your application is already under review. Sign in to check status.",
         )
-    if signup.kyc_status == KycStatus.rejected:
-        raise HTTPException(
-            status_code=409,
-            detail="This email is already registered. Sign in instead.",
-        )
-    if signup.kyc_status != KycStatus.info_required:
-        raise HTTPException(
-            status_code=409,
-            detail="This email is already registered. Sign in instead.",
-        )
+    if signup_resubmit_allowed(signup):
+        return
+    raise HTTPException(
+        status_code=409,
+        detail="This email is already registered. Sign in instead.",
+    )
