@@ -25,8 +25,14 @@ def _cookie_secure() -> bool:
     return base.startswith("https://")
 
 
+def _cookie_samesite() -> str:
+    """Cross-origin FE (Vercel) + API (Railway) needs SameSite=None when Secure."""
+    return "none" if _cookie_secure() else "lax"
+
+
 def set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
     secure = _cookie_secure()
+    samesite = _cookie_samesite()
     access_max_age = int(jwt_settings.access_token_expire_minutes) * 60
     refresh_max_age = int(jwt_settings.refresh_token_expire_days) * 86400
     response.set_cookie(
@@ -34,7 +40,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         value=access_token,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite=samesite,
         max_age=access_max_age,
         path="/",
     )
@@ -43,7 +49,7 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
         value=refresh_token,
         httponly=True,
         secure=secure,
-        samesite="lax",
+        samesite=samesite,
         max_age=refresh_max_age,
         path="/auth",
     )
@@ -51,8 +57,9 @@ def set_auth_cookies(response: Response, access_token: str, refresh_token: str) 
 
 def clear_auth_cookies(response: Response) -> None:
     secure = _cookie_secure()
+    samesite = _cookie_samesite()
     for key, path in ((ACCESS_COOKIE, "/"), (REFRESH_COOKIE, "/auth")):
-        response.delete_cookie(key=key, path=path, secure=secure, samesite="lax")
+        response.delete_cookie(key=key, path=path, secure=secure, samesite=samesite)
 
 
 def read_refresh_token(request: Request, body_refresh: Optional[str] = None) -> Optional[str]:
