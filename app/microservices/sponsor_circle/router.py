@@ -250,24 +250,27 @@ async def list_pending_member_signups(
         if _cid and _cid != circle.id:
             continue
         kyc = r.kyc_status.value if hasattr(r.kyc_status, "value") else str(r.kyc_status)
+        kyc_norm = (kyc or "").strip().lower()
+        leader_norm = (leader_status or LEADER_PENDING).strip().lower()
         in_circle = r.id in in_circle_ids
         if in_circle:
-            leader_status = LEADER_APPROVED
+            leader_norm = LEADER_APPROVED
+        # Leader may add member once Zenk KYC is approved (retry if note says approved but row missing).
         can_decide = (
-            leader_status == LEADER_PENDING
-            and not in_circle
-            and kyc == KycStatus.approved.value
+            not in_circle
+            and kyc_norm == KycStatus.approved.value
+            and leader_norm != LEADER_REJECTED
         )
         items.append(
             PendingCircleMemberItem(
                 id=r.id,
                 full_name=r.full_name,
                 email=r.email,
-                kyc_status=kyc,
-                leader_status=leader_status,
+                kyc_status=kyc_norm or kyc,
+                leader_status=leader_norm,
                 in_circle=in_circle,
                 can_approve=can_decide,
-                can_reject=leader_status == LEADER_PENDING and not in_circle,
+                can_reject=leader_norm == LEADER_PENDING and not in_circle,
                 created_at=r.created_at,
             )
         )
