@@ -107,7 +107,9 @@ async def build_admin_portal_events(db: AsyncSession) -> list[dict[str, Any]]:
         )
 
     if q.get("circle_ops_pending", 0) > 0:
-        pending = await list_pending_admin_queue(db)
+        from app.services.circle_membership_ops import list_pending_membership_ops_queue
+
+        pending = await list_pending_membership_ops_queue(db)
         for req in pending[:5]:
             label = (
                 f"Remove {req.get('target_user_name')} from {req.get('circle_name')}"
@@ -121,6 +123,30 @@ async def build_admin_portal_events(db: AsyncSession) -> list[dict[str, Any]]:
                     "title": "Circle ops request",
                     "detail": label,
                     "action_path": "/dashboard/circle-ops",
+                    "event_type": req.get("request_type"),
+                    "at": req.get("created_at"),
+                }
+            )
+
+    if q.get("other_requests_pending", 0) > 0:
+        from app.services.circle_membership_ops import list_pending_other_requests_queue
+
+        other = await list_pending_other_requests_queue(db)
+        for req in other[:5]:
+            if req.get("request_type") == "circle_rename":
+                detail = (
+                    f"Rename {req.get('circle_name')}: "
+                    f"{req.get('current_circle_name')} → {req.get('requested_circle_name')}"
+                )
+            else:
+                detail = req.get("leader_comment") or "Leader request"
+            events.append(
+                {
+                    "id": req.get("id"),
+                    "severity": "medium",
+                    "title": "Other request",
+                    "detail": detail,
+                    "action_path": "/dashboard/other-requests",
                     "event_type": req.get("request_type"),
                     "at": req.get("created_at"),
                 }

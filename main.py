@@ -11,6 +11,7 @@ from slowapi.errors import RateLimitExceeded
 from app.core.rate_limit import limiter
 
 from app.core.security_headers import SecurityHeadersMiddleware
+from app.core.settings import api_docs_enabled
 
 from app.api.router import api_router
 from app.db.init_db import init_db
@@ -29,7 +30,15 @@ if jwt_settings.secret_key in _INSECURE_DEFAULTS:
         "Set a strong SECRET_KEY environment variable before starting the server."
     )
 
-app = FastAPI(title="ZENK BE")
+_DOCS_ENABLED = api_docs_enabled()
+app = FastAPI(
+    title="ZENK BE",
+    docs_url="/docs" if _DOCS_ENABLED else None,
+    redoc_url="/redoc" if _DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if _DOCS_ENABLED else None,
+)
+if not _DOCS_ENABLED:
+    logger.info("[Security] OpenAPI docs disabled (set ENABLE_API_DOCS=true to override).")
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)

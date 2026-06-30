@@ -455,6 +455,7 @@ async def signup_sponsor_leader(
     gst_number: Optional[str] = Form(default=None),
     authorized_signatory_name: Optional[str] = Form(default=None),
     authorized_signatory_designation: Optional[str] = Form(default=None),
+    circle_name: str = Form(...),
     kyc_doc: Optional[UploadFile] = File(default=None),
     kyc_docs: Optional[list[UploadFile]] = File(default=None),
     terms_version: str = Form(...),
@@ -511,6 +512,12 @@ async def signup_sponsor_leader(
     signup.gst_number = gst_number
     signup.authorized_signatory_name = authorized_signatory_name
     signup.authorized_signatory_designation = authorized_signatory_designation
+    from app.services.circle_name_validation import assert_circle_name_available
+
+    try:
+        signup.requested_circle_name = await assert_circle_name_available(db, circle_name)
+    except ValueError as exc:
+        _require(False, str(exc))
     await enforce_signup_legal_bundle(
         db,
         request,

@@ -22,7 +22,7 @@ PERSONA_DASHBOARD: dict[Persona, str] = {
     Persona.corporate: "/corporate-dashboard",
     Persona.student: "/dashboard/resources",
     Persona.sponsor: "/dashboard/home",
-    Persona.sponsor_leader: "/sponsor-leader?tab=My%20Circle",
+    Persona.sponsor_leader: "/sponsor-leader?tab=My%20Profile",
     Persona.sponsor_member: "/sponsor-circle",
 }
 

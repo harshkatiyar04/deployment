@@ -26,8 +26,12 @@ def test_normalize_country_aliases():
     assert normalize_country_code("United Kingdom") == "GB"
 
 
+def test_normalize_country_accepts_us():
+    assert normalize_country_code("US") == "US"
+
+
 def test_normalize_country_rejects_unknown():
-    _assert_raises(normalize_country_code, "US")
+    _assert_raises(normalize_country_code, "ZZ")
 
 
 def test_indian_mobile_e164():
@@ -158,6 +162,7 @@ def test_contact_editable_only_during_review():
 
 if __name__ == "__main__":
     test_normalize_country_aliases()
+    test_normalize_country_accepts_us()
     test_normalize_country_rejects_unknown()
     test_indian_mobile_e164()
     test_indian_mobile_rejects_invalid()

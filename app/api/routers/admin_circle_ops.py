@@ -18,9 +18,10 @@ from app.services.admin_circle_overview import (
 )
 from app.services.circle_membership_ops import (
     admin_review_request,
-    list_pending_admin_queue,
+    list_pending_membership_ops_queue,
     request_to_dict,
 )
+from app.models.circle_ops import REQUEST_TYPES_MEMBERSHIP
 
 router = APIRouter(
     prefix="/admin/circle-ops",
@@ -94,7 +95,7 @@ async def get_circle_detail(circle_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/pending", response_model=list[CircleAdminRequestOut])
 async def list_pending_circle_ops(db: AsyncSession = Depends(get_db)):
-    rows = await list_pending_admin_queue(db)
+    rows = await list_pending_membership_ops_queue(db)
     return [CircleAdminRequestOut(**r) for r in rows]
 
 
@@ -104,6 +105,23 @@ async def review_circle_ops_request(
     body: AdminCircleOpsDecision,
     db: AsyncSession = Depends(get_db),
 ):
+    from sqlalchemy import select
+
+    from app.chat.models import SponsorCircle
+    from app.models.circle_ops import CircleAdminRequest
+
+    existing = await db.execute(
+        select(CircleAdminRequest).where(CircleAdminRequest.id == request_id)
+    )
+    pre = existing.scalar_one_or_none()
+    if not pre:
+        raise HTTPException(status_code=404, detail="Request not found.")
+    if pre.request_type not in REQUEST_TYPES_MEMBERSHIP:
+        raise HTTPException(
+            status_code=400,
+            detail="This request is handled under Admin → Other requests.",
+        )
+
     try:
         req = await admin_review_request(
             db,
@@ -131,7 +149,7 @@ async def review_circle_ops_request(
         if body.decision == "approved":
             if req.request_type == "member_removal":
                 await emit_member_removal_processed(db, req=req, circle_name=circle_name)
-            else:
+            elif req.request_type == "member_limit_increase":
                 await emit_member_limit_approved(db, req=req, circle_name=circle_name)
         from app.services.kia_event_briefings import emit_admin_circle_ops_reviewed
 

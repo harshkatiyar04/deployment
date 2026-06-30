@@ -65,6 +65,7 @@ class MessageOut(BaseModel):
 class CircleMemberOut(BaseModel):
     persona_id: str
     nickname: str
+    display_name: str
     avatar_key: str
     role: str
     joined_at: datetime

@@ -45,6 +45,7 @@ class SponsorCircle(Base):
         nullable=True,
     )
     member_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=5)
+    name_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),

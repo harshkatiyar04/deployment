@@ -21,18 +21,16 @@ def is_beneficiary_role(role: Optional[str]) -> bool:
 
 
 def roster_role_label(signup: SignupRequest, cm_role: str) -> str:
-    if is_beneficiary_role(cm_role):
-        return "Sponsored student"
-    if signup.member_kind == MemberKind.parent_guardian.value:
-        return "Parent / guardian"
+    if is_beneficiary_role(cm_role) or signup.persona == Persona.student:
+        return "Student"
     role = (cm_role or "").lower()
-    if role in ("lead", "sponsor_leader", "coordinator"):
-        return "Circle leader"
-    if role == "sponsor":
-        return "Sponsor member"
-    if role == "mentor":
+    if role in ("lead", "sponsor_leader", "coordinator") or signup.persona == Persona.sponsor_leader:
+        return "Leader"
+    if signup.member_kind == MemberKind.parent_guardian.value:
+        return "Parent"
+    if role == "mentor" or signup.persona == Persona.mentor:
         return "Mentor"
-    return cm_role or "Member"
+    return "Sponsor member"
 
 
 def _initials_from_label(label: str) -> str:
@@ -70,7 +68,8 @@ async def display_name_for_roster(
         persona = await get_or_create_persona(signup, db)
         return persona.nickname, _initials_from_label(persona.nickname), role_label
     if signup.member_kind == MemberKind.parent_guardian.value:
-        return "Parent / guardian", "PG", role_label
+        name = signup.full_name or "Parent"
+        return name, _initials_from_label(name), role_label
     name = signup.full_name or "Member"
     return name, _initials_from_label(name), role_label
 
@@ -105,7 +104,7 @@ async def mask_student_for_circle(
 ) -> dict[str, Any]:
     """Sponsor-safe student snapshot (no legal name)."""
     signup = await resolve_student_signup_for_school_row(db, school_student)
-    pseudonym = await pseudonym_for_signup(db, signup) if signup else "Sponsored student"
+    pseudonym = await pseudonym_for_signup(db, signup) if signup else "Student"
 
     return {
         "pseudonym": pseudonym,

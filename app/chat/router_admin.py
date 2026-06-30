@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select, text, cast, String
+from sqlalchemy import select, cast, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -10,6 +10,7 @@ from uuid import UUID
 
 from app.db.session import get_db
 from app.chat.models import ChatBan, ChatChannel, ChatMessage, GamifiedPersona, SOSReport, AdminAccessLog
+from app.chat.access_control import set_admin_audit_actor
 from app.core.admin_deps import require_admin_api_key, resolve_admin_actor_id
 from app.chat.services import manager
 from app.chat.schemas import (
@@ -73,7 +74,7 @@ async def create_ban(
             status_code=status.HTTP_409_CONFLICT, detail="User is already banned from this circle"
         )
 
-    await db.execute(text(f"SET LOCAL zenk.current_admin_id = '{admin_id}';"))
+    await set_admin_audit_actor(db, admin_id)
 
     ban = ChatBan(
         circle_id=str(data.circle_id),
@@ -138,7 +139,7 @@ async def revoke_ban(
     if not ban:
         raise HTTPException(status_code=404, detail="Ban not found")
 
-    await db.execute(text(f"SET LOCAL zenk.current_admin_id = '{admin_id}';"))
+    await set_admin_audit_actor(db, admin_id)
     await db.delete(ban)
     await db.commit()
 

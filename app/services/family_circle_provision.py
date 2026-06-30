@@ -86,7 +86,7 @@ async def provision_parent_after_student_enrollment(
                     circle=circle,
                     member_name="Parent / guardian",
                     leader_name="Circle enrollment",
-                    role_label="Parent / guardian",
+                    role_label="Parent",
                 )
         except Exception:
             logger.exception("Kia parent provision briefing failed")

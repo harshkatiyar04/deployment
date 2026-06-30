@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -42,11 +44,12 @@ async def provision_leader_circle(
 
     from app.services.circle_name_validation import assert_circle_name_available
 
-    raw = (name or "").strip()
+    raw = (name or user.requested_circle_name or "").strip()
     if len(raw) < 2:
         raise ValueError("Circle name is required (at least 2 characters).")
     display = await assert_circle_name_available(db, raw)
 
+    now = datetime.now(timezone.utc)
     circle = SponsorCircle(
         name=display[:255],
         description="Sponsor circle",
@@ -56,6 +59,7 @@ async def provision_leader_circle(
         budget_collected=0,
         budget_set_at=None,
         budget_set_by=None,
+        name_changed_at=now,
     )
     db.add(circle)
     await db.flush()

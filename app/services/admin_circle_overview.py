@@ -8,7 +8,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
-from app.models.circle_ops import CircleAdminRequest, REQUEST_MEMBER_REMOVAL, STATUS_PENDING
+from app.models.circle_ops import (
+    CircleAdminRequest,
+    REQUEST_MEMBER_REMOVAL,
+    REQUEST_TYPES_MEMBERSHIP,
+    STATUS_PENDING,
+)
 from app.models.signup import SignupRequest
 from app.services.circle_membership_ops import circle_member_limit, count_circle_members
 from app.services.sponsor_circle_time_impact import (
@@ -46,6 +51,7 @@ async def _pending_ops_count(db: AsyncSession, circle_id: str) -> int:
         .where(
             CircleAdminRequest.circle_id == circle_id,
             CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(sorted(REQUEST_TYPES_MEMBERSHIP)),
         )
     )
     return int(res.scalar_one() or 0)
@@ -169,7 +175,10 @@ async def admin_circles_summary_light(db: AsyncSession) -> dict[str, Any]:
     pending_res = await db.execute(
         select(func.count())
         .select_from(CircleAdminRequest)
-        .where(CircleAdminRequest.status == STATUS_PENDING)
+        .where(
+            CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(sorted(REQUEST_TYPES_MEMBERSHIP)),
+        )
     )
     pending_ops = int(pending_res.scalar_one() or 0)
 
@@ -189,7 +198,10 @@ async def admin_circles_summary(db: AsyncSession) -> dict[str, Any]:
     pending_res = await db.execute(
         select(func.count())
         .select_from(CircleAdminRequest)
-        .where(CircleAdminRequest.status == STATUS_PENDING)
+        .where(
+            CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(sorted(REQUEST_TYPES_MEMBERSHIP)),
+        )
     )
     return {
         "total_circles": len(circles),

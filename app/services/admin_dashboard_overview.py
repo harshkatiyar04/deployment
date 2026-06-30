@@ -188,9 +188,22 @@ async def build_admin_dashboard_overview(db: AsyncSession) -> dict[str, Any]:
     circle_ops_res = await db.execute(
         select(func.count())
         .select_from(CircleAdminRequest)
-        .where(CircleAdminRequest.status == STATUS_PENDING)
+        .where(
+            CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(["member_removal", "member_limit_increase"]),
+        )
     )
     circle_ops_pending = int(circle_ops_res.scalar_one() or 0)
+
+    other_requests_res = await db.execute(
+        select(func.count())
+        .select_from(CircleAdminRequest)
+        .where(
+            CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(["circle_rename"]),
+        )
+    )
+    other_requests_pending = int(other_requests_res.scalar_one() or 0)
 
     uplift_pending_res = await db.execute(
         select(func.count())
@@ -273,6 +286,7 @@ async def build_admin_dashboard_overview(db: AsyncSession) -> dict[str, Any]:
         "queues": {
             "kyc_pending": kyc_pending,
             "circle_ops_pending": circle_ops_pending,
+            "other_requests_pending": other_requests_pending,
             "uplift_pending": uplift_pending,
             "sos_open": sos_open,
             "chat_warned": chat_warned,

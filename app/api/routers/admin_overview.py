@@ -53,6 +53,7 @@ class AdminKpisOut(BaseModel):
 class AdminQueuesOut(BaseModel):
     kyc_pending: int
     circle_ops_pending: int
+    other_requests_pending: int = 0
     uplift_pending: int
     sos_open: int
     chat_warned: int

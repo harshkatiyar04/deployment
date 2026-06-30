@@ -22,7 +22,6 @@ from fastapi import (
     status,
 )
 from sqlalchemy import and_, or_, select
-from sqlalchemy.orm import aliased
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.jwt_auth import get_current_user_from_token
@@ -36,7 +35,6 @@ from app.chat.models import (
     GamifiedPersona,
     SOSReport,
     SponsorCircle,
-    AdminAccessLog,
 )
 from app.models.signup import SignupRequest
 from app.chat.schemas import (
@@ -46,11 +44,23 @@ from app.chat.schemas import (
     MessageOut,
     MessageSend,
     SOSReportIn,
-    SOSReportOut,
     CircleMemberOut,
     WSEnvelope,
 )
 from app.chat.gamified_persona import get_or_create_persona as _get_or_create_persona
+from app.chat.access_control import (
+    chat_user_from_token,
+    get_channel_in_circle,
+    get_message_in_circle,
+    require_channel_access_for_user,
+    require_channel_create_persona,
+    require_circle_leader,
+    require_circle_member,
+)
+from app.chat.display_name import (
+    chat_display_name,
+    is_leader_member_role,
+)
 from app.chat.services import manager
 from app.services.shield import shield_message_async
 from app.services.kia import generate_kia_response
@@ -68,12 +78,16 @@ ALLOWED_CONTENT_TYPES = {"image/jpeg", "image/png", "image/webp", "application/p
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
-async def _message_to_out(msg: ChatMessage, persona: GamifiedPersona) -> MessageOut:
+async def _message_to_out(
+    msg: ChatMessage,
+    persona: GamifiedPersona,
+    user: SignupRequest | None = None,
+) -> MessageOut:
     return MessageOut(
         id=msg.id,
         channel_id=msg.channel_id,
         gamified_persona_id=msg.gamified_persona_id,
-        persona_nickname=persona.nickname,
+        persona_nickname=chat_display_name(user, persona),
         avatar_key=persona.avatar_key,
         content_text=msg.content_text if not msg.deleted_at else None,
         media_url=msg.media_url if not msg.deleted_at else None,
@@ -370,7 +384,7 @@ async def circle_websocket(
             "type": "welcome",
             "payload": {
                 "persona_id": persona.id,
-                "nickname": persona.nickname,
+                "nickname": chat_display_name(user, persona),
                 "avatar_key": persona.avatar_key,
             },
         },
@@ -420,6 +434,21 @@ async def circle_websocket(
                     )
                     continue
 
+                if await get_channel_in_circle(
+                    db, channel_id=str(data.channel_id), circle_id=circle_id
+                ) is None:
+                    await manager.send_to_one(
+                        ws,
+                        {
+                            "type": "error",
+                            "payload": {
+                                "code": "unauthorized_channel",
+                                "reason": "Channel is not in this circle",
+                            },
+                        },
+                    )
+                    continue
+
                 # Gemini LLM shield (with regex fast-pass)
                 shield_result = await shield_message_async(data.content_text or "")
 
@@ -460,7 +489,7 @@ async def circle_websocket(
                 await db.commit()
                 await db.refresh(msg)
 
-                msg_out = await _message_to_out(msg, persona)
+                msg_out = await _message_to_out(msg, persona, user)
                 await manager.broadcast(
                     circle_id,
                     {
@@ -492,17 +521,16 @@ async def circle_websocket(
                 if not msg_id:
                     continue
 
-                # Fetch message
-                res = await db.execute(
-                    select(ChatMessage).where(ChatMessage.id == str(msg_id))
+                # Fetch message scoped to this circle
+                target_msg = await get_message_in_circle(
+                    db, message_id=str(msg_id), circle_id=circle_id
                 )
-                msg_obj = res.scalar_one_or_none()
 
-                if not msg_obj:
+                if not target_msg:
                     continue
 
                 # Check ownership
-                if msg_obj.gamified_persona_id != persona.id:
+                if target_msg.gamified_persona_id != persona.id:
                     await manager.send_to_one(
                         ws,
                         {
@@ -516,7 +544,7 @@ async def circle_websocket(
                     continue
 
                 # Soft delete
-                msg_obj.deleted_at = datetime.now(timezone.utc)
+                target_msg.deleted_at = datetime.now(timezone.utc)
                 await db.commit()
 
                 # Broadcast
@@ -535,7 +563,7 @@ async def circle_websocket(
                         "type": "hand_raised",
                         "payload": {
                             "persona_id": persona.id,
-                            "nickname": persona.nickname,
+                            "nickname": chat_display_name(user, persona),
                             "avatar_key": persona.avatar_key,
                         },
                     },
@@ -565,11 +593,10 @@ async def circle_websocket(
                     )
                     continue
 
-                # Fetch message and soft-hide it
-                msg_result = await db.execute(
-                    select(ChatMessage).where(ChatMessage.id == str(data.message_id))
+                # Fetch message and soft-hide it (must belong to this circle)
+                target_msg = await get_message_in_circle(
+                    db, message_id=str(data.message_id), circle_id=circle_id
                 )
-                target_msg = msg_result.scalar_one_or_none()
                 if target_msg is None:
                     await manager.send_to_one(
                         ws,
@@ -666,12 +693,12 @@ async def circle_ban_status(
     db: AsyncSession = Depends(get_db),
 ):
     """Return whether the current user is banned from this circle."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
     if circle_id == "corporate-kia":
         return CircleBanStatusOut(banned=False)
+
+    await require_circle_member(db, circle_id=circle_id, user=user)
 
     from app.chat.models import ChatBan
 
@@ -701,23 +728,14 @@ async def list_channels(
     db: AsyncSession = Depends(get_db),
 ):
     """Return channels for a circle. User must be a member."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
     if circle_id == "corporate-kia":
         if user.persona.value != "corporate":
             raise HTTPException(status_code=403, detail="Corporate role required for Kia chat")
         circle_id, _ = await _get_or_create_corporate_circle(user, db)
 
-    # Verify membership
-    membership = await db.execute(
-        select(CircleMember).where(
-            and_(CircleMember.circle_id == circle_id, CircleMember.user_id == user.id)
-        )
-    )
-    if membership.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Not a member of this circle")
+    await require_circle_member(db, circle_id=circle_id, user=user)
 
     result = await db.execute(
         select(ChatChannel).where(ChatChannel.circle_id == circle_id)
@@ -752,15 +770,11 @@ async def create_channel(
     token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a chat channel. Sponsor or admin role only."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    """Create a chat channel. Circle leader in that circle only."""
+    user = await chat_user_from_token(token, db)
+    require_channel_create_persona(user)
+    await require_circle_leader(db, circle_id=body.circle_id, user=user)
 
-    if str(user.persona) not in ("sponsor", "admin"):
-        raise HTTPException(status_code=403, detail="Sponsor or admin role required")
-
-    # Verify circle exists
     circle_result = await db.execute(
         select(SponsorCircle).where(SponsorCircle.id == body.circle_id)
     )
@@ -805,29 +819,11 @@ async def list_messages(
     Excludes hidden messages.
     Joins persona for nickname and avatar.
     """
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
-    # Verify channel exists and user is a member of its circle
-    channel_result = await db.execute(
-        select(ChatChannel).where(ChatChannel.id == channel_id)
+    channel, _membership = await require_channel_access_for_user(
+        db, channel_id=channel_id, user=user
     )
-    channel = channel_result.scalar_one_or_none()
-    if channel is None:
-        raise HTTPException(status_code=404, detail="Channel not found")
-
-    membership = await db.execute(
-        select(CircleMember).where(
-            and_(
-                CircleMember.circle_id == channel.circle_id,
-                CircleMember.user_id == user.id,
-            )
-        )
-    )
-    if membership.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Not a member of this circle")
-
 
     from sqlalchemy.orm import joinedload
     query = (
@@ -848,16 +844,25 @@ async def list_messages(
     msg_result = await db.execute(query)
     messages = msg_result.scalars().unique().all()
 
+    user_ids = {msg.persona.user_id for msg in messages if msg.persona}
+    users_by_id: dict[str, SignupRequest] = {}
+    if user_ids:
+        users_res = await db.execute(
+            select(SignupRequest).where(SignupRequest.id.in_(user_ids))
+        )
+        users_by_id = {u.id: u for u in users_res.scalars().all()}
+
     output = []
     for msg in reversed(messages):
         if not msg.persona:
             continue
+        signup = users_by_id.get(msg.persona.user_id)
         output.append(
             MessageOut(
                 id=msg.id,
                 channel_id=msg.channel_id,
                 gamified_persona_id=msg.gamified_persona_id,
-                persona_nickname=msg.persona.nickname,
+                persona_nickname=chat_display_name(signup, msg.persona),
                 avatar_key=msg.persona.avatar_key,
                 content_text=msg.content_text if not msg.deleted_at else None,
                 media_url=msg.media_url if not msg.deleted_at else None,
@@ -882,9 +887,7 @@ async def upload_chat_file(
     Upload a file for use in chat (images, PDF only).
     Max size: 5 MB. Returns {url: str}.
     """
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
     # Content-type whitelist
     if file.content_type not in ALLOWED_CONTENT_TYPES:
@@ -912,99 +915,6 @@ async def upload_chat_file(
     return {"url": url}
 
 
-# REST: GET /chat/sos-reports  (admin only)
-
-
-@router.get("/chat/sos-reports", response_model=list[SOSReportOut])
-async def list_sos_reports(
-    token: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Return unresolved SOS reports. Admin only."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
-
-    SenderPersona = aliased(GamifiedPersona)
-    ReporterPersona = aliased(GamifiedPersona)
-
-    result = await db.execute(
-        select(SOSReport, ChatMessage, SenderPersona, ChatChannel, ReporterPersona)
-        .join(ChatMessage, SOSReport.message_id == ChatMessage.id)
-        .join(
-            SenderPersona,
-            ChatMessage.gamified_persona_id == SenderPersona.id,
-            isouter=True,
-        )
-        .join(ChatChannel, ChatMessage.channel_id == ChatChannel.id)
-        .join(
-            ReporterPersona,
-            SOSReport.reporter_persona_id == ReporterPersona.id,
-            isouter=True,
-        )
-        .where(SOSReport.resolved_at.is_(None))
-        .order_by(SOSReport.created_at.desc())
-    )
-    rows = result.all()
-
-    output = []
-    for sos, msg, sender, channel, reporter in rows:
-        output.append(
-            SOSReportOut(
-                id=sos.id,
-                message_id=sos.message_id,
-                reporter_persona_id=sos.reporter_persona_id,
-                reporter_nickname=reporter.nickname if reporter else "Unknown Reporter",
-                hidden_at=sos.hidden_at,
-                admin_notified_at=sos.admin_notified_at,
-                resolved_at=sos.resolved_at,
-                notes=sos.notes,
-                created_at=sos.created_at,
-                message_content=msg.content_text,
-                media_url=msg.media_url,
-                sender_user_id=sender.user_id if sender else None,
-                sender_nickname=sender.nickname if sender else "Unknown Sender",
-                circle_id=channel.circle_id,
-            )
-        )
-    return output
-
-
-# REST: PATCH /chat/sos-reports/{report_id}/resolve  (admin only)
-
-
-@router.patch("/chat/sos-reports/{report_id}/resolve")
-async def resolve_sos_report(
-    report_id: str,
-    token: str = Query(...),
-    db: AsyncSession = Depends(get_db),
-):
-    """Mark an SOS report as resolved. Admin only."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
-
-    result = await db.execute(select(SOSReport).where(SOSReport.id == report_id))
-    report = result.scalar_one_or_none()
-    if report is None:
-        raise HTTPException(status_code=404, detail="SOS report not found")
-
-    report.resolved_at = datetime.now(timezone.utc)
-
-    # Audit trail
-    log = AdminAccessLog(
-        admin_id=str(user.id),
-        action="RESOLVE_REPORT",
-        target_table="sos_reports",
-        target_id=str(report_id),
-        changes_json={"resolved": True},
-    )
-    db.add(log)
-
-    await db.commit()
-    return {"id": report_id, "resolved_at": report.resolved_at.isoformat()}
-
-
 @router.get("/chat/circle/{circle_id}/members", response_model=list[CircleMemberOut])
 async def list_circle_members(
     circle_id: str,
@@ -1012,29 +922,21 @@ async def list_circle_members(
     db: AsyncSession = Depends(get_db),
 ):
     """Return all members in a circle (gamified personas only). User must be a member."""
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
     if circle_id == "corporate-kia":
         if user.persona.value != "corporate":
             raise HTTPException(status_code=403, detail="Corporate role required")
         circle_id, _ = await _get_or_create_corporate_circle(user, db)
 
-    # Verify membership
-    membership_check = await db.execute(
-        select(CircleMember).where(
-            and_(CircleMember.circle_id == circle_id, CircleMember.user_id == user.id)
-        )
-    )
-    if membership_check.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Not a member of this circle")
+    await require_circle_member(db, circle_id=circle_id, user=user)
 
-    # Fetch all members joined with their personas
+    # Fetch all members joined with their personas and signup profiles
     logger.info(f"Fetching members for circle {circle_id}")
     result = await db.execute(
-        select(CircleMember, GamifiedPersona)
+        select(CircleMember, GamifiedPersona, SignupRequest)
         .join(GamifiedPersona, CircleMember.user_id == GamifiedPersona.user_id)
+        .join(SignupRequest, GamifiedPersona.user_id == SignupRequest.id)
         .where(CircleMember.circle_id == circle_id)
         .order_by(CircleMember.joined_at.asc())
     )
@@ -1042,10 +944,11 @@ async def list_circle_members(
     logger.info(f"Found {len(rows)} members for circle {circle_id}")
 
     output = []
-    for m, p in rows:
+    for m, p, signup in rows:
         output.append(CircleMemberOut(
             persona_id=p.id,
             nickname=p.nickname,
+            display_name=chat_display_name(signup, p),
             avatar_key=p.avatar_key,
             role=m.role,
             joined_at=m.joined_at,
@@ -1070,18 +973,9 @@ async def get_or_create_dm_channel(
     """
     import json as _json
 
-    user = await get_current_user_from_token(token, db)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    user = await chat_user_from_token(token, db)
 
-    # Verify caller is a circle member
-    membership = await db.execute(
-        select(CircleMember).where(
-            and_(CircleMember.circle_id == circle_id, CircleMember.user_id == user.id)
-        )
-    )
-    if membership.scalar_one_or_none() is None:
-        raise HTTPException(status_code=403, detail="Not a member of this circle")
+    my_membership = await require_circle_member(db, circle_id=circle_id, user=user)
 
     # Get our persona
     my_persona_res = await db.execute(
@@ -1094,6 +988,33 @@ async def get_or_create_dm_channel(
     with_persona_id = body.get("with_persona_id")
     if not with_persona_id:
         raise HTTPException(status_code=400, detail="with_persona_id is required")
+
+    if str(my_persona.id) == str(with_persona_id):
+        raise HTTPException(status_code=400, detail="Cannot open a DM with yourself")
+
+    # Target must be in the same circle
+    target_res = await db.execute(
+        select(CircleMember, GamifiedPersona)
+        .join(GamifiedPersona, CircleMember.user_id == GamifiedPersona.user_id)
+        .where(
+            and_(
+                CircleMember.circle_id == circle_id,
+                GamifiedPersona.id == str(with_persona_id),
+            )
+        )
+    )
+    target_row = target_res.first()
+    if target_row is None:
+        raise HTTPException(status_code=404, detail="Person is not a member of this circle")
+    target_membership, _target_persona = target_row
+
+    caller_is_leader = is_leader_member_role(my_membership.role)
+    target_is_leader = is_leader_member_role(target_membership.role)
+    if not caller_is_leader and not target_is_leader:
+        raise HTTPException(
+            status_code=403,
+            detail="Members can only message the circle leader privately",
+        )
 
     # Sort IDs for consistent key regardless of who initiates
     pair = sorted([str(my_persona.id), str(with_persona_id)])

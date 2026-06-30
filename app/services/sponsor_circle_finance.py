@@ -176,16 +176,21 @@ async def build_member_contributions(
         .order_by(SignupRequest.full_name)
     )
     members = []
+    from app.services.student_circle_privacy import display_name_for_roster
+
     for cm, signup in res.all():
-        role = (cm.role or "sponsor").replace("_", " ")
+        name, initials, role_label = await display_name_for_roster(
+            db, signup, cm_role=cm.role or "sponsor"
+        )
         badge = ""
         if cm.role in ("lead", "sponsor_leader", "coordinator"):
             badge = "leader"
         members.append(
             {
-                "name": signup.full_name,
-                "initials": "".join(p[0] for p in (signup.full_name or "?").split()[:2]).upper(),
-                "role": role,
+                "name": name,
+                "initials": initials,
+                "role": role_label,
+                "role_label": role_label,
                 "total_contributed": None,
                 "this_month": None,
                 "pct": None,

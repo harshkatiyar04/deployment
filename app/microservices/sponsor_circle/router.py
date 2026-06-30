@@ -70,6 +70,8 @@ from app.microservices.sponsor_circle.schemas import (
     SchoolPartnerMessageRequest,
     MemberRemovalRequestBody,
     MemberLimitRequestBody,
+    CircleRenameRequestBody,
+    CircleRenameStatusOut,
     CircleAdminRequestOut,
     CircleAdminRequestCreateResponse,
 )
@@ -173,6 +175,8 @@ async def get_budget(
 ):
     circle, role = await resolve_user_circle(db, user.id, circle_id)
     data = await _budget_payload_for_circle(db, circle, role)
+    if user.persona == Persona.sponsor_leader:
+        data["can_set_budget"] = True
     return BudgetResponse(**data)
 
 
@@ -392,29 +396,77 @@ async def patch_circle_name(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Leader updates the display name for their circle."""
+    """Direct rename is disabled — leaders must submit an admin-approved rename request."""
     circle, role = await resolve_user_circle(db, user.id, circle_id)
     if not _can_set_budget(role):
         raise HTTPException(status_code=403, detail="Only circle leaders can rename the circle.")
-    from app.services.circle_name_validation import assert_circle_name_available
-
-    old_name = circle.name
-    try:
-        circle.name = await assert_circle_name_available(
-            db, body.name, exclude_circle_id=circle.id
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    from app.services.kia_event_briefings import emit_circle_renamed
-
-    await emit_circle_renamed(
-        db,
-        circle=circle,
-        leader_name=user.full_name or "Circle leader",
-        old_name=old_name,
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Circle names cannot be changed directly. Submit a rename request from Circle Management "
+            "(ZenK admin approval required; once every 90 days)."
+        ),
     )
+
+
+@router.get("/circle/{circle_id}/rename-status", response_model=CircleRenameStatusOut)
+async def get_circle_rename_status(
+    circle_id: str,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    circle, role = await resolve_user_circle(db, user.id, circle_id)
+    if not _can_set_budget(role):
+        raise HTTPException(status_code=403, detail="Only circle leaders can view rename status.")
+    from app.services.circle_rename_ops import build_rename_status
+
+    data = await build_rename_status(db, circle=circle)
+    pending = data.get("pending_request")
+    return CircleRenameStatusOut(
+        can_request=data["can_request"],
+        current_name=data["current_name"],
+        next_eligible_at=data.get("next_eligible_at"),
+        cooldown_days=data["cooldown_days"],
+        pending_request=CircleAdminRequestOut(**pending) if pending else None,
+        blocked_reason=data.get("blocked_reason"),
+        policy_note=data["policy_note"],
+    )
+
+
+@router.post("/circle-rename-request", response_model=CircleAdminRequestCreateResponse)
+async def submit_circle_rename_request(
+    body: CircleRenameRequestBody,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if user.persona != Persona.sponsor_leader:
+        raise HTTPException(status_code=403, detail="Only circle leaders can request a circle rename.")
+    circle, role = await resolve_user_circle(db, user.id, body.circle_id)
+    if not _can_set_budget(role):
+        raise HTTPException(status_code=403, detail="Only circle leaders can request a circle rename.")
+    from app.services.circle_rename_ops import request_circle_rename
+
+    try:
+        req = await request_circle_rename(
+            db,
+            circle=circle,
+            leader=user,
+            new_name=body.new_name,
+            comment=body.comment,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    try:
+        from app.services.kia_event_briefings import emit_admin_circle_ops_submitted
+
+        await emit_admin_circle_ops_submitted(db, req=req, circle_name=circle.name)
+    except Exception:
+        pass
     await db.commit()
-    return {"circle_id": circle.id, "circle_name": circle.name}
+    return CircleAdminRequestCreateResponse(
+        message="Rename request sent to ZenK admin for review.",
+        request=CircleAdminRequestOut(**request_to_dict(req, circle_name=circle.name)),
+    )
 
 
 @router.put("/budget", response_model=BudgetResponse)

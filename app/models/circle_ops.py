@@ -15,6 +15,10 @@ from app.db.base import Base
 
 REQUEST_MEMBER_REMOVAL = "member_removal"
 REQUEST_MEMBER_LIMIT = "member_limit_increase"
+REQUEST_CIRCLE_RENAME = "circle_rename"
+RENAME_COOLDOWN_DAYS = 90
+REQUEST_TYPES_MEMBERSHIP = frozenset({REQUEST_MEMBER_REMOVAL, REQUEST_MEMBER_LIMIT})
+REQUEST_TYPES_OTHER = frozenset({REQUEST_CIRCLE_RENAME})
 STATUS_PENDING = "pending"
 STATUS_APPROVED = "approved"
 STATUS_REJECTED = "rejected"
@@ -87,6 +91,8 @@ class CircleAdminRequest(Base):
     current_member_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     current_member_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     requested_limit: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    current_circle_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    requested_circle_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     leader_comment: Mapped[str] = mapped_column(Text, nullable=False)
     admin_comment: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     reviewed_by_admin: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)

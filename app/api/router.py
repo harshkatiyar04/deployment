@@ -8,6 +8,7 @@ from app.api.routers import (
     admin_support,
     user_support,
     admin_circle_ops,
+    admin_other_requests,
     admin_overview,
     admin_legal,
     auth,
@@ -34,6 +35,7 @@ api_router.include_router(legal.router)
 api_router.include_router(signup.router)
 api_router.include_router(admin_kyc.router)
 api_router.include_router(admin_circle_ops.router)
+api_router.include_router(admin_other_requests.router)
 api_router.include_router(admin_kia.router)
 api_router.include_router(admin_users.router)
 api_router.include_router(admin_suppliers.router)

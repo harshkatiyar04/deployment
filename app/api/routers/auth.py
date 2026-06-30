@@ -244,6 +244,7 @@ class SchoolOrgSummary(BaseModel):
 class SessionUserResponse(BaseModel):
     id: str
     persona: Persona
+    member_kind: Optional[str] = None
     full_name: str
     email: str
     mobile: str
@@ -261,6 +262,7 @@ class SessionUserResponse(BaseModel):
     kyc_review_note: Optional[str] = None
     circle_access: Optional[CircleAccessOut] = None
     circle_ban: Optional[CircleBanOut] = None
+    requested_circle_name: Optional[str] = None
     school_org: Optional[SchoolOrgSummary] = None
     terms_reacceptance_required: bool = False
     current_terms_version: Optional[str] = None
@@ -329,6 +331,7 @@ async def _build_session_user_response(db: AsyncSession, user: SignupRequest) ->
     return SessionUserResponse(
         id=user.id,
         persona=user.persona,
+        member_kind=user.member_kind,
         full_name=user.full_name,
         email=user.email,
         mobile=user.mobile,
@@ -337,6 +340,7 @@ async def _build_session_user_response(db: AsyncSession, user: SignupRequest) ->
         kyc_review_note=extract_kyc_review_note(user.admin_note),
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
+        requested_circle_name=user.requested_circle_name,
         school_org=await _school_org_summary(db, user),
         **contact_extra,
         **legal_fields,

@@ -2,9 +2,8 @@
 Admin endpoint: record parental consent for a student.
 
 POST /admin/consent/{student_id}
-  - Admin only (enforced by email domain for now, same pattern as SOS queue)
+  - Admin API key required (same as other admin routes)
   - Body: consent_type (str), notes (str optional)
-  - Returns: 201 with the created consent record
 """
 from __future__ import annotations
 
@@ -14,16 +13,18 @@ from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.jwt_auth import get_current_user_from_token
+from app.core.admin_deps import require_admin_api_key, resolve_admin_actor_id
 from app.db.session import get_db
 from app.models.signup import SignupRequest
 
-from fastapi import Query
-
-router = APIRouter(prefix="/admin", tags=["admin-consent"])
+router = APIRouter(
+    prefix="/admin",
+    tags=["admin-consent"],
+    dependencies=[Depends(require_admin_api_key)],
+)
 
 
 class ConsentBody(BaseModel):
@@ -46,25 +47,17 @@ class ConsentOut(BaseModel):
 async def record_consent(
     student_id: str,
     body: ConsentBody,
-    token: str = Query(...),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Record verified parental/guardian consent for a student.
-    Admin role only.
+    Admin API key required.
 
     After this record exists, the student can connect to circle chat
     (the WS handler checks parental_consent_log before allowing the connection).
     """
-    admin = await get_current_user_from_token(token, db)
-    if admin is None:
-        raise HTTPException(status_code=401, detail="Invalid or missing token")
+    admin_id = await resolve_admin_actor_id(db)
 
-    # Admin check — same convention as SOS queue endpoint
-    if not getattr(admin, "email", "").endswith("@zenkedu.com"):
-        raise HTTPException(status_code=403, detail="Admin role required")
-
-    # Verify student exists
     student_result = await db.execute(
         select(SignupRequest).where(SignupRequest.id == student_id)
     )
@@ -74,9 +67,6 @@ async def record_consent(
 
     if str(student.persona) != "student":
         raise HTTPException(status_code=400, detail="Target user is not a student")
-
-    # Insert consent record using raw SQL (table created in migration 002)
-    from sqlalchemy import text  # noqa: PLC0415
 
     now = datetime.now(timezone.utc)
     record_id = str(uuid4())
@@ -92,7 +82,7 @@ async def record_consent(
             "id": record_id,
             "student_id": student_id,
             "consent_type": body.consent_type,
-            "verified_by": admin.id,
+            "verified_by": admin_id,
             "verified_at": now,
             "notes": body.notes,
             "created_at": now,
@@ -104,7 +94,7 @@ async def record_consent(
         id=record_id,
         student_id=student_id,
         consent_type=body.consent_type,
-        verified_by_admin_id=admin.id,
+        verified_by_admin_id=admin_id,
         verified_at=now,
         expires_at=None,
         notes=body.notes,

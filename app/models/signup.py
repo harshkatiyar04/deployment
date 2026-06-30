@@ -45,6 +45,7 @@ class SignupRequest(Base):
     gst_number: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     authorized_signatory_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     authorized_signatory_designation: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    requested_circle_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
     # School partner fields (persona=school principal signup)
     school_name: Mapped[Optional[str]] = mapped_column(String(300), nullable=True)

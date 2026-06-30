@@ -13,8 +13,11 @@ from app.chat.models import CircleMember, SponsorCircle
 from app.models.circle_ops import (
     DEFAULT_MEMBER_LIMIT,
     MAX_MEMBER_LIMIT,
+    REQUEST_CIRCLE_RENAME,
     REQUEST_MEMBER_LIMIT,
     REQUEST_MEMBER_REMOVAL,
+    REQUEST_TYPES_MEMBERSHIP,
+    REQUEST_TYPES_OTHER,
     STATUS_APPROVED,
     STATUS_PENDING,
     STATUS_REJECTED,
@@ -166,6 +169,8 @@ def request_to_dict(req: CircleAdminRequest, *, circle_name: Optional[str] = Non
         "current_member_count": req.current_member_count,
         "current_member_limit": req.current_member_limit,
         "requested_limit": req.requested_limit,
+        "current_circle_name": req.current_circle_name,
+        "requested_circle_name": req.requested_circle_name,
         "leader_comment": req.leader_comment,
         "admin_comment": req.admin_comment,
         "reviewed_by_admin": req.reviewed_by_admin,
@@ -189,14 +194,29 @@ async def list_circle_admin_requests(
     return [request_to_dict(r, circle_name=name) for r, name in res.all()]
 
 
-async def list_pending_admin_queue(db: AsyncSession) -> list[dict[str, Any]]:
-    res = await db.execute(
+async def list_pending_admin_queue(
+    db: AsyncSession,
+    *,
+    request_types: frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    q = (
         select(CircleAdminRequest, SponsorCircle.name)
         .join(SponsorCircle, SponsorCircle.id == CircleAdminRequest.circle_id)
         .where(CircleAdminRequest.status == STATUS_PENDING)
         .order_by(CircleAdminRequest.created_at.asc())
     )
+    if request_types is not None:
+        q = q.where(CircleAdminRequest.request_type.in_(sorted(request_types)))
+    res = await db.execute(q)
     return [request_to_dict(r, circle_name=name) for r, name in res.all()]
+
+
+async def list_pending_membership_ops_queue(db: AsyncSession) -> list[dict[str, Any]]:
+    return await list_pending_admin_queue(db, request_types=REQUEST_TYPES_MEMBERSHIP)
+
+
+async def list_pending_other_requests_queue(db: AsyncSession) -> list[dict[str, Any]]:
+    return await list_pending_admin_queue(db, request_types=REQUEST_TYPES_OTHER)
 
 
 async def admin_review_request(
@@ -248,6 +268,19 @@ async def admin_review_request(
             if not req.requested_limit:
                 raise ValueError("Missing requested limit.")
             circle.member_limit = int(req.requested_limit)
+        elif req.request_type == REQUEST_CIRCLE_RENAME:
+            from app.services.circle_rename_ops import apply_approved_circle_rename
+
+            leader_res = await db.execute(
+                select(SignupRequest).where(SignupRequest.id == req.requested_by_user_id)
+            )
+            leader = leader_res.scalar_one_or_none()
+            await apply_approved_circle_rename(
+                db,
+                circle=circle,
+                req=req,
+                leader_name=(leader.full_name if leader else req.requested_by_name) or "Circle leader",
+            )
     else:
         pass
 

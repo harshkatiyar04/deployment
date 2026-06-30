@@ -1,3 +1,4 @@
+import os
 from typing import Optional
 
 from pydantic import Field
@@ -59,5 +60,22 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+def api_docs_enabled() -> bool:
+    """Swagger / OpenAPI UI — off by default on Railway and HTTPS production deploys."""
+    raw = os.getenv("ENABLE_API_DOCS", "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+        return False
+    if os.getenv("AUTH_COOKIE_SECURE", "").strip().lower() == "true":
+        return False
+    frontend = (os.getenv("FRONTEND_BASE_URL") or settings.frontend_base_url or "").lower()
+    if frontend.startswith("https://"):
+        return False
+    return True
 
 

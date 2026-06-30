@@ -102,6 +102,22 @@ class MemberLimitRequestBody(BaseModel):
     comment: str = Field(..., min_length=10, max_length=2000)
 
 
+class CircleRenameRequestBody(BaseModel):
+    circle_id: str
+    new_name: str = Field(..., min_length=2, max_length=255)
+    comment: str = Field(..., min_length=10, max_length=2000)
+
+
+class CircleRenameStatusOut(BaseModel):
+    can_request: bool
+    current_name: str
+    next_eligible_at: Optional[str] = None
+    cooldown_days: int = 90
+    pending_request: Optional["CircleAdminRequestOut"] = None
+    blocked_reason: Optional[str] = None
+    policy_note: str
+
+
 class CircleAdminRequestOut(BaseModel):
     id: str
     circle_id: str
@@ -113,6 +129,8 @@ class CircleAdminRequestOut(BaseModel):
     current_member_count: Optional[int] = None
     current_member_limit: Optional[int] = None
     requested_limit: Optional[int] = None
+    current_circle_name: Optional[str] = None
+    requested_circle_name: Optional[str] = None
     leader_comment: str
     admin_comment: Optional[str] = None
     reviewed_by_admin: Optional[str] = None
