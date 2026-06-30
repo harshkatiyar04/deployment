@@ -90,6 +90,8 @@ async def join_accept(
     return SchoolJoinAcceptResponse(
         status="success",
         message=msg,
+        access_token=access_token,
+        refresh_token=refresh_token,
         persona=str(signup.persona.value if hasattr(signup.persona, "value") else signup.persona),
         full_name=signup.full_name,
         email=signup.email,

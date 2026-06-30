@@ -234,13 +234,23 @@ async def list_pending_member_signups(
         .order_by(SignupRequest.created_at.desc())
     )
     rows = res.scalars().all()
+    signup_ids = [r.id for r in rows]
+    in_circle_ids: set[str] = set()
+    if signup_ids:
+        member_res = await db.execute(
+            select(CircleMember.user_id).where(
+                CircleMember.circle_id == circle.id,
+                CircleMember.user_id.in_(signup_ids),
+            )
+        )
+        in_circle_ids = {uid for uid in member_res.scalars().all() if uid}
     items: list[PendingCircleMemberItem] = []
     for r in rows:
         _cid, leader_status = parse_invite_note(r.admin_note)
         if _cid and _cid != circle.id:
             continue
         kyc = r.kyc_status.value if hasattr(r.kyc_status, "value") else str(r.kyc_status)
-        in_circle = await _member_in_circle(db, circle.id, r.id)
+        in_circle = r.id in in_circle_ids
         if in_circle:
             leader_status = LEADER_APPROVED
         can_decide = (

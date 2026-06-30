@@ -44,8 +44,8 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
-# Locked to known production + dev origins only
-ALLOWED_ORIGINS = [
+# Locked to known production + dev origins; also FRONTEND_BASE_URL / WEBSITE_URL from env.
+_BASE_ALLOWED_ORIGINS = [
     "https://zenk-impact.vercel.app",
     "https://zenk-fe.vercel.app",
     "https://zenkimpact.vercel.app",
@@ -60,6 +60,28 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:5174",
     "http://127.0.0.1:5175",
 ]
+
+
+def _build_allowed_origins() -> list[str]:
+    from app.core.settings import settings
+
+    origins: list[str] = []
+    seen: set[str] = set()
+    for raw in (
+        *_BASE_ALLOWED_ORIGINS,
+        settings.frontend_base_url,
+        settings.website_url,
+        *(os.getenv("CORS_EXTRA_ORIGINS") or "").split(","),
+    ):
+        url = (raw or "").strip().rstrip("/")
+        if not url or url in seen:
+            continue
+        seen.add(url)
+        origins.append(url)
+    return origins
+
+
+ALLOWED_ORIGINS = _build_allowed_origins()
 
 app.add_middleware(SecurityHeadersMiddleware)
 

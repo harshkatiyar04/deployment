@@ -300,7 +300,9 @@ async def list_parent_submissions(
     *,
     student_signup_id: Optional[str] = None,
 ) -> list[dict[str, Any]]:
-    await require_parent_guardian(db, parent)
+    _, link = await require_parent_guardian(db, parent)
+    if student_signup_id and student_signup_id != link.student_signup_id:
+        raise HTTPException(status_code=403, detail="Not your linked child")
     q = select(ParentAcademicSubmission).where(ParentAcademicSubmission.parent_signup_id == parent.id)
     if student_signup_id:
         q = q.where(ParentAcademicSubmission.student_signup_id == student_signup_id)

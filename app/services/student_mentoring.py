@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember
 from app.models.enums import Persona
+from app.models.mentor import MentorProfile
 from app.models.signup import SignupRequest
 from app.models.student_portal import StudentMentoringMessage, StudentMentoringThread
 from app.services.student_dashboard import resolve_student_circle_id, resolve_school_student
@@ -180,6 +181,38 @@ async def _circle_role_for_user(db: AsyncSession, user_id: str, circle_id: Optio
     return "member"
 
 
+async def _mentor_assigned_circle_ids(db: AsyncSession, mentor_id: str) -> set[str]:
+    res = await db.execute(select(MentorProfile).where(MentorProfile.id == mentor_id))
+    profile = res.scalar_one_or_none()
+    if not profile:
+        return set()
+    ids: set[str] = set()
+    if profile.circle_id:
+        ids.add(profile.circle_id)
+    if profile.assigned_circles:
+        ids.update(c for c in profile.assigned_circles if c)
+    return ids
+
+
+async def _require_mentoring_reply_access(
+    db: AsyncSession,
+    sender: SignupRequest,
+    thread: StudentMentoringThread,
+) -> str:
+    """Return sender_role after verifying the caller may reply in this thread."""
+    if sender.persona == Persona.mentor:
+        assigned = await _mentor_assigned_circle_ids(db, sender.id)
+        if not thread.circle_id or thread.circle_id not in assigned:
+            raise HTTPException(status_code=403, detail="You are not assigned to this student's circle")
+        return "mentor"
+    if sender.persona in (Persona.sponsor_leader, Persona.sponsor_member):
+        circle_role = await _circle_role_for_user(db, sender.id, thread.circle_id)
+        if not circle_role:
+            raise HTTPException(status_code=403, detail="You are not in this student's circle")
+        return circle_role
+    raise HTTPException(status_code=403, detail="Only mentors or circle members can reply")
+
+
 async def post_mentor_reply(
     db: AsyncSession,
     sender: SignupRequest,
@@ -196,15 +229,7 @@ async def post_mentor_reply(
     if not thread:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    if sender.persona == Persona.mentor:
-        sender_role = "mentor"
-    elif sender.persona in (Persona.sponsor_leader, Persona.sponsor_member):
-        circle_role = await _circle_role_for_user(db, sender.id, thread.circle_id)
-        if not circle_role:
-            raise HTTPException(status_code=403, detail="You are not in this student's circle")
-        sender_role = circle_role
-    else:
-        raise HTTPException(status_code=403, detail="Only mentors or circle members can reply")
+    sender_role = await _require_mentoring_reply_access(db, sender, thread)
 
     now = datetime.now(timezone.utc)
     msg = StudentMentoringMessage(

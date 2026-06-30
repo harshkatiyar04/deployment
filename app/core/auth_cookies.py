@@ -19,6 +19,8 @@ def _cookie_secure() -> bool:
         return True
     if explicit == "false":
         return False
+    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
+        return True
     from app.core.settings import settings
 
     base = (settings.frontend_base_url or "").lower()

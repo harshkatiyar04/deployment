@@ -221,8 +221,8 @@ async def login(
         kyc_status=signup.kyc_status,
         kyc_review_note=extract_kyc_review_note(signup.admin_note),
         message=status_message,
-        access_token=None,
-        refresh_token=None,
+        access_token=access_token,
+        refresh_token=refresh_token,
         token_type="bearer",
         circle_access=CircleAccessOut(**access),
         circle_ban=circle_ban,
@@ -533,6 +533,9 @@ async def refresh_tokens(
     access_token, refresh_token, _user = result
     set_auth_cookies(response, access_token, refresh_token)
     return RefreshResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        token_type="bearer",
         session_mode="cookie",
         access_expires_in=access_expires_in_seconds(),
     )
@@ -559,6 +562,48 @@ async def issue_ws_token(
         "token_type": "bearer",
         "expires_in": 300,
     }
+
+
+class AdminLoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class AdminLoginResponse(BaseModel):
+    email: str
+    message: str = "Admin session started."
+
+
+@router.post("/admin/login", response_model=AdminLoginResponse, status_code=status.HTTP_200_OK)
+@limiter.limit("10/minute")
+async def admin_login(
+    request: Request,
+    response: Response,
+    body: AdminLoginRequest,
+):
+    """Platform admin login — sets HttpOnly admin session cookie (not persona JWT)."""
+    from app.core.admin_session import set_admin_session_cookie, verify_admin_login
+    from app.core.settings import settings
+
+    if not verify_admin_login(body.email, body.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid admin credentials.",
+        )
+    clear_auth_cookies(response)
+    set_admin_session_cookie(response)
+    email = (settings.admin_email or "admin@zenk").strip().lower()
+    return AdminLoginResponse(email=email)
+
+
+@router.post("/admin/logout", status_code=status.HTTP_204_NO_CONTENT)
+@limiter.limit("30/minute")
+async def admin_logout(request: Request, response: Response):
+    """Clear platform admin session cookie."""
+    from app.core.admin_session import clear_admin_session_cookie
+
+    clear_admin_session_cookie(response)
+    return None
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -671,8 +716,8 @@ async def switch_hat(
         full_name=target_signup.full_name,
         email=target_signup.email,
         kyc_status=target_signup.kyc_status,
-        access_token=None,
-        refresh_token=None,
+        access_token=access_token,
+        refresh_token=refresh_token,
         circle_access=CircleAccessOut(**access),
         message=f"Switched to {active_hat} view.",
         session_mode="cookie",

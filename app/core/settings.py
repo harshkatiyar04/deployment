@@ -43,9 +43,12 @@ class Settings(BaseSettings):
     # Dev-only: allow auto-join demo circle (never enable in production)
     allow_demo_circle: bool = Field(default=False, validation_alias="ZENK_ALLOW_DEMO_CIRCLE")
 
-    # Admin KYC / queue APIs — required in production (FE: VITE_ZENK_ADMIN_API_KEY)
+    # Platform admin login (HttpOnly cookie — not exposed to frontend JS)
+    admin_email: str = Field(default="admin@zenk", validation_alias="ZENK_ADMIN_EMAIL")
+    admin_password: Optional[str] = Field(default=None, validation_alias="ZENK_ADMIN_PASSWORD")
+    # Optional server-to-server key (scripts/CI); browser admin uses /auth/admin/login cookie
     admin_api_key: Optional[str] = Field(default=None, validation_alias="ZENK_ADMIN_API_KEY")
-    # Local dev only: allow admin routes without a key (never enable in production)
+    # Local dev only: allow admin routes without password/key (never enable in production)
     admin_allow_open_dev: bool = Field(default=False, validation_alias="ZENK_ADMIN_ALLOW_OPEN_DEV")
 
     # ICICI corporate disbursement gateway (production URL from bank onboarding)
