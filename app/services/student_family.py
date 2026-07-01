@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import hash_password, verify_password
@@ -15,6 +15,7 @@ from app.models.enums import KycStatus, LoginAccessTier, MemberKind, Persona
 from app.models.signup import KycDocument, SignupRequest
 from app.models.student_family import StudentFamilyLink
 from app.services.circle_member_invite import build_invite_note
+from app.services.signup_validation import normalize_email
 from app.services.storage import save_kyc_file
 
 # Under 15: guardian must mediate (IT Rules / DPDPA verifiable parental consent for minors).
@@ -228,6 +229,87 @@ async def get_family_link_for_user(db: AsyncSession, signup_id: str) -> Optional
         )
     )
     return res.scalar_one_or_none()
+
+
+async def get_family_link_for_student(db: AsyncSession, student_signup_id: str) -> Optional[StudentFamilyLink]:
+    res = await db.execute(
+        select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == student_signup_id)
+    )
+    return res.scalar_one_or_none()
+
+
+async def ensure_parent_guardian_for_student(
+    db: AsyncSession,
+    student_signup: SignupRequest,
+    *,
+    school_student_id: Optional[str] = None,
+) -> Optional[SignupRequest]:
+    """Repair parent row + family link when v2 student signup partially failed."""
+    if (student_signup.onboarding_version or "v1") != "v2":
+        return None
+    if not (student_signup.guardian_name or "").strip() or not (student_signup.guardian_mobile or "").strip():
+        return None
+
+    link = await get_family_link_for_student(db, student_signup.id)
+    if link:
+        parent_res = await db.execute(select(SignupRequest).where(SignupRequest.id == link.parent_signup_id))
+        parent = parent_res.scalar_one_or_none()
+        if school_student_id and not link.school_student_id:
+            link.school_student_id = school_student_id
+            link.updated_at = datetime.now(timezone.utc)
+        return parent
+
+    existing_res = await db.execute(
+        select(SignupRequest).where(
+            SignupRequest.persona == Persona.sponsor_member,
+            func.lower(SignupRequest.email) == normalize_email(student_signup.email),
+        )
+    )
+    parent = existing_res.scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+
+    if not parent:
+        parent = SignupRequest(
+            persona=Persona.sponsor_member,
+            full_name=student_signup.guardian_name.strip(),
+            mobile=student_signup.guardian_mobile.strip(),
+            email=student_signup.email,
+            password_hash=student_signup.password_hash,
+            address_line1=student_signup.address_line1,
+            address_line2=student_signup.address_line2,
+            city=student_signup.city,
+            state=student_signup.state,
+            pincode=student_signup.pincode,
+            country=student_signup.country,
+            member_kind=MemberKind.parent_guardian.value,
+            linked_student_signup_id=student_signup.id,
+            admin_note=build_parent_admin_note(student_signup_id=student_signup.id),
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(parent)
+        await db.flush()
+        await _copy_kyc_documents(
+            db,
+            source_signup_id=student_signup.id,
+            target_signup_id=parent.id,
+        )
+    elif parent.member_kind != MemberKind.parent_guardian.value:
+        parent.member_kind = MemberKind.parent_guardian.value
+        parent.linked_student_signup_id = student_signup.id
+        parent.admin_note = build_parent_admin_note(student_signup_id=student_signup.id)
+        parent.updated_at = now
+
+    link = await upsert_family_link(
+        db,
+        student_signup_id=student_signup.id,
+        parent_signup_id=parent.id,
+        relationship=(student_signup.guardian_relationship or "parent").strip(),
+    )
+    if school_student_id:
+        link.school_student_id = school_student_id
+        link.updated_at = now
+    return parent
 
 
 async def resolve_linked_signup(

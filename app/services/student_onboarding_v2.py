@@ -198,6 +198,74 @@ def _step(status: str, *, done: bool, detail: str = "") -> dict[str, Any]:
     return {"status": status, "done": done, "detail": detail}
 
 
+async def sync_school_interest_for_admission(
+    db: AsyncSession,
+    student: SignupRequest,
+    school_student: SchoolStudent,
+) -> Optional[StudentSchoolInterest]:
+    """Align school interest row with an admitted school_students record."""
+    res = await db.execute(
+        select(StudentSchoolInterest).where(StudentSchoolInterest.student_signup_id == student.id)
+    )
+    interest = res.scalar_one_or_none()
+    now = _utcnow()
+    if interest:
+        if interest.status != "approved" or interest.school_student_id != school_student.id:
+            interest.status = "approved"
+            interest.school_student_id = school_student.id
+            interest.updated_at = now
+        return interest
+
+    school_id = student.selected_school_id or school_student.school_id
+    if not school_id:
+        return None
+
+    row = StudentSchoolInterest(
+        student_signup_id=student.id,
+        school_id=school_id,
+        status="approved",
+        school_student_id=school_student.id,
+        updated_at=now,
+    )
+    db.add(row)
+    await db.flush()
+    return row
+
+
+async def repair_v2_student_onboarding(
+    db: AsyncSession,
+    student: SignupRequest,
+    *,
+    school_student: Optional[SchoolStudent] = None,
+) -> bool:
+    """Backfill missing v2 artifacts after partial signup failures or direct school admit."""
+    if (student.onboarding_version or "v1") != ONBOARDING_V2:
+        return False
+
+    changed = False
+    if school_student is None:
+        school_student = await resolve_school_student(db, student)
+
+    if school_student:
+        synced = await sync_school_interest_for_admission(db, student, school_student)
+        if synced:
+            changed = True
+
+    from app.services.student_family import ensure_parent_guardian_for_student
+
+    parent = await ensure_parent_guardian_for_student(
+        db,
+        student,
+        school_student_id=school_student.id if school_student else None,
+    )
+    if parent:
+        changed = True
+
+    if changed:
+        await db.commit()
+    return changed
+
+
 async def build_onboarding_timeline(
     db: AsyncSession,
     student: SignupRequest,
@@ -212,6 +280,7 @@ async def build_onboarding_timeline(
     )
     link = link_res.scalar_one_or_none()
     parent_kyc = KycStatus.pending
+    parent: Optional[SignupRequest] = None
     if link:
         p_res = await db.execute(select(SignupRequest).where(SignupRequest.id == link.parent_signup_id))
         parent = p_res.scalar_one_or_none()
@@ -234,9 +303,43 @@ async def build_onboarding_timeline(
     accepted = accepted_circle.scalar_one_or_none()
 
     student_kyc_done = student.kyc_status == KycStatus.approved
-    school_done = interest and interest.status == "approved" and school_student is not None
+    school_interest_done = bool(interest) or bool(student.selected_school_id) or school_student is not None
+    school_done = school_student is not None
     parent_done = parent_kyc == KycStatus.approved
     circle_done = accepted is not None
+
+    if interest and interest.status == "pending_principal" and school_done:
+        school_interest_detail = "School selected — admission confirmed"
+    elif interest and interest.status == "pending_principal":
+        school_interest_detail = "Waiting for principal at selected school"
+    elif interest and interest.status == "approved":
+        school_interest_detail = "School selected at signup"
+    elif interest:
+        school_interest_detail = "School interest submitted"
+    elif student.selected_school_id or school_student:
+        school_interest_detail = (student.school_or_college_name or "School selected at signup").strip()
+    else:
+        school_interest_detail = "Select school at signup"
+
+    if school_done:
+        school_admit_detail = "Principal admitted you"
+    elif interest and interest.status == "rejected":
+        school_admit_detail = interest.principal_note or "School declined your request"
+    elif interest and interest.status == "pending_principal":
+        school_admit_detail = "Awaiting principal approval"
+    elif student.selected_school_id:
+        school_admit_detail = "Awaiting principal approval"
+    else:
+        school_admit_detail = "Awaiting principal approval"
+
+    if parent_done:
+        parent_kyc_detail = "Parent/guardian KYC approved"
+    elif parent:
+        parent_kyc_detail = "Submitted at signup — awaiting ZenK approval"
+    elif (student.guardian_name or "").strip():
+        parent_kyc_detail = "Parent account setup in progress — refresh the page"
+    else:
+        parent_kyc_detail = "Parent/guardian details missing — contact ZenK support"
 
     steps = [
         _step(
@@ -246,30 +349,18 @@ async def build_onboarding_timeline(
         ),
         _step(
             "school_interest",
-            done=bool(interest),
-            detail=(
-                f"Waiting for principal at selected school"
-                if interest and interest.status == "pending_principal"
-                else "School interest submitted"
-                if interest
-                else "Select school at signup"
-            ),
+            done=school_interest_done,
+            detail=school_interest_detail,
         ),
         _step(
             "school_admitted",
             done=school_done,
-            detail=(
-                "Principal admitted you"
-                if school_done
-                else interest.principal_note
-                if interest and interest.status == "rejected"
-                else "Awaiting principal approval"
-            ),
+            detail=school_admit_detail,
         ),
         _step(
             "parent_kyc",
             done=parent_done,
-            detail="Parent/guardian KYC approved" if parent_done else "Submitted at signup — awaiting ZenK approval",
+            detail=parent_kyc_detail,
         ),
         _step(
             "circle_joined",

@@ -80,6 +80,9 @@ async def student_onboarding_timeline(
     db: AsyncSession = Depends(get_db),
 ):
     _require_student(user)
+    from app.services.student_onboarding_v2 import repair_v2_student_onboarding
+
+    await repair_v2_student_onboarding(db, user)
     return await build_onboarding_timeline(db, user)
 
 

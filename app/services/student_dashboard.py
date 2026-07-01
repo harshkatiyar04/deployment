@@ -305,9 +305,12 @@ async def build_student_dashboard_bundle(
     quarter: str = "Q4",
 ) -> dict[str, Any]:
     """Single round-trip payload for the student dashboard shell."""
-    from app.services.student_onboarding_v2 import build_onboarding_timeline
+    from app.services.student_onboarding_v2 import build_onboarding_timeline, repair_v2_student_onboarding
 
     q = _normalize_quarter(quarter)
+    ctx = await load_student_dashboard_context(db, signup)
+
+    await repair_v2_student_onboarding(db, signup, school_student=ctx.school_student)
     ctx = await load_student_dashboard_context(db, signup)
     profile = _profile_from_context(signup, ctx)
     overview = await build_student_overview(db, signup, ctx=ctx)

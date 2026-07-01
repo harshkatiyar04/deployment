@@ -86,11 +86,11 @@ async def generate_student_priorities(db: AsyncSession, signup: SignupRequest) -
             "detail": "Your ZQA and attendance appear once your school confirms enrollment.",
             "urgency": "This week",
         })
-    if not overview.get("circle_id"):
+    elif not overview.get("circle_id"):
         items.append({
             "type": "circle",
-            "title": "Circle connection",
-            "detail": "Ask your parent/guardian to complete circle membership approval.",
+            "title": "Join a sponsorship circle",
+            "detail": "After parent KYC is approved, request an open circle from Join Circle.",
             "urgency": "This week",
         })
     if kpis.get("attendance_pct", 0) and kpis["attendance_pct"] < 75:

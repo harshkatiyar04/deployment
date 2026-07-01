@@ -198,6 +198,10 @@ async def admit_student_signup(
         link.school_student_id = student.id
         link.updated_at = datetime.now(timezone.utc)
 
+    from app.services.student_onboarding_v2 import sync_school_interest_for_admission
+
+    await sync_school_interest_for_admission(db, signup, student)
+
     await _recalc_school_profile(db, school_id)
     await db.commit()
     await db.refresh(student)

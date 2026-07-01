@@ -145,6 +145,7 @@ async def _process_signup_common(
     country: str,
     kyc_docs: list[UploadFile],
     db: AsyncSession,
+    commit: bool = True,
 ) -> SignupRequest:
     """Common logic for creating/updating signup and saving KYC docs."""
     (
@@ -236,8 +237,11 @@ async def _process_signup_common(
                 )
             )
 
-    await db.commit()
-    await db.refresh(signup)
+    if commit:
+        await db.commit()
+        await db.refresh(signup)
+    else:
+        await db.flush()
     return signup
 
 
@@ -1061,6 +1065,7 @@ async def signup_student(
         country=country,
         kyc_docs=all_files,
         db=db,
+        commit=False,
     )
     guardian_mobile = validate_and_normalize_mobile(guardian_mobile, signup.country)
 
@@ -1083,8 +1088,7 @@ async def signup_student(
         signup.guardian_mobile = guardian_mobile
         signup.guardian_relationship = guardian_relationship.strip()
         signup.login_access_tier = access_tier.value
-        await db.commit()
-        await db.refresh(signup)
+        await db.flush()
     else:
         if not school_profile:
             raise HTTPException(status_code=400, detail="Please select a registered school from the list")
@@ -1099,8 +1103,7 @@ async def signup_student(
         signup.guardian_mobile = guardian_mobile
         signup.guardian_relationship = guardian_relationship.strip()
         signup.login_access_tier = access_tier.value
-        await db.commit()
-        await db.refresh(signup)
+        await db.flush()
 
     invite_circle_id = ""
     if circle_invite_code and circle_invite_code.strip():
