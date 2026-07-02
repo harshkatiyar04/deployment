@@ -35,6 +35,7 @@ async def apply_all_migrations() -> None:
     from app.db.migrations.migration_033_student_school_referral import run_migration as m033
     from app.db.migrations.migration_034_privacy_policy_pdf import run_migration as m034
     from app.db.migrations.migration_035_circle_rename_requests import run_migration as m035
+    from app.db.migrations.migration_036_guardian_hat_password import run_migration as m036
 
     for label, fn in (
         ("008", m008),
@@ -64,6 +65,7 @@ async def apply_all_migrations() -> None:
         ("033", m033),
         ("034", m034),
         ("035", m035),
+        ("036", m036),
     ):
         try:
             await fn()

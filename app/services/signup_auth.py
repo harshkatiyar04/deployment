@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import verify_password
-from app.models.enums import KycStatus, LoginAccessTier, MemberKind, Persona
+from app.models.enums import KycStatus, MemberKind, Persona
 from app.models.signup import SignupRequest
 from app.services.signup_validation import normalize_email
 
@@ -32,7 +32,7 @@ def _prefer_persona_for_email(email: str) -> Persona | None:
 
 
 def _pick_family_login_match(matches: list[SignupRequest]) -> SignupRequest | None:
-    """Same-email student + parent guardian: default hat by Indian age tier."""
+    """Same-email student + parent guardian: mailbox login always opens the student account."""
     students = [m for m in matches if m.persona == Persona.student]
     parents = [
         m
@@ -41,11 +41,7 @@ def _pick_family_login_match(matches: list[SignupRequest]) -> SignupRequest | No
     ]
     if not students or not parents:
         return None
-    student = students[0]
-    tier = student.login_access_tier or LoginAccessTier.consent_required.value
-    if tier == LoginAccessTier.guardian_only.value:
-        return parents[0]
-    return student
+    return students[0]
 
 
 def _pick_best_match(email: str, matches: list[SignupRequest]) -> SignupRequest:

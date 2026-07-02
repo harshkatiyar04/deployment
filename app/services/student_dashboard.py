@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -10,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.gamified_persona import get_or_create_persona
 from app.chat.models import CircleMember, SponsorCircle
-from app.models.enums import Persona
+from app.models.enums import KycStatus, LoginAccessTier, Persona
 from app.models.school import SchoolStudent
 from app.models.signup import SignupRequest
 from app.models.student_family import StudentFamilyLink
@@ -308,14 +309,20 @@ async def build_student_dashboard_bundle(
     from app.services.student_onboarding_v2 import build_onboarding_timeline, repair_v2_student_onboarding
 
     q = _normalize_quarter(quarter)
-    ctx = await load_student_dashboard_context(db, signup)
 
-    await repair_v2_student_onboarding(db, signup, school_student=ctx.school_student)
+    if (signup.onboarding_version or "v1") == "v2":
+        await repair_v2_student_onboarding(db, signup)
+
     ctx = await load_student_dashboard_context(db, signup)
     profile = _profile_from_context(signup, ctx)
-    overview = await build_student_overview(db, signup, ctx=ctx)
-    timeline = await build_onboarding_timeline(db, signup, school_student=ctx.school_student)
-    progress = await build_student_progress(db, signup, quarter=q, ctx=ctx)
+
+    overview, timeline, progress, family_guardian = await asyncio.gather(
+        build_student_overview(db, signup, ctx=ctx),
+        build_onboarding_timeline(db, signup, school_student=ctx.school_student),
+        build_student_progress(db, signup, quarter=q, ctx=ctx),
+        build_family_guardian_summary(db, signup),
+    )
+
     return {
         "profile": profile,
         "overview": {
@@ -333,6 +340,49 @@ async def build_student_dashboard_bundle(
                 "milestones",
             )
         },
+        "family_guardian": family_guardian,
         "timeline": timeline,
         "progress": progress,
+    }
+
+
+async def build_family_guardian_summary(
+    db: AsyncSession,
+    signup: SignupRequest,
+) -> dict[str, Any]:
+    """Parent/guardian gate context for under-15 students on the student dashboard."""
+    tier = signup.login_access_tier or LoginAccessTier.consent_required.value
+    under_15 = tier == LoginAccessTier.guardian_only.value
+
+    link_res = await db.execute(
+        select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == signup.id)
+    )
+    link = link_res.scalar_one_or_none()
+    parent: Optional[SignupRequest] = None
+    if link:
+        parent_res = await db.execute(
+            select(SignupRequest).where(SignupRequest.id == link.parent_signup_id)
+        )
+        parent = parent_res.scalar_one_or_none()
+
+    parent_status = parent.kyc_status.value if parent else None
+    parent_approved = parent is not None and parent.kyc_status == KycStatus.approved
+    guardian_name = (parent.full_name if parent else signup.guardian_name or "").strip() or None
+
+    status_messages = {
+        "pending": "Submitted — awaiting ZenK compliance review",
+        "info_required": "More documents needed from parent/guardian",
+        "rejected": "Parent/guardian must resubmit documents",
+        "approved": "Parent/guardian verified",
+    }
+
+    return {
+        "has_family_link": link is not None,
+        "login_access_tier": tier,
+        "is_under_15": under_15,
+        "parent_guardian_name": guardian_name,
+        "parent_kyc_status": parent_status,
+        "parent_kyc_message": status_messages.get(parent_status or "", "Not started"),
+        "parent_verification_required_first": under_15 and not parent_approved,
+        "parent_hat_password_set": bool(link.guardian_hat_password_hash) if link else False,
     }

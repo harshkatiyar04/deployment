@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.gamified_persona import get_or_create_persona
 from app.chat.models import CircleMember, Enrollment, SponsorCircle
-from app.models.enums import KycStatus, Persona
+from app.models.enums import KycStatus, LoginAccessTier, Persona
 from app.models.school import SchoolProfile, SchoolStudent
 from app.models.signup import SignupRequest
 from app.models.student_family import ParentAcademicSubmission, StudentFamilyLink
@@ -242,10 +242,23 @@ async def repair_v2_student_onboarding(
     if (student.onboarding_version or "v1") != ONBOARDING_V2:
         return False
 
-    changed = False
+    from app.services.student_family import get_family_link_for_student
+
+    link = await get_family_link_for_student(db, student.id)
     if school_student is None:
         school_student = await resolve_school_student(db, student)
 
+    interest_res = await db.execute(
+        select(StudentSchoolInterest).where(StudentSchoolInterest.student_signup_id == student.id)
+    )
+    interest = interest_res.scalar_one_or_none()
+
+    needs_parent = bool((student.guardian_name or "").strip()) and link is None
+    needs_interest = bool(school_student) and interest is None
+    if not needs_parent and not needs_interest:
+        return False
+
+    changed = False
     if school_student:
         synced = await sync_school_interest_for_admission(db, student, school_student)
         if synced:
@@ -253,13 +266,14 @@ async def repair_v2_student_onboarding(
 
     from app.services.student_family import ensure_parent_guardian_for_student
 
-    parent = await ensure_parent_guardian_for_student(
-        db,
-        student,
-        school_student_id=school_student.id if school_student else None,
-    )
-    if parent:
-        changed = True
+    if needs_parent:
+        parent = await ensure_parent_guardian_for_student(
+            db,
+            student,
+            school_student_id=school_student.id if school_student else None,
+        )
+        if parent:
+            changed = True
 
     if changed:
         await db.commit()
@@ -335,7 +349,10 @@ async def build_onboarding_timeline(
     if parent_done:
         parent_kyc_detail = "Parent/guardian KYC approved"
     elif parent:
-        parent_kyc_detail = "Submitted at signup — awaiting ZenK approval"
+        if (student.login_access_tier or "") == LoginAccessTier.guardian_only.value and not parent_done:
+            parent_kyc_detail = "Required first for under-15 students — awaiting ZenK compliance review"
+        else:
+            parent_kyc_detail = "Submitted at signup — awaiting ZenK approval"
     elif (student.guardian_name or "").strip():
         parent_kyc_detail = "Parent account setup in progress — refresh the page"
     else:
@@ -371,6 +388,8 @@ async def build_onboarding_timeline(
 
     unlocked_dashboard = school_done and student_kyc_done and parent_done
     unlocked_circle_request = unlocked_dashboard and not circle_done
+    tier = student.login_access_tier or LoginAccessTier.consent_required.value
+    under_15 = tier == LoginAccessTier.guardian_only.value
 
     return {
         "onboarding_version": ONBOARDING_V2,
@@ -380,6 +399,8 @@ async def build_onboarding_timeline(
         "unlocked_circle_request": unlocked_circle_request,
         "in_circle": circle_done,
         "school_interest_status": interest.status if interest else None,
+        "login_access_tier": tier,
+        "requires_parent_verification_first": under_15 and not parent_done,
     }
 
 
@@ -654,6 +675,21 @@ async def leader_decide_circle_interest(
         req.leader_note = (note or "").strip() or "Not selected at this time"
         req.reviewed_at = _utcnow()
         req.updated_at = _utcnow()
+        c_res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == req.circle_id))
+        circle = c_res.scalar_one_or_none()
+        from app.services.notifications import create_notification
+
+        await create_notification(
+            recipient_id=req.student_signup_id,
+            recipient_type="user",
+            notification_type="circle_interest_rejected",
+            title="Circle request declined",
+            message=req.leader_note or f"A leader declined your request for {(circle.name if circle else 'the circle')}.",
+            related_entity_id=req.id,
+            related_entity_type="circle_interest",
+            db=db,
+            commit=False,
+        )
         await db.commit()
         return {"status": "rejected"}
 
@@ -722,6 +758,22 @@ async def leader_decide_circle_interest(
         link.updated_at = _utcnow()
 
     await provision_parent_after_student_enrollment(db, school_student=school_student, circle_id=req.circle_id)
+
+    from app.services.notifications import create_notification
+
+    circle_name = circle.name if circle else "your circle"
+    await create_notification(
+        recipient_id=req.student_signup_id,
+        recipient_type="user",
+        notification_type="circle_interest_accepted",
+        title="Circle leader accepted you",
+        message=f"You were accepted into {circle_name}. Circle chat and your dashboard are now fully unlocked.",
+        related_entity_id=req.id,
+        related_entity_type="circle_interest",
+        db=db,
+        commit=False,
+    )
+
     await db.commit()
     return {"status": "accepted", "circle_id": req.circle_id}
 

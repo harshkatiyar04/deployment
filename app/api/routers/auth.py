@@ -36,12 +36,13 @@ from app.services.legal_terms import (
 )
 from app.services.student_family import (
     build_family_hats_context,
-    resolve_linked_signup,
-    student_hat_available,
-    verify_password_for_hat_switch,
+    get_family_link_for_user,
     has_recorded_parental_consent,
+    resolve_linked_signup,
+    set_guardian_hat_password,
+    student_hat_available,
+    verify_guardian_hat_password,
 )
-from app.models.enums import Persona
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger(__name__)
@@ -638,6 +639,17 @@ class SwitchHatRequest(BaseModel):
     password: Optional[str] = None
 
 
+class SetParentHatPasswordRequest(BaseModel):
+    password: str
+    confirm_password: str
+
+
+class SetParentHatPasswordResponse(BaseModel):
+    ok: bool = True
+    parent_hat_password_set: bool = True
+    message: str = "Parent access password saved."
+
+
 class SwitchHatResponse(BaseModel):
     id: str
     persona: Persona
@@ -685,8 +697,9 @@ async def switch_hat(
 
     if target == "parent" and user.id != target_signup.id:
         if not body.password:
-            raise HTTPException(status_code=400, detail="Password is required to switch to parent view")
-        verify_password_for_hat_switch(body.password, user)
+            raise HTTPException(status_code=400, detail="Parent access password is required")
+        link = await get_family_link_for_user(db, user.id)
+        verify_guardian_hat_password(body.password, link)
 
     if target == "student" and target_signup.persona == Persona.student:
         consent = await has_recorded_parental_consent(db, target_signup.id)
@@ -723,3 +736,29 @@ async def switch_hat(
         session_mode="cookie",
         access_expires_in=access_expires_in_seconds(),
     )
+
+
+@router.post(
+    "/set-parent-hat-password",
+    response_model=SetParentHatPasswordResponse,
+    status_code=status.HTTP_200_OK,
+)
+@limiter.limit("5/minute")
+async def set_parent_hat_password_endpoint(
+    request: Request,
+    body: SetParentHatPasswordRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Create the parent-portal password used only for Student ↔ Parent view switching."""
+    link = await get_family_link_for_user(db, user.id)
+    if not link:
+        raise HTTPException(status_code=404, detail="No linked family account for this user")
+    await set_guardian_hat_password(
+        db,
+        link=link,
+        password=body.password,
+        confirm_password=body.confirm_password,
+    )
+    await db.commit()
+    return SetParentHatPasswordResponse()

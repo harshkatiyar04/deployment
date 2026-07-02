@@ -20,6 +20,7 @@ from app.microservices.student.schemas import (
     StudentKiaMessageOut,
     StudentMentoringPostRequest,
     StudentOverviewOut,
+    StudentActivityFeedOut,
     StudentDashboardBundleOut,
     StudentProfileOut,
     StudentPseudonymCheckOut,
@@ -38,6 +39,7 @@ from app.services.kia_student import (
     generate_student_priorities,
     generate_student_response,
 )
+from app.services.student_activity import build_student_activity_feed
 from app.services.student_dashboard import (
     build_student_circle_view,
     build_student_dashboard_bundle,
@@ -156,6 +158,15 @@ async def student_profile(
     return StudentProfileOut(**{k: data[k] for k in StudentProfileOut.model_fields})
 
 
+@router.get("/activity-feed", response_model=StudentActivityFeedOut)
+async def student_activity_feed(
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_student(user)
+    return await build_student_activity_feed(db, user)
+
+
 @router.get("/dashboard-bundle", response_model=StudentDashboardBundleOut)
 async def student_dashboard_bundle(
     quarter: str = "Q4",
@@ -168,6 +179,7 @@ async def student_dashboard_bundle(
     return StudentDashboardBundleOut(
         profile=StudentProfileOut(**{k: bundle["profile"][k] for k in StudentProfileOut.model_fields}),
         overview=StudentOverviewOut(**bundle["overview"]),
+        family_guardian=bundle.get("family_guardian") or {},
         timeline=bundle["timeline"],
         progress=bundle["progress"],
     )

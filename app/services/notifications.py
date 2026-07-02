@@ -20,6 +20,7 @@ async def create_notification(
     related_entity_id: Optional[str] = None,
     related_entity_type: Optional[str] = None,
     db: AsyncSession,
+    commit: bool = True,
 ) -> Notification:
     """Create a new in-app notification."""
     notification = Notification(
@@ -34,8 +35,11 @@ async def create_notification(
         created_at=datetime.utcnow(),
     )
     db.add(notification)
-    await db.commit()
-    await db.refresh(notification)
+    if commit:
+        await db.commit()
+        await db.refresh(notification)
+    else:
+        await db.flush()
     logger.info("Created notification: id=%s, type=%s, recipient=%s", notification.id, notification_type, recipient_id)
     return notification
 

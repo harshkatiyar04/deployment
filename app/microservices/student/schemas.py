@@ -51,9 +51,16 @@ class StudentOverviewOut(BaseModel):
     milestones: list[dict[str, str]] = []
 
 
+class StudentActivityFeedOut(BaseModel):
+    items: list[dict[str, Any]] = []
+    unread_count: int = 0
+    total: int = 0
+
+
 class StudentDashboardBundleOut(BaseModel):
     profile: StudentProfileOut
     overview: StudentOverviewOut
+    family_guardian: dict[str, Any] = {}
     timeline: dict[str, Any] = {}
     progress: dict[str, Any] = {}
 

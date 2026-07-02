@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 import logging
@@ -1010,6 +1010,8 @@ async def signup_student(
     guardian_name: str = Form(...),
     guardian_mobile: str = Form(...),
     guardian_relationship: str = Form(default="parent"),
+    guardian_portal_password: str = Form(...),
+    guardian_portal_confirm_password: str = Form(...),
     circle_invite_code: Optional[str] = Form(default=None),
     parent_pan_number: Optional[str] = Form(default=None),
     # KYC docs - accept single file (kyc_doc) or multiple files (kyc_docs)
@@ -1027,9 +1029,18 @@ async def signup_student(
     student_declaration_accepted: Optional[str] = Form(default=None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Student signup — also creates linked parent/guardian member account (same email + password)."""
+    """Student signup — also creates linked parent/guardian member account (same email)."""
     _require(password == confirm_password, "Password and confirm password do not match")
     _require(len(password) >= 8, "Password must be at least 8 characters long")
+    _require(
+        guardian_portal_password == guardian_portal_confirm_password,
+        "Parent access passwords do not match",
+    )
+    _require(len(guardian_portal_password) >= 8, "Parent access password must be at least 8 characters")
+    _require(
+        guardian_portal_password != password,
+        "Parent access password must be different from your student sign-in password",
+    )
     _require(guardian_relationship.strip(), "Guardian relationship is required")
     parent_pan_number = _validate_pan_field(parent_pan_number or "")
 
@@ -1126,7 +1137,7 @@ async def signup_student(
         student_signup=signup,
         guardian_name=guardian_name,
         guardian_mobile=guardian_mobile,
-        password=password,
+        guardian_portal_password=guardian_portal_password,
         circle_id=invite_circle_id,
         parent_pan_number=parent_pan_number,
         parent_kyc_docs=parent_files or None,
@@ -1138,6 +1149,10 @@ async def signup_student(
         relationship=guardian_relationship.strip(),
         circle_id=invite_circle_id or None,
     )
+    from app.services.student_family import hash_guardian_hat_password
+
+    family_link.guardian_hat_password_hash = hash_guardian_hat_password(guardian_portal_password)
+    family_link.updated_at = datetime.now(timezone.utc)
     school_referral_url: Optional[str] = None
     if is_school_not_listed(school_id):
         _, school_referral_url = await create_referral_for_student(

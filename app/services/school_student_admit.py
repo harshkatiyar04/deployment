@@ -202,6 +202,21 @@ async def admit_student_signup(
 
     await sync_school_interest_for_admission(db, signup, student)
 
+    from app.services.notifications import create_notification
+
+    school_label = (profile.school_name or "Your school").strip()
+    await create_notification(
+        recipient_id=signup.id,
+        recipient_type="user",
+        notification_type="school_admitted",
+        title="School admission confirmed",
+        message=f"{school_label} admitted you. You can track progress and request a sponsorship circle.",
+        related_entity_id=student.id,
+        related_entity_type="school_student",
+        db=db,
+        commit=False,
+    )
+
     await _recalc_school_profile(db, school_id)
     await db.commit()
     await db.refresh(student)

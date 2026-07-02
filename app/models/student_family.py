@@ -37,6 +37,7 @@ class StudentFamilyLink(Base):
         nullable=True,
     )
     school_student_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    guardian_hat_password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 

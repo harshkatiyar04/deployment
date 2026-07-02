@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -114,7 +115,7 @@ async def create_parent_guardian_signup(
     student_signup: SignupRequest,
     guardian_name: str,
     guardian_mobile: str,
-    password: str,
+    guardian_portal_password: str,
     circle_id: str = "",
     parent_pan_number: Optional[str] = None,
     parent_kyc_docs: Optional[list[UploadFile]] = None,
@@ -125,7 +126,7 @@ async def create_parent_guardian_signup(
     pincode: Optional[str] = None,
     country: Optional[str] = None,
 ) -> SignupRequest:
-    """Create sponsor_member row for parent/guardian — same email + password as student."""
+    """Create sponsor_member row for parent/guardian — same email, separate parent-portal password."""
     email = student_signup.email
     existing_res = await db.execute(
         select(SignupRequest).where(
@@ -135,7 +136,8 @@ async def create_parent_guardian_signup(
     )
     parent = existing_res.scalar_one_or_none()
     now = datetime.now(timezone.utc)
-    password_hash = hash_password(password)
+    # Parent row is not used for mailbox login; hat switch uses guardian_hat_password_hash on the link.
+    parent_login_hash = hash_password(secrets.token_urlsafe(32))
 
     if parent and parent.kyc_status == KycStatus.approved:
         raise HTTPException(status_code=409, detail="Parent member account already approved for this email")
@@ -146,7 +148,7 @@ async def create_parent_guardian_signup(
             full_name=guardian_name.strip(),
             mobile=guardian_mobile.strip(),
             email=email,
-            password_hash=password_hash,
+            password_hash=parent_login_hash,
             address_line1=address_line1 or student_signup.address_line1,
             address_line2=address_line2 or student_signup.address_line2,
             city=city or student_signup.city,
@@ -165,7 +167,7 @@ async def create_parent_guardian_signup(
     else:
         parent.full_name = guardian_name.strip()
         parent.mobile = guardian_mobile.strip()
-        parent.password_hash = password_hash
+        parent.password_hash = parent_login_hash
         parent.address_line1 = address_line1 or student_signup.address_line1
         parent.address_line2 = address_line2 or student_signup.address_line2
         parent.city = city or student_signup.city
@@ -184,6 +186,30 @@ async def create_parent_guardian_signup(
     await _save_kyc_uploads(db, signup_id=parent.id, kyc_docs=parent_kyc_docs)
 
     return parent
+
+
+def hash_guardian_hat_password(password: str) -> str:
+    return hash_password(password)
+
+
+async def set_guardian_hat_password(
+    db: AsyncSession,
+    *,
+    link: StudentFamilyLink,
+    password: str,
+    confirm_password: str,
+) -> None:
+    if password != confirm_password:
+        raise HTTPException(status_code=400, detail="Passwords do not match")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Parent access password must be at least 8 characters")
+    if link.guardian_hat_password_hash:
+        raise HTTPException(
+            status_code=409,
+            detail="Parent access password is already set. Use it to switch to parent view.",
+        )
+    link.guardian_hat_password_hash = hash_guardian_hat_password(password)
+    link.updated_at = datetime.now(timezone.utc)
 
 
 async def upsert_family_link(
@@ -274,7 +300,7 @@ async def ensure_parent_guardian_for_student(
             full_name=student_signup.guardian_name.strip(),
             mobile=student_signup.guardian_mobile.strip(),
             email=student_signup.email,
-            password_hash=student_signup.password_hash,
+            password_hash=hash_password(secrets.token_urlsafe(32)),
             address_line1=student_signup.address_line1,
             address_line2=student_signup.address_line2,
             city=student_signup.city,
@@ -412,12 +438,24 @@ async def build_family_hats_context(db: AsyncSession, current: SignupRequest) ->
             "member_kind": parent.member_kind if parent else None,
             "can_switch": parent is not None,
             "requires_password": True,
+            "parent_hat_password_set": bool(link.guardian_hat_password_hash),
         }
         if parent
         else None,
     }
 
 
+def verify_guardian_hat_password(password: str, link: StudentFamilyLink | None) -> None:
+    if not link or not link.guardian_hat_password_hash:
+        raise HTTPException(
+            status_code=403,
+            detail="Create a parent access password before switching to parent view",
+        )
+    if not verify_password(password, link.guardian_hat_password_hash):
+        raise HTTPException(status_code=401, detail="Parent access password is incorrect")
+
+
 def verify_password_for_hat_switch(password: str, signup: SignupRequest) -> None:
+    """Deprecated: use verify_guardian_hat_password with the family link."""
     if not verify_password(password, signup.password_hash):
         raise HTTPException(status_code=401, detail="Password required to switch to parent view")
