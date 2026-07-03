@@ -298,6 +298,7 @@ async def circle_recent_messages(
 async def list_warned_messages(db: AsyncSession = Depends(get_db)):
     """Fetch recent messages that were warned/flagged by the AI shield."""
     from app.chat.models import ChatMessage, GamifiedPersona, ChatChannel
+    from app.services.shield import is_social_handle_false_positive
 
     stmt = (
         select(ChatMessage, GamifiedPersona, ChatChannel)
@@ -305,12 +306,17 @@ async def list_warned_messages(db: AsyncSession = Depends(get_db)):
         .join(ChatChannel, ChatMessage.channel_id == ChatChannel.id)
         .where(ChatMessage.shield_action == 'warn')
         .order_by(ChatMessage.created_at.desc())
-        .limit(50)
+        .limit(100)
     )
     res = await db.execute(stmt)
 
     out = []
     for msg, persona, channel in res.all():
+        if (
+            msg.shield_reason == "social_handle_detected"
+            and is_social_handle_false_positive(msg.content_text)
+        ):
+            continue
         out.append(WarnedMessageOut(
             id=str(msg.id),
             channel_id=str(msg.channel_id),
@@ -323,4 +329,6 @@ async def list_warned_messages(db: AsyncSession = Depends(get_db)):
             sender_user_id=str(persona.user_id) if persona else None,
             circle_id=str(channel.circle_id)
         ))
+        if len(out) >= 50:
+            break
     return out

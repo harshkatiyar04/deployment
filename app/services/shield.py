@@ -82,6 +82,33 @@ OFF_PLATFORM_HINTS = re.compile(
     re.IGNORECASE,
 )
 
+# @kia / in-circle @mentions are intentional — not off-platform social handles.
+ALLOWED_BOT_MENTION = re.compile(r"^@kia\b", re.IGNORECASE)
+IN_CIRCLE_MENTION = re.compile(r"^@[\w.]{1,30}\b", re.IGNORECASE)
+
+
+def is_social_handle_false_positive(content: str | None) -> bool:
+    """True when a stored social_handle_detected warn was an in-app @mention."""
+    if not content:
+        return False
+    text = content.strip()
+    if ALLOWED_BOT_MENTION.match(text):
+        return not (
+            OFF_PLATFORM_HINTS.search(text) or SOCIAL_HANDLE_CONTEXT.search(text)
+        )
+    if IN_CIRCLE_MENTION.match(text):
+        return not (
+            SOCIAL_HANDLE_RAW.search(text)
+            or SOCIAL_HANDLE_CONTEXT.search(text)
+            or OFF_PLATFORM_HINTS.search(text)
+        )
+    return False
+
+
+def _allow_in_platform_mention(text: str) -> bool:
+    """Fast-path allow for @Kia and other in-circle @mentions."""
+    return is_social_handle_false_positive(text)
+
 # --- LAYER 2: Gemini LLM Context Moderation ---
 SYSTEM_PROMPT = """You are the Moderation Brain for ZENK Impact (Youth Mentorship Platform).
 
@@ -132,6 +159,9 @@ async def shield_message_async(text: str) -> dict:
     if not text:
         return {"action": "allow", "reason": None, "entity": None}
 
+    if _allow_in_platform_mention(text):
+        return {"action": "allow", "reason": None, "entity": None}
+
     # Instant rigid block
     for pattern in [INDIAN_MOBILE, AADHAAR, EMAIL, URL]:
         if pattern.search(text):
@@ -175,6 +205,9 @@ def shield_message(text: str) -> dict:
 
 def _legacy_shield(text: str) -> dict:
     """Refined safety-net fallback if Gemini is unavailable."""
+    if _allow_in_platform_mention(text):
+        return {"action": "allow", "reason": None, "entity": None}
+
     if TOXICITY_RED.search(text) or SELF_HARM_FAST.search(text) or SUBSTANCE_FAST.search(text):
         return {"action": "block", "reason": "safety_policy_violation", "entity": None}
 

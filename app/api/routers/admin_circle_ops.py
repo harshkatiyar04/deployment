@@ -12,6 +12,7 @@ from app.core.admin_deps import require_admin_api_key
 from app.db.session import get_db
 from app.microservices.sponsor_circle.schemas import CircleAdminRequestOut
 from app.services.admin_circle_overview import (
+    admin_circle_ops_page_bundle,
     admin_circles_summary,
     get_admin_circle_detail,
     list_admin_circles,
@@ -73,6 +74,22 @@ class AdminCirclesSummaryOut(BaseModel):
     total_members: int
     pending_ops_count: int
     total_hours_month: float
+
+
+class AdminCircleOpsPageBundleOut(BaseModel):
+    summary: AdminCirclesSummaryOut
+    circles: list[AdminCircleListItem]
+    pending: list[CircleAdminRequestOut]
+
+
+@router.get("/page-bundle", response_model=AdminCircleOpsPageBundleOut)
+async def circle_ops_page_bundle(db: AsyncSession = Depends(get_db)):
+    bundle = await admin_circle_ops_page_bundle(db)
+    return AdminCircleOpsPageBundleOut(
+        summary=AdminCirclesSummaryOut(**bundle["summary"]),
+        circles=[AdminCircleListItem(**row) for row in bundle["circles"]],
+        pending=[CircleAdminRequestOut(**r) for r in bundle["pending"]],
+    )
 
 
 @router.get("/summary", response_model=AdminCirclesSummaryOut)

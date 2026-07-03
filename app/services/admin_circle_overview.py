@@ -15,10 +15,12 @@ from app.models.circle_ops import (
     STATUS_PENDING,
 )
 from app.models.signup import SignupRequest
-from app.services.circle_membership_ops import circle_member_limit, count_circle_members
+from app.services.circle_membership_ops import circle_member_limit
+from app.services.student_circle_privacy import BENEFICIARY_ROLE
 from app.services.sponsor_circle_time_impact import (
     _month_start,
-    member_activity_since,
+    batch_circle_hours_since,
+    batch_member_activity_for_circle,
     platform_hours_since,
 )
 
@@ -57,37 +59,66 @@ async def _pending_ops_count(db: AsyncSession, circle_id: str) -> int:
     return int(res.scalar_one() or 0)
 
 
-async def _circle_month_hours(db: AsyncSession, circle: SponsorCircle) -> float:
-    since = _month_start()
-    res = await db.execute(
-        select(CircleMember.user_id).where(CircleMember.circle_id == circle.id)
-    )
-    total = 0.0
-    for (uid,) in res.all():
-        act = await member_activity_since(db, uid, circle, since)
-        total += float(act.get("hours") or 0)
-    return round(total, 1)
-
-
 async def list_admin_circles(db: AsyncSession) -> list[dict[str, Any]]:
     res = await db.execute(
         select(SponsorCircle).order_by(SponsorCircle.created_at.desc())
     )
     circles = list(res.scalars().all())
+    if not circles:
+        return []
+
+    circle_ids = [c.id for c in circles]
+    since = _month_start()
+
+    mc_res = await db.execute(
+        select(CircleMember.circle_id, func.count())
+        .where(
+            CircleMember.circle_id.in_(circle_ids),
+            func.lower(CircleMember.role) != BENEFICIARY_ROLE,
+        )
+        .group_by(CircleMember.circle_id)
+    )
+    member_counts = {cid: int(cnt) for cid, cnt in mc_res.all()}
+
+    leader_res = await db.execute(
+        select(CircleMember.circle_id, SignupRequest.full_name)
+        .join(SignupRequest, SignupRequest.id == CircleMember.user_id)
+        .where(
+            CircleMember.circle_id.in_(circle_ids),
+            CircleMember.role.in_(list(LEADER_ROLES)),
+        )
+        .order_by(CircleMember.joined_at.asc())
+    )
+    leader_names: dict[str, str] = {}
+    for cid, name in leader_res.all():
+        leader_names.setdefault(cid, name)
+
+    pend_res = await db.execute(
+        select(CircleAdminRequest.circle_id, func.count())
+        .where(
+            CircleAdminRequest.circle_id.in_(circle_ids),
+            CircleAdminRequest.status == STATUS_PENDING,
+            CircleAdminRequest.request_type.in_(sorted(REQUEST_TYPES_MEMBERSHIP)),
+        )
+        .group_by(CircleAdminRequest.circle_id)
+    )
+    pending_counts = {cid: int(cnt) for cid, cnt in pend_res.all()}
+
+    hours_by_circle = await batch_circle_hours_since(db, circles, since)
+
     out: list[dict[str, Any]] = []
     for circle in circles:
-        member_count = await count_circle_members(db, circle.id)
         out.append(
             {
                 "id": circle.id,
                 "name": circle.name,
                 "status": circle.status,
-                "member_count": member_count,
+                "member_count": member_counts.get(circle.id, 0),
                 "member_limit": circle_member_limit(circle),
                 "created_at": _iso(circle.created_at),
-                "leader_name": await _circle_leader_name(db, circle.id),
-                "circle_hours_month": await _circle_month_hours(db, circle),
-                "pending_ops_count": await _pending_ops_count(db, circle.id),
+                "leader_name": leader_names.get(circle.id),
+                "circle_hours_month": hours_by_circle.get(circle.id, 0.0),
+                "pending_ops_count": pending_counts.get(circle.id, 0),
             }
         )
     return out
@@ -106,10 +137,16 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
         .where(CircleMember.circle_id == circle.id)
         .order_by(CircleMember.joined_at.asc())
     )
+    member_rows = members_res.all()
+    user_ids = [signup.id for _, signup in member_rows]
+    activity_by_user = await batch_member_activity_for_circle(
+        db, circle, user_ids, since
+    )
+
     members_out: list[dict[str, Any]] = []
     total_hrs = 0.0
-    for cm, signup in members_res.all():
-        act = await member_activity_since(db, signup.id, circle, since)
+    for cm, signup in member_rows:
+        act = activity_by_user.get(signup.id, {})
         hrs = float(act.get("hours") or 0)
         total_hrs += hrs
         members_out.append(
@@ -193,19 +230,27 @@ async def admin_circles_summary_light(db: AsyncSession) -> dict[str, Any]:
 
 
 async def admin_circles_summary(db: AsyncSession) -> dict[str, Any]:
-    """Full summary including per-member hours — use on circle ops pages, not main dashboard."""
+    """KPI strip for circle ops — aggregate counts only (no per-circle roster loop)."""
+    return await admin_circles_summary_light(db)
+
+
+async def admin_circle_ops_page_bundle(db: AsyncSession) -> dict[str, Any]:
+    """Single round-trip payload for the admin Circle Ops page."""
+    from app.services.circle_membership_ops import list_pending_membership_ops_queue
+
+    # AsyncSession is not safe for concurrent use — load sequentially.
     circles = await list_admin_circles(db)
-    pending_res = await db.execute(
-        select(func.count())
-        .select_from(CircleAdminRequest)
-        .where(
-            CircleAdminRequest.status == STATUS_PENDING,
-            CircleAdminRequest.request_type.in_(sorted(REQUEST_TYPES_MEMBERSHIP)),
-        )
-    )
-    return {
+    pending = await list_pending_membership_ops_queue(db)
+    summary = {
         "total_circles": len(circles),
         "total_members": sum(c["member_count"] for c in circles),
-        "pending_ops_count": int(pending_res.scalar_one() or 0),
-        "total_hours_month": round(sum(c["circle_hours_month"] for c in circles), 1),
+        "pending_ops_count": len(pending),
+        "total_hours_month": round(
+            sum(c["circle_hours_month"] for c in circles), 1
+        ),
+    }
+    return {
+        "summary": summary,
+        "circles": circles,
+        "pending": pending,
     }

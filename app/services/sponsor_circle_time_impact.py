@@ -105,6 +105,83 @@ async def circle_hours_since(
     return _minutes_to_hours(msgs, orders, reviews)
 
 
+async def batch_circle_hours_since(
+    db: AsyncSession,
+    circles: list[SponsorCircle],
+    since: datetime,
+) -> dict[str, float]:
+    """Circle-level hours for many circles — sequential session use, batched counts."""
+    if not circles:
+        return {}
+
+    circle_ids = [c.id for c in circles]
+    since_naive = _since_naive(since)
+
+    msg_res = await db.execute(
+        select(ChatChannel.circle_id, func.count(ChatMessage.id))
+        .select_from(ChatMessage)
+        .join(ChatChannel, ChatChannel.id == ChatMessage.channel_id)
+        .where(
+            ChatChannel.circle_id.in_(circle_ids),
+            ChatMessage.created_at >= since_naive,
+            ChatMessage.hidden_at.is_(None),
+            ChatMessage.deleted_at.is_(None),
+            ChatMessage.content_text.isnot(None),
+            func.length(func.trim(ChatMessage.content_text)) > 0,
+        )
+        .group_by(ChatChannel.circle_id)
+    )
+    msgs_by_circle = {cid: int(cnt) for cid, cnt in msg_res.all()}
+
+    rev_res = await db.execute(
+        select(
+            SchoolStudentEnrollmentRequest.circle_id,
+            func.count(SchoolStudentEnrollmentRequest.id),
+        )
+        .where(
+            SchoolStudentEnrollmentRequest.circle_id.in_(circle_ids),
+            SchoolStudentEnrollmentRequest.status == ENROLLMENT_APPROVED,
+            SchoolStudentEnrollmentRequest.reviewed_at.isnot(None),
+            SchoolStudentEnrollmentRequest.reviewed_at >= since_naive,
+        )
+        .group_by(SchoolStudentEnrollmentRequest.circle_id)
+    )
+    revs_by_circle = {cid: int(cnt) for cid, cnt in rev_res.all()}
+
+    mem_res = await db.execute(
+        select(CircleMember.circle_id, CircleMember.user_id).where(
+            CircleMember.circle_id.in_(circle_ids)
+        )
+    )
+    members_by_circle: dict[str, list[str]] = {}
+    for cid, uid in mem_res.all():
+        members_by_circle.setdefault(cid, []).append(uid)
+
+    orders_by_circle: dict[str, int] = {}
+    for circle in circles:
+        member_ids = members_by_circle.get(circle.id, [])
+        clauses = _order_clauses_for_circle(circle, member_ids)
+        if not clauses:
+            orders_by_circle[circle.id] = 0
+            continue
+        ord_res = await db.execute(
+            select(func.count(VendorOrder.id)).where(
+                VendorOrder.created_at >= since_naive,
+                or_(*clauses),
+            )
+        )
+        orders_by_circle[circle.id] = int(ord_res.scalar() or 0)
+
+    return {
+        cid: _minutes_to_hours(
+            msgs_by_circle.get(cid, 0),
+            orders_by_circle.get(cid, 0),
+            revs_by_circle.get(cid, 0),
+        )
+        for cid in circle_ids
+    }
+
+
 async def platform_hours_since(db: AsyncSession, since: datetime) -> float:
     """Platform-wide impact hours in one pass — for admin dashboard KPIs only."""
     since_naive = _since_naive(since)
@@ -205,6 +282,87 @@ async def member_activity_since(
         "orders_count": orders,
         "enrollment_reviews_count": reviews,
     }
+
+
+async def batch_member_activity_for_circle(
+    db: AsyncSession,
+    circle: SponsorCircle,
+    user_ids: list[str],
+    since: datetime,
+) -> dict[str, dict[str, Any]]:
+    """Per-member activity for a circle in three queries instead of 3×members."""
+    if not user_ids:
+        return {}
+
+    since_naive = _since_naive(since)
+    uid_set = list(dict.fromkeys(user_ids))
+
+    msg_res = await db.execute(
+        select(GamifiedPersona.user_id, func.count(ChatMessage.id))
+        .select_from(ChatMessage)
+        .join(ChatChannel, ChatChannel.id == ChatMessage.channel_id)
+        .join(GamifiedPersona, GamifiedPersona.id == ChatMessage.gamified_persona_id)
+        .where(
+            ChatChannel.circle_id == circle.id,
+            GamifiedPersona.user_id.in_(uid_set),
+            ChatMessage.created_at >= since_naive,
+            ChatMessage.hidden_at.is_(None),
+            ChatMessage.deleted_at.is_(None),
+            ChatMessage.content_text.isnot(None),
+            func.length(func.trim(ChatMessage.content_text)) > 0,
+        )
+        .group_by(GamifiedPersona.user_id)
+    )
+    msgs_by_user = {uid: int(cnt) for uid, cnt in msg_res.all()}
+
+    rev_res = await db.execute(
+        select(
+            SchoolStudentEnrollmentRequest.reviewed_by_user_id,
+            func.count(SchoolStudentEnrollmentRequest.id),
+        )
+        .where(
+            SchoolStudentEnrollmentRequest.circle_id == circle.id,
+            SchoolStudentEnrollmentRequest.reviewed_by_user_id.in_(uid_set),
+            SchoolStudentEnrollmentRequest.status == ENROLLMENT_APPROVED,
+            SchoolStudentEnrollmentRequest.reviewed_at.isnot(None),
+            SchoolStudentEnrollmentRequest.reviewed_at >= since_naive,
+        )
+        .group_by(SchoolStudentEnrollmentRequest.reviewed_by_user_id)
+    )
+    revs_by_user = {
+        uid: int(cnt) for uid, cnt in rev_res.all() if uid
+    }
+
+    member_res = await db.execute(
+        select(CircleMember.user_id).where(CircleMember.circle_id == circle.id)
+    )
+    member_ids = [r[0] for r in member_res.all()]
+    clauses = _order_clauses_for_circle(circle, member_ids)
+    orders_by_user: dict[str, int] = {}
+    if clauses:
+        ord_res = await db.execute(
+            select(VendorOrder.buyer_id, func.count(VendorOrder.id))
+            .where(
+                VendorOrder.buyer_id.in_(uid_set),
+                VendorOrder.created_at >= since_naive,
+                or_(*clauses),
+            )
+            .group_by(VendorOrder.buyer_id)
+        )
+        orders_by_user = {uid: int(cnt) for uid, cnt in ord_res.all() if uid}
+
+    out: dict[str, dict[str, Any]] = {}
+    for uid in uid_set:
+        msgs = msgs_by_user.get(uid, 0)
+        orders = orders_by_user.get(uid, 0)
+        reviews = revs_by_user.get(uid, 0)
+        out[uid] = {
+            "hours": _minutes_to_hours(msgs, orders, reviews),
+            "messages_count": msgs,
+            "orders_count": orders,
+            "enrollment_reviews_count": reviews,
+        }
+    return out
 
 
 async def build_member_participation(
