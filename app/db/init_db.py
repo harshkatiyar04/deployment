@@ -26,6 +26,13 @@ async def init_db() -> None:
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "ZENK";'))
         await conn.execute(text('CREATE SCHEMA IF NOT EXISTS "audit";'))
         await conn.execute(text('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";'))
+
+        # ZenQ tables are owned by migrations 037+ (server defaults, FKs). create_all would
+        # register them without gen_random_uuid() if api_router imported zenq models first.
+        zenq_table_keys = [k for k in Base.metadata.tables if "zenq_" in k]
+        for key in zenq_table_keys:
+            Base.metadata.remove(Base.metadata.tables[key])
+
         await conn.run_sync(Base.metadata.create_all)
 
         # ── Trigger Logic for Admin Audit Trail ───────────────────────────────

@@ -26,6 +26,7 @@ from app.services.circle_access import resolve_circle_access
 from app.services.kyc_resubmit import list_signup_kyc_documents, resubmit_kyc_documents
 from app.services.kyc_review import extract_kyc_review_note
 from app.services.school_provision import ensure_school_profile
+from app.services.mentor_provision import ensure_mentor_profile
 from app.services.signup_contact import session_contact_extras, update_signup_contact
 from app.schemas.signup import SignupContactDisplay
 from app.services.legal_terms import (
@@ -176,6 +177,9 @@ async def login(
 
     if signup.persona == Persona.school and signup.kyc_status == KycStatus.approved:
         await ensure_school_profile(db, signup, is_partner=True, onboarding_source="public_signup")
+
+    if signup.persona == Persona.mentor and signup.kyc_status == KycStatus.approved:
+        await ensure_mentor_profile(db, signup)
 
     await db.commit()
 

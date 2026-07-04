@@ -49,3 +49,19 @@ def recalibrate_weights(
 
     norm = sum(next_weights.values()) or 1.0
     return {k: v / norm for k, v in next_weights.items()}
+
+
+def compute_component_correlations(
+    component_history: dict[str, Iterable[float]],
+    spd_outcomes: list[float],
+    *,
+    min_samples: int = 30,
+) -> dict[str, float]:
+    correlations: dict[str, float] = {}
+    for component, values in component_history.items():
+        series = list(values)
+        if len(series) >= min_samples and len(series) == len(spd_outcomes):
+            correlations[component] = round(max(_pearsonr_safe(series, spd_outcomes), 0.0), 4)
+        else:
+            correlations[component] = 0.0
+    return correlations

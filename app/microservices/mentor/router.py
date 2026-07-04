@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, date
+import asyncio
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -12,6 +13,7 @@ from sqlalchemy import select
 from app.db.session import get_db
 from app.core.admin_deps import require_admin_api_key
 from app.core.jwt_auth import get_current_user
+from app.core.settings import settings
 from app.models.signup import SignupRequest
 from app.models.enums import Persona
 from app.models.mentor import MentorProfile, MentorSession, MentorUpliftAction, MentorKiaMessage
@@ -28,6 +30,8 @@ from app.services.kia_mentor import (
     generate_mentor_response,
     generate_mentor_inspire_insight,
 )
+from app.services.zenq_event_processor import run_mentor_session_zenq_pipeline
+from app.services.mentor_provision import ensure_mentor_profile
 
 router = APIRouter(prefix="/mentor", tags=["Mentor Dashboard"])
 
@@ -41,6 +45,18 @@ def _require_mentor(user: SignupRequest) -> SignupRequest:
             detail="Mentor dashboard is restricted to mentor accounts.",
         )
     return user
+
+
+async def _get_mentor_profile(db: AsyncSession, user: SignupRequest) -> MentorProfile:
+    """Load mentor profile, creating it on first access for approved mentors."""
+    profile = await ensure_mentor_profile(db, user)
+    if not profile:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Mentor profile not found. Please contact your ZenK administrator.",
+        )
+    await db.commit()
+    return profile
 
 
 # ── Scoring helpers ───────────────────────────────────────────────────────────
@@ -107,16 +123,7 @@ async def get_mentor_profile(
     user: SignupRequest = Depends(get_current_user),
 ):
     _require_mentor(user)
-
-    stmt = select(MentorProfile).where(MentorProfile.id == user.id)
-    result = await db.execute(stmt)
-    profile = result.scalar_one_or_none()
-
-    if not profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Mentor profile not found. Please contact your ZenK administrator.",
-        )
+    profile = await _get_mentor_profile(db, user)
 
     return MentorProfileResponse(
         id=profile.id,
@@ -188,13 +195,7 @@ async def log_mentor_session(
     user: SignupRequest = Depends(get_current_user),
 ):
     _require_mentor(user)
-
-    # Fetch profile to update KPIs
-    stmt = select(MentorProfile).where(MentorProfile.id == user.id)
-    result = await db.execute(stmt)
-    profile = result.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Mentor profile not found.")
+    profile = await _get_mentor_profile(db, user)
 
     inspire_pts = _compute_inspire_pts(body.duration_hrs, body.engagement_level, body.inspiration_shared)
     zenq_impact = _compute_zenq_impact(body.duration_hrs, body.engagement_level)
@@ -228,6 +229,16 @@ async def log_mentor_session(
 
     await db.commit()
     await db.refresh(session)
+
+    if settings.zenq_live_events:
+        asyncio.create_task(
+            run_mentor_session_zenq_pipeline(
+                session_id=session.id,
+                mentor_user_id=user.id,
+                student_circle=body.student_circle,
+                duration_hrs=body.duration_hrs,
+            )
+        )
 
     return MentorSessionResponse(
         id=session.id,
@@ -275,12 +286,7 @@ async def get_inspire_index(
     user: SignupRequest = Depends(get_current_user),
 ):
     _require_mentor(user)
-
-    stmt = select(MentorProfile).where(MentorProfile.id == user.id)
-    result = await db.execute(stmt)
-    profile = result.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Mentor profile not found.")
+    profile = await _get_mentor_profile(db, user)
 
     breakdown_data = profile.inspire_breakdown or {}
     breakdown_items = []
@@ -359,12 +365,7 @@ async def log_uplift_action(
     user: SignupRequest = Depends(get_current_user),
 ):
     _require_mentor(user)
-
-    stmt = select(MentorProfile).where(MentorProfile.id == user.id)
-    result = await db.execute(stmt)
-    profile = result.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Mentor profile not found.")
+    profile = await _get_mentor_profile(db, user)
 
     impact_score = ACTION_TYPE_SCORES.get(body.action_type, 0.3)
 
@@ -608,8 +609,9 @@ async def mentor_student_mentoring_inbox(
     from app.models.student_portal import StudentMentoringThread, StudentMentoringMessage
     from app.models.signup import SignupRequest as SignupRow
 
-    profile_res = await db.execute(select(MentorProfile).where(MentorProfile.id == user.id))
-    profile = profile_res.scalar_one_or_none()
+    profile = await ensure_mentor_profile(db, user)
+    if profile:
+        await db.commit()
     circle_ids = []
     if profile and profile.circle_id:
         circle_ids.append(profile.circle_id)
@@ -652,12 +654,7 @@ async def get_mentor_statement(
     user: SignupRequest = Depends(get_current_user),
 ):
     _require_mentor(user)
-
-    stmt = select(MentorProfile).where(MentorProfile.id == user.id)
-    result = await db.execute(stmt)
-    profile = result.scalar_one_or_none()
-    if not profile:
-        raise HTTPException(status_code=404, detail="Mentor profile not found.")
+    profile = await _get_mentor_profile(db, user)
 
     sessions_stmt = (
         select(MentorSession)

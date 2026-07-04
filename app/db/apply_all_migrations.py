@@ -36,6 +36,11 @@ async def apply_all_migrations() -> None:
     from app.db.migrations.migration_034_privacy_policy_pdf import run_migration as m034
     from app.db.migrations.migration_035_circle_rename_requests import run_migration as m035
     from app.db.migrations.migration_036_guardian_hat_password import run_migration as m036
+    from app.db.migrations.migration_037_zenq_foundation import run_migration as m037
+    from app.db.migrations.migration_038_chat_message_ras import run_migration as m038
+    from app.db.migrations.migration_039_zenq_target_logs import run_migration as m039
+    from app.db.migrations.migration_040_zenq_spark_welfare import run_migration as m040
+    from app.db.migrations.migration_041_zenq_weight_analysis import run_migration as m041
 
     for label, fn in (
         ("008", m008),
@@ -66,6 +71,11 @@ async def apply_all_migrations() -> None:
         ("034", m034),
         ("035", m035),
         ("036", m036),
+        ("037", m037),
+        ("038", m038),
+        ("039", m039),
+        ("040", m040),
+        ("041", m041),
     ):
         try:
             await fn()

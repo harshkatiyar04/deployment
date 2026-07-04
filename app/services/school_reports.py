@@ -246,6 +246,19 @@ async def apply_quarterly_report(
     ready = bool(payload.get("ready_for_zenk", True))
     teacher_name = user.full_name or "School staff"
 
+    # Finalized quarterly reports are immutable
+    existing_narr_res = await db.execute(
+        select(SchoolStudentNarrative).where(
+            SchoolStudentNarrative.student_id == student.id,
+            SchoolStudentNarrative.quarter == quarter,
+        )
+    )
+    existing_narr = existing_narr_res.scalar_one_or_none()
+    if existing_narr and existing_narr.finalized:
+        raise ValueError(
+            f"The {quarter} report for this student is finalized and cannot be changed."
+        )
+
     subject_scores = payload.get("subject_scores") or {}
     blooms = payload.get("blooms") or {}
     sel = payload.get("sel") or {}

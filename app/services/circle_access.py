@@ -95,7 +95,7 @@ async def resolve_circle_access(db: AsyncSession, signup: SignupRequest) -> dict
         }
 
     if persona == Persona.sponsor_member:
-        invite_cid, leader_status = parse_invite_note(signup.admin_note)
+        invite_cid, leader_status, _ = parse_invite_note(signup.admin_note)
         in_circle = False
         circle_name = None
         if invite_cid:

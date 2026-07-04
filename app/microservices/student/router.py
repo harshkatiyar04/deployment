@@ -26,6 +26,8 @@ from app.microservices.student.schemas import (
     StudentPseudonymCheckOut,
     StudentPseudonymSetOut,
     StudentPseudonymSetRequest,
+    StudentZenqSparkOut,
+    StudentZenqSparkRequest,
 )
 from app.services.student_pseudonym import (
     check_pseudonym_available,
@@ -46,6 +48,8 @@ from app.services.student_dashboard import (
     build_student_overview,
     build_student_profile,
     build_student_progress,
+    resolve_school_student,
+    resolve_student_circle_id,
 )
 from app.services.student_circle_enrollment import (
     list_circles_for_student,
@@ -406,3 +410,27 @@ async def ensure_default_thread(
     thread = await get_or_create_default_thread(db, user)
     await db.commit()
     return {"thread_id": thread.id, "title": thread.title}
+
+
+@router.post("/zenq/spark", response_model=StudentZenqSparkOut)
+async def student_zenq_spark(
+    body: StudentZenqSparkRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Student-triggered ZenQ Spark — boosts circle S-factor for 7 days (30-day cooldown)."""
+    _require_student(user)
+    from app.services.zenq_spark import create_student_spark
+
+    school_student = await resolve_school_student(db, user)
+    if not school_student:
+        raise HTTPException(status_code=404, detail="Student school profile not found")
+    circle_id = await resolve_student_circle_id(db, user, school_student)
+    if not circle_id:
+        raise HTTPException(status_code=404, detail="No sponsor circle enrolled")
+    return await create_student_spark(
+        db,
+        student_id=school_student.id,
+        circle_id=circle_id,
+        reason=body.reason,
+    )

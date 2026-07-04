@@ -255,6 +255,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         Persona.sponsor_leader: "Sponsor Leader",
         Persona.sponsor_member: "Circle Member",
         Persona.vendor: "Vendor",
+        Persona.mentor: "Mentor",
         Persona.student: "Student",
         Persona.school: "School Partner",
     }
@@ -820,6 +821,114 @@ async def signup_vendor(
     await db.refresh(signup)
 
     await _send_admin_notification(Persona.vendor, signup, db)
+
+    docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
+    docs = docs_res.scalars().all()
+
+    return SignupResponse(
+        id=signup.id,
+        persona=signup.persona,
+        full_name=signup.full_name,
+        mobile=signup.mobile,
+        email=signup.email,
+        kyc_status=signup.kyc_status,
+        documents=[
+            {
+                "id": d.id,
+                "original_filename": d.original_filename,
+                "stored_filename": d.stored_filename,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in docs
+        ],
+    )
+
+
+@router.post(
+    "/mentor",
+    response_model=SignupResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def signup_mentor(
+    request: Request,
+    # Common fields (same shape as vendor for now)
+    full_name: str = Form(...),
+    mobile: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    confirm_password: str = Form(...),
+    address_line1: str = Form(...),
+    address_line2: str = Form(...),
+    city: str = Form(...),
+    state: str = Form(...),
+    pincode: str = Form(...),
+    country: str = Form(...),
+    # Mentor professional fields — same required set as vendor
+    business_name: str = Form(...),
+    business_type: str = Form(...),
+    gst_number: str = Form(...),
+    pan_number: str = Form(...),
+    product_categories: str = Form(...),
+    website: str = Form(...),
+    kyc_doc: Optional[UploadFile] = File(default=None),
+    kyc_docs: Optional[list[UploadFile]] = File(default=None),
+    terms_version: str = Form(...),
+    terms_accepted: str = Form(...),
+    privacy_version: str = Form(...),
+    privacy_accepted: str = Form(...),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mentor signup — same KYC/business fields as vendor; routes to mentor dashboard after approval."""
+    _require(password == confirm_password, "Password and confirm password do not match")
+    _require(len(password) >= 8, "Password must be at least 8 characters long")
+
+    all_files: list[UploadFile] = []
+    if kyc_doc:
+        all_files.append(kyc_doc)
+    if kyc_docs:
+        all_files.extend(kyc_docs)
+
+    _require(len(all_files) > 0, "At least one KYC document is required (use kyc_doc or kyc_docs)")
+
+    email = validate_email_format(email)
+    signup = await find_signup_by_persona_email(db, persona=Persona.mentor, email=email)
+
+    signup = await _process_signup_common(
+        persona=Persona.mentor,
+        signup=signup,
+        full_name=full_name,
+        mobile=mobile,
+        email=email,
+        password=password,
+        address_line1=address_line1,
+        address_line2=address_line2,
+        city=city,
+        state=state,
+        pincode=pincode,
+        country=country,
+        kyc_docs=all_files,
+        db=db,
+    )
+
+    signup.business_name = business_name
+    signup.business_type = business_type
+    signup.gst_number = gst_number
+    signup.pan_number = pan_number
+    signup.product_categories = product_categories
+    signup.website = website
+    await enforce_signup_legal_bundle(
+        db,
+        request,
+        signup,
+        terms_version=terms_version,
+        terms_accepted=terms_accepted,
+        privacy_version=privacy_version,
+        privacy_accepted=privacy_accepted,
+    )
+    await db.commit()
+    await db.refresh(signup)
+
+    await _send_admin_notification(Persona.mentor, signup, db)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()

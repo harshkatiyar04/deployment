@@ -154,6 +154,8 @@ class PendingCircleMemberItem(BaseModel):
     can_approve: bool = False
     can_reject: bool = False
     created_at: Optional[datetime] = None
+    # Explicit UTC ISO (…Z) for when they applied via invite — not account signup time.
+    applied_at: Optional[str] = None
 
 
 class PendingCircleMembersResponse(BaseModel):
@@ -236,17 +238,21 @@ class SponsoredStudentProfileResponse(BaseModel):
     sl_name: Optional[str] = None
     class_teacher: Optional[str] = None
     mentor_name: Optional[str] = None
-    attendance_pct: int = 0
-    avg_score: int = 0
-    zqa_score: int = 0
+    attendance_pct: Optional[int] = None
+    avg_score: Optional[int] = None
+    zqa_score: Optional[int] = None
     risk_level: Optional[str] = None
     q_report_status: Optional[str] = None
-    improvement_pts: int = 0
+    improvement_pts: Optional[int] = None
     zenq_contribution: Optional[float] = None
     rank_in_class: Optional[str] = None
     class_size: Optional[int] = None
     rank_display: Optional[str] = None
+    quarter: Optional[str] = None
     latest_quarter: str = "Q4"
+    quarter_status: str = "published"
+    quarter_message: str = ""
+    quarters_with_data: List[str] = []
     subject_scores: List[SponsoredSubjectScore] = []
     blooms: Optional[SponsoredBlooms] = None
     sel: Optional[SponsoredSEL] = None
@@ -257,6 +263,8 @@ class SponsoredStudentProfileResponse(BaseModel):
     has_zqa: bool = False
     privacy_note: str = ""
     parent_approved_uploads: List[ParentApprovedUploadBrief] = []
+    viewer: Optional[str] = None
+    read_only: bool = True
 
 
 class TimeImpactResponse(BaseModel):
@@ -477,6 +485,7 @@ class ImpactLeagueRow(BaseModel):
     impact_score: Optional[int] = None
     student_count: int = 0
     zenq_avg: Optional[int] = None
+    is_mine: bool = False
 
 
 class ImpactLeagueResponse(BaseModel):
@@ -557,6 +566,10 @@ class CircleOverviewResponse(BaseModel):
     pending_enrollment_count: int
     zenq_score: Optional[int] = None
     zenq_available: bool = False
+    zenq_source: Optional[str] = None
+    zenq_breakdown: Optional[dict] = None
+    zenq_scoreboard: Optional[dict] = None
+    legacy_zqa_avg: Optional[int] = None
     circle_rank: Optional[int] = None
     total_circles: Optional[int] = None
     participation_pct: int = 0
@@ -619,3 +632,23 @@ class StudentCartSubmissionOut(BaseModel):
 class StudentCartDecisionRequest(BaseModel):
     decision: str = Field(..., description="approved or rejected")
     circle_id: Optional[str] = None
+
+
+class ZenqTargetAchievementRequest(BaseModel):
+    sponsor_user_id: str = Field(..., min_length=8)
+    target_status: str = Field(..., description="none | partial | full | stretch")
+    notes: Optional[str] = Field(None, max_length=500)
+    circle_id: Optional[str] = None
+    quarter: Optional[str] = Field(None, max_length=10)
+    fy: Optional[str] = Field(None, max_length=20)
+
+
+class ZenqTargetAchievementResponse(BaseModel):
+    id: str
+    circle_id: str
+    sponsor_user_id: str
+    quarter: str
+    fy: str
+    target_status: str
+    notes: Optional[str] = None
+    created_at: Optional[str] = None

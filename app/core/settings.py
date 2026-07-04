@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # Dev-only: allow auto-join demo circle (never enable in production)
     allow_demo_circle: bool = Field(default=False, validation_alias="ZENK_ALLOW_DEMO_CIRCLE")
 
+    # ZenQ live scoring — on by default (set ZENQ_ENGINE_ENABLED=false only to roll back)
+    zenq_engine_enabled: bool = Field(default=True, validation_alias="ZENQ_ENGINE_ENABLED")
+    # ZenQ live event pipeline (chat → materializer) — on by default for admin observatory
+    zenq_live_events: bool = Field(default=True, validation_alias="ZENQ_LIVE_EVENTS")
+    # Weekly weight recalibration proposals (admin approval required before activation)
+    zenq_recalibration_enabled: bool = Field(default=True, validation_alias="ZENQ_RECALIBRATION_ENABLED")
+    # AI-backed RAS for chat messages via Groq (falls back to heuristics if unavailable)
+    zenq_ai_ras_enabled: bool = Field(default=True, validation_alias="ZENQ_AI_RAS_ENABLED")
+
     # Platform admin login (HttpOnly cookie — not exposed to frontend JS)
     admin_email: str = Field(default="admin@zenk", validation_alias="ZENK_ADMIN_EMAIL")
     admin_password: Optional[str] = Field(default=None, validation_alias="ZENK_ADMIN_PASSWORD")

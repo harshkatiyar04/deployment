@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
+from app.models.enums import Persona
 from app.models.school import SchoolStudent, SchoolStudentEnrollmentRequest
 from app.models.signup import SignupRequest
 from app.services.impact_briefing import build_briefing_feed_for_circle
@@ -20,9 +21,24 @@ from app.services.student_circle_privacy import (
     mask_student_for_circle,
 )
 
+_LEADER_MEMBER_ROLES = frozenset({"lead", "leader", "sponsor_leader", "coordinator"})
+
+
+def _is_circle_leader_member(cm: CircleMember, signup: SignupRequest) -> bool:
+    role = (cm.role or "").lower()
+    if role in _LEADER_MEMBER_ROLES:
+        return True
+    persona = signup.persona.value if hasattr(signup.persona, "value") else str(signup.persona or "")
+    return persona == Persona.sponsor_leader.value
+
 
 def _iso(dt: datetime | None) -> str | None:
-    return dt.isoformat() if dt else None
+    """Emit UTC ISO with Z so the FE does not treat naive timestamps as local time."""
+    if not dt:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc).isoformat().replace("+00:00", "Z")
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 async def build_profile_pulse(db: AsyncSession, circle: SponsorCircle, user: SignupRequest) -> dict:
@@ -74,21 +90,49 @@ async def build_profile_pulse(db: AsyncSession, circle: SponsorCircle, user: Sig
         select(CircleMember, SignupRequest)
         .join(SignupRequest, SignupRequest.id == CircleMember.user_id)
         .where(CircleMember.circle_id == circle.id)
-        .order_by(CircleMember.joined_at.desc())
-        .limit(5)
+        .order_by(CircleMember.joined_at.asc())
     )
-    for cm, signup in member_res.all():
-        if signup.id == user.id or is_beneficiary_role(cm.role):
+    member_rows = [
+        (cm, signup)
+        for cm, signup in member_res.all()
+        if not is_beneficiary_role(cm.role)
+    ]
+    # Earliest leader membership = circle founder (not "joined")
+    founder_id = None
+    for cm, signup in member_rows:
+        if _is_circle_leader_member(cm, signup):
+            founder_id = signup.id
+            break
+
+    # Newest membership events first in the feed (keep founder event if present)
+    for cm, signup in reversed(member_rows[-8:]):
+        is_leader = _is_circle_leader_member(cm, signup)
+        is_founder = founder_id is not None and signup.id == founder_id
+        # Hide own ordinary join; still show own "created the circle" event
+        if signup.id == user.id and not is_founder:
             continue
         display_name, _, _ = await display_name_for_roster(
             db, signup, cm_role=cm.role or ""
         )
+        if is_founder:
+            text = (
+                "You created the circle"
+                if signup.id == user.id
+                else f"{display_name} created the circle"
+            )
+            source = "Circle founded"
+        elif is_leader:
+            text = f"{display_name} joined as circle leader"
+            source = "Membership"
+        else:
+            text = f"{display_name} joined the circle"
+            source = "Membership"
         items.append(
             {
                 "id": f"member-{signup.id}",
                 "type": "CIRCLE",
-                "text": f"{display_name} joined the circle",
-                "source": "Membership",
+                "text": text,
+                "source": source,
                 "time": _iso(cm.joined_at),
             }
         )

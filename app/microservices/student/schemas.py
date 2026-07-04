@@ -88,3 +88,16 @@ class StudentKiaMessageOut(BaseModel):
 
 class StudentMentoringPostRequest(BaseModel):
     body: str = Field(..., min_length=1, max_length=4000)
+
+
+class StudentZenqSparkRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=500)
+
+
+class StudentZenqSparkOut(BaseModel):
+    id: str
+    student_id: str
+    circle_id: str
+    reason: Optional[str] = None
+    expires_at: str
+    active_days: int

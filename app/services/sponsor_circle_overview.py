@@ -8,12 +8,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
+from app.core.settings import settings
 from app.models.school import SchoolStudent, SchoolStudentEnrollmentRequest
 from app.models.signup import SignupRequest
 from app.services.circle_budget import _can_set_budget, build_budget_payload
 from app.services.school_enrollment_constants import ENROLLMENT_PENDING
 from app.services.circle_membership_ops import circle_member_limit, count_circle_members
 from app.services.sponsor_circle_time_impact import build_time_impact, build_member_participation
+from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
+from app.services.zenq_score_display import build_sponsor_scoreboard
 
 
 async def build_circle_overview(
@@ -52,24 +55,40 @@ async def build_circle_overview(
     )
     pending_enrollment_count = int(pending_enroll.scalar_one() or 0)
 
-    zqa_avg: Optional[float] = None
-    if student_count > 0:
-        avg_res = await db.execute(
-            select(func.avg(SchoolStudent.zqa_score)).where(SchoolStudent.circle_id == circle_id)
-        )
-        raw = avg_res.scalar_one()
-        if raw is not None:
-            zqa_avg = round(float(raw), 1)
+    zenq_display = await resolve_circle_zenq_display(
+        db,
+        circle_id,
+        student_count=student_count,
+        materialize_if_missing=settings.zenq_engine_enabled,
+    )
 
     time_data = await build_time_impact(db, circle_id)
     participation_data = await build_member_participation(
         db, circle, current_user_id=user_id
     )
     my_pct = 0
+    my_hours = 0.0
     for m in participation_data.get("members", []):
         if m.get("badge") == "you":
             my_pct = int(m.get("participation_pct") or 0)
+            my_hours = float(m.get("hours_this_month") or 0)
             break
+
+    scoreboard = await build_sponsor_scoreboard(
+        db,
+        circle_id=circle_id,
+        user_id=user_id,
+        zenq_display=zenq_display,
+        activity={
+            "participation_pct": my_pct,
+            "hours_this_month": my_hours,
+        },
+    )
+
+    league = await list_engine_league_rows(db, circle_id)
+    my_league = next((r for r in league if r.get("is_mine")), None)
+    circle_rank = int(my_league["rank"]) if my_league else None
+    total_circles = len(league) if league else None
 
     return {
         "circle_id": circle.id,
@@ -78,17 +97,21 @@ async def build_circle_overview(
         "member_count": member_count,
         "student_count": student_count,
         "pending_enrollment_count": pending_enrollment_count,
-        "zenq_score": int(zqa_avg) if zqa_avg is not None else None,
-        "zenq_available": student_count > 0,
-        "circle_rank": None,
-        "total_circles": None,
+        "zenq_score": zenq_display.get("zenq_score"),
+        "zenq_available": bool(zenq_display.get("zenq_available")),
+        "zenq_source": zenq_display.get("zenq_source"),
+        "zenq_change": zenq_display.get("zenq_change"),
+        "zenq_breakdown": zenq_display.get("zenq_breakdown"),
+        "zenq_scoreboard": scoreboard,
+        "legacy_zqa_avg": zenq_display.get("legacy_zqa_avg"),
+        "circle_rank": circle_rank,
+        "total_circles": total_circles,
         "participation_pct": my_pct,
         "circle_avg_pct": int(participation_data.get("circle_avg_pct") or 0),
         "participation_vs_avg": my_pct - int(participation_data.get("circle_avg_pct") or 0),
         "participation_available": participation_data.get("metrics_available", True),
         "time_this_month_hrs": time_data.get("my_circle_hrs"),
         "top_group_hrs": time_data.get("highest_circle_hrs"),
-        "zenq_change": None,
         "rank_previous": None,
         "budget": {
             "total_budget": budget["total_budget"],

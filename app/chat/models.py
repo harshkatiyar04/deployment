@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -223,6 +223,8 @@ class ChatMessage(Base):
     media_url: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
     shield_action: Mapped[str] = mapped_column(String(20), nullable=False, default="allow")
     shield_reason: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    ras_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    zenq_substantive: Mapped[Optional[bool]] = mapped_column(Boolean, default=False, nullable=True)
     is_edited: Mapped[bool] = mapped_column(default=False, nullable=False)
     # SOS soft-hide: only this field is ever updated on a message
     hidden_at: Mapped[Optional[datetime]] = mapped_column(

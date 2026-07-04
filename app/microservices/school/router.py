@@ -1209,6 +1209,186 @@ async def request_parent_meeting_student(
         "message": "Simulation only: parent meeting workflow is not yet integrated to scheduling/notification systems.",
     }
 
+async def _build_student_transcript(
+    db: AsyncSession,
+    *,
+    profile: SchoolProfile,
+    student: SchoolStudent,
+) -> dict:
+    """Structured premium transcript payload + plain-text fallback."""
+    scores_res = await db.execute(
+        select(SchoolStudentSubjectScore).where(SchoolStudentSubjectScore.student_id == student.id)
+    )
+    scores = list(scores_res.scalars().all())
+
+    blooms_res = await db.execute(
+        select(SchoolStudentBloomsAssessment).where(
+            SchoolStudentBloomsAssessment.student_id == student.id
+        )
+    )
+    blooms = list(blooms_res.scalars().all())
+
+    sel_res = await db.execute(
+        select(SchoolStudentSEL).where(SchoolStudentSEL.student_id == student.id)
+    )
+    sels = list(sel_res.scalars().all())
+
+    narrative_res = await db.execute(
+        select(SchoolStudentNarrative).where(SchoolStudentNarrative.student_id == student.id)
+    )
+    narratives = list(narrative_res.scalars().all())
+
+    subjects_by_quarter: dict[str, list[dict]] = {}
+    for s in scores:
+        q = (s.quarter or "Q4").upper()
+        subjects_by_quarter.setdefault(q, []).append(
+            {"subject": s.subject, "score": float(s.score or 0), "quarter": q}
+        )
+
+    latest_blooms = blooms[0] if blooms else None
+    latest_sel = sels[0] if sels else None
+    latest_narrative = narratives[0] if narratives else None
+    for n in narratives:
+        if n.finalized:
+            latest_narrative = n
+            break
+
+    attendance = float(student.attendance_pct or 0)
+    avg_score = float(student.avg_score or 0)
+    zqa = float(student.zqa_score or 0)
+
+    transcript = {
+        "school_name": profile.school_name,
+        "school_logo_url": getattr(profile, "school_logo_url", None),
+        "fy": profile.fy_current or "2025-26",
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "student": {
+            "id": student.id,
+            "full_name": student.full_name,
+            "zenk_id": student.zenk_id,
+            "grade": student.grade,
+            "circle_id": student.circle_id,
+            "circle_name": student.circle_name,
+            "class_teacher": student.class_teacher,
+            "sponsor_lead": student.sl_name,
+            "mentor_name": student.mentor_name,
+        },
+        "metrics": {
+            "attendance_pct": attendance,
+            "avg_score": avg_score,
+            "zqa_score": zqa,
+            "rank_in_class": student.rank_in_class,
+            "class_size": student.class_size,
+            "zenq_contribution": float(student.zenq_contribution or 0),
+            "risk_level": student.risk_level,
+        },
+        "subjects_by_quarter": subjects_by_quarter,
+        "blooms": (
+            {
+                "quarter": latest_blooms.quarter,
+                "remember": float(latest_blooms.remember or 0),
+                "understand": float(latest_blooms.understand or 0),
+                "apply": float(latest_blooms.apply or 0),
+                "analyse": float(latest_blooms.analyse or 0),
+                "evaluate": float(latest_blooms.evaluate or 0),
+                "create": float(latest_blooms.create or 0),
+                "assessed_by": latest_blooms.assessed_by,
+            }
+            if latest_blooms
+            else None
+        ),
+        "sel": (
+            {
+                "quarter": latest_sel.quarter,
+                "self_awareness": float(latest_sel.self_awareness or 0),
+                "self_management": float(latest_sel.self_management or 0),
+                "social_awareness": float(latest_sel.social_awareness or 0),
+                "relationship_skills": float(latest_sel.relationship_skills or 0),
+                "responsible_decisions": float(latest_sel.responsible_decisions or 0),
+            }
+            if latest_sel
+            else None
+        ),
+        "narrative": (
+            {
+                "quarter": latest_narrative.quarter,
+                "teacher_name": latest_narrative.teacher_name,
+                "narrative": latest_narrative.narrative,
+                "finalized": bool(latest_narrative.finalized),
+            }
+            if latest_narrative
+            else None
+        ),
+        "finalized": bool(latest_narrative.finalized) if latest_narrative else False,
+    }
+
+    # Plain-text copy for clipboard / legacy clients
+    lines = [
+        "ZENK STUDENT PROGRESS REPORT",
+        f"{profile.school_name} — {transcript['fy']}",
+        "",
+        f"Student: {student.full_name}",
+        f"Grade: {student.grade or '—'}",
+        f"Circle: {student.circle_name or 'Unassigned'}",
+        f"Class Teacher: {student.class_teacher or '—'}",
+        f"Sponsor Lead: {student.sl_name or '—'}",
+        "",
+        "KEY METRICS",
+        f"Attendance: {attendance}%",
+        f"Average Score: {avg_score}%",
+        f"ZQA Score: {zqa if zqa > 0 else 'Pending'}",
+        f"Class Rank: {student.rank_in_class or '—'} / {student.class_size or '—'}",
+        f"Risk Level: {student.risk_level or '—'}",
+        "",
+    ]
+    if subjects_by_quarter:
+        lines.append("SUBJECT PERFORMANCE")
+        for q, rows in sorted(subjects_by_quarter.items()):
+            for row in rows:
+                lines.append(f"  {row['subject']} ({q}): {int(round(row['score']))}%")
+        lines.append("")
+    if latest_narrative and latest_narrative.narrative:
+        lines.append(f"TEACHER NARRATIVE ({latest_narrative.quarter})")
+        lines.append(latest_narrative.narrative)
+        lines.append("")
+    lines.append("Generated by ZenK Impact Platform")
+    transcript["report_text"] = "\n".join(lines)
+    return transcript
+
+
+async def _distribute_report_to_circle(
+    db: AsyncSession,
+    *,
+    profile: SchoolProfile,
+    student: SchoolStudent,
+    teacher_name: str,
+    narrative_text: Optional[str],
+    quarter: str,
+) -> dict:
+    """Push report preview to circle chat (leaders + members) and partner thread."""
+    from app.services.kia_event_briefings import emit_report_published
+
+    result = await emit_report_published(
+        db,
+        school_id=profile.id,
+        student=student,
+        quarter=quarter or "Q4",
+        fy=profile.fy_current or "2025-26",
+        teacher_name=teacher_name or profile.principal_name or "School",
+        narrative=narrative_text,
+        finalized=True,
+    )
+    result = result or {}
+    distributed = bool(result.get("circle_chat") or result.get("partner_thread"))
+    return {
+        "circle_id": result.get("circle_id") or student.circle_id,
+        "circle_name": result.get("circle_name") or student.circle_name,
+        "distributed": distributed,
+        "circle_chat": bool(result.get("circle_chat")),
+        "partner_thread": bool(result.get("partner_thread")),
+    }
+
+
 @router.post("/students/{student_id}/finalize-report")
 async def finalize_student_report(
     student_id: str,
@@ -1222,28 +1402,43 @@ async def finalize_student_report(
         audit_action="finalize_report",
         student_id=student_id,
     )
-    # Verify the student belongs to this school
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id()
+        )
     )
     student = stu_res.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    # Mark narratives as finalized
     narrative_res = await db.execute(
         select(SchoolStudentNarrative).where(SchoolStudentNarrative.student_id == student_id)
     )
-    narratives = narrative_res.scalars().all()
+    narratives = list(narrative_res.scalars().all())
     if not narratives:
         raise HTTPException(status_code=404, detail="No narratives found for this student.")
 
     already_finalized = all(n.finalized for n in narratives)
-    if already_finalized:
-        return {"status": "already_done", "message": f"Report for {student.full_name} was already finalized."}
-
     for n in narratives:
         n.finalized = True
+
+    if student.q_report_status:
+        student.q_report_status = "Finalized"
+
+    latest = narratives[0]
+    for n in narratives:
+        if (n.quarter or "").upper() >= (latest.quarter or "").upper():
+            latest = n
+
+    distribution = await _distribute_report_to_circle(
+        db,
+        profile=profile,
+        student=student,
+        teacher_name=latest.teacher_name or user.full_name or profile.principal_name or "School",
+        narrative_text=latest.narrative,
+        quarter=latest.quarter or "Q4",
+    )
+
     await _audit_school_action(
         db,
         user,
@@ -1251,12 +1446,28 @@ async def finalize_student_report(
         "finalize_report",
         student_id=student_id,
         outcome="success",
+        detail={"redistributed": already_finalized, **distribution},
     )
     await db.commit()
+
+    circle_label = distribution.get("circle_name") or "sponsor circle"
+    if distribution.get("distributed"):
+        msg = (
+            f"Report for {student.full_name} finalized and shared with {circle_label} "
+            f"(leaders and members via circle chat)."
+        )
+    else:
+        msg = (
+            f"Report for {student.full_name} finalized. "
+            f"No sponsor circle is linked yet — assign a circle to distribute."
+        )
     return {
         "status": "success",
-        "message": f"Report for {student.full_name} has been finalized and distributed to Sponsor Lead and Mentor.",
+        "message": msg,
         "student_name": student.full_name,
+        "already_finalized": already_finalized,
+        "distributed": distribution.get("distributed"),
+        "circle_name": distribution.get("circle_name"),
     }
 
 
@@ -1266,117 +1477,25 @@ async def preview_student_report(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a text-based report preview from the student's data."""
+    """Premium transcript payload for on-screen preview."""
     _require_school(user)
     profile = _school_ctx().profile
 
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id()
+        )
     )
     student = stu_res.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    # Fetch all related data
-    scores_res = await db.execute(
-        select(SchoolStudentSubjectScore).where(SchoolStudentSubjectScore.student_id == student_id)
-    )
-    scores = scores_res.scalars().all()
-
-    blooms_res = await db.execute(
-        select(SchoolStudentBloomsAssessment).where(SchoolStudentBloomsAssessment.student_id == student_id)
-    )
-    blooms = blooms_res.scalars().all()
-
-    sel_res = await db.execute(
-        select(SchoolStudentSEL).where(SchoolStudentSEL.student_id == student_id)
-    )
-    sels = sel_res.scalars().all()
-
-    narrative_res = await db.execute(
-        select(SchoolStudentNarrative).where(SchoolStudentNarrative.student_id == student_id)
-    )
-    narratives = narrative_res.scalars().all()
-
-    # Build the preview text
-    lines = []
-    lines.append(f"{'='*60}")
-    lines.append(f"  ZENK STUDENT PROGRESS REPORT")
-    lines.append(f"  {profile.school_name} — {profile.fy_current}")
-    lines.append(f"{'='*60}")
-    lines.append(f"")
-    lines.append(f"  Student: {student.full_name}")
-    lines.append(f"  ZenK ID: {student.zenk_id or 'N/A'}")
-    lines.append(f"  Grade: {student.grade}")
-    lines.append(f"  Circle: {student.circle_name or 'Unassigned'}")
-    lines.append(f"  Class Teacher: {student.class_teacher or 'N/A'}")
-    lines.append(f"  Sponsor Lead: {student.sl_name or 'N/A'}")
-    lines.append(f"  Mentor: {student.mentor_name or 'Not assigned'}")
-    lines.append(f"")
-    lines.append(f"{'─'*60}")
-    lines.append(f"  KEY METRICS")
-    lines.append(f"{'─'*60}")
-    lines.append(f"  Attendance:        {student.attendance_pct}%")
-    lines.append(f"  Average Score:     {student.avg_score}%")
-    zqa_line = f"{student.zqa_score}%" if student.zqa_score > 0 else "Pending (ZenK calculation)"
-    lines.append(f"  ZQA Score:         {zqa_line}")
-    lines.append(f"  Class Rank:        {student.rank_in_class or 'N/A'} / {student.class_size or 'N/A'}")
-    lines.append(f"  ZenQ Contribution: +{student.zenq_contribution or 0}")
-    lines.append(f"  Risk Level:        {student.risk_level}")
-    lines.append(f"")
-
-    if scores:
-        lines.append(f"{'─'*60}")
-        lines.append(f"  SUBJECT PERFORMANCE (QUARTERLY)")
-        lines.append(f"{'─'*60}")
-        grouped = {}
-        for s in scores:
-            grouped.setdefault(s.subject, {})[s.quarter] = s.score
-        for subject, quarters in grouped.items():
-            q_str = "  |  ".join([f"{q}: {v}" for q, v in sorted(quarters.items())])
-            lines.append(f"  {subject}:  {q_str}")
-        lines.append(f"")
-
-    if blooms:
-        b = blooms[0]
-        lines.append(f"{'─'*60}")
-        lines.append(f"  BLOOM'S TAXONOMY ({b.quarter})")
-        lines.append(f"{'─'*60}")
-        lines.append(f"  Remember: {b.remember}  |  Understand: {b.understand}  |  Apply: {b.apply}")
-        lines.append(f"  Analyse: {b.analyse}  |  Evaluate: {b.evaluate}  |  Create: {b.create}")
-        lines.append(f"  Assessed by: {b.assessed_by or 'N/A'}")
-        lines.append(f"")
-
-    if sels:
-        sel = sels[0]
-        lines.append(f"{'─'*60}")
-        lines.append(f"  SOCIAL-EMOTIONAL LEARNING ({sel.quarter})")
-        lines.append(f"{'─'*60}")
-        lines.append(f"  Self-Awareness: {sel.self_awareness}/5  |  Self-Management: {sel.self_management}/5")
-        lines.append(f"  Social Awareness: {sel.social_awareness}/5  |  Relationship Skills: {sel.relationship_skills}/5")
-        lines.append(f"  Responsible Decisions: {sel.responsible_decisions}/5")
-        lines.append(f"")
-
-    if narratives:
-        n = narratives[0]
-        lines.append(f"{'─'*60}")
-        lines.append(f"  TEACHER NARRATIVE ({n.quarter}) — {n.teacher_name}")
-        lines.append(f"{'─'*60}")
-        lines.append(f"  {n.narrative}")
-        lines.append(f"")
-        lines.append(f"  Finalized: {'Yes' if n.finalized else 'No'}")
-        lines.append(f"")
-
-    lines.append(f"{'='*60}")
-    lines.append(f"  Generated by ZenK Impact Platform — Kia AI")
-    lines.append(f"{'='*60}")
-
-    report_text = "\n".join(lines)
-
+    transcript = await _build_student_transcript(db, profile=profile, student=student)
     return {
         "status": "success",
         "student_name": student.full_name,
-        "report_text": report_text,
+        "report_text": transcript["report_text"],
+        "transcript": transcript,
     }
 
 
@@ -1386,7 +1505,7 @@ async def notify_sponsor_lead(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Send a notification to the Sponsor Lead about this student's report."""
+    """Notify sponsor circle (leaders + members) that the report is ready."""
     profile = await _enforce_school_permission(
         db,
         user,
@@ -1396,20 +1515,29 @@ async def notify_sponsor_lead(
     )
 
     stu_res = await db.execute(
-        select(SchoolStudent).where(SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id())
+        select(SchoolStudent).where(
+            SchoolStudent.id == student_id, SchoolStudent.school_id == _school_id()
+        )
     )
     student = stu_res.scalar_one_or_none()
     if not student:
         raise HTTPException(status_code=404, detail="Student not found.")
 
-    sl_name = student.sl_name or "Sponsor Lead"
-    notification_message = (
-        f"Hi {sl_name}, this is an automated notification from {profile.school_name}. "
-        f"The academic report for {student.full_name} ({student.grade}, Circle: {student.circle_name or 'N/A'}) "
-        f"is ready for your review. "
-        f"Key metrics — Attendance: {student.attendance_pct}%, Avg Score: {student.avg_score}%, "
-        f"Risk Level: {student.risk_level}. "
-        f"Please log in to the ZenK platform to review the full report."
+    narrative_res = await db.execute(
+        select(SchoolStudentNarrative)
+        .where(SchoolStudentNarrative.student_id == student_id)
+        .order_by(SchoolStudentNarrative.quarter.desc())
+    )
+    narrative = narrative_res.scalars().first()
+    quarter = (narrative.quarter if narrative else None) or "Q4"
+
+    distribution = await _distribute_report_to_circle(
+        db,
+        profile=profile,
+        student=student,
+        teacher_name=user.full_name or profile.principal_name or "School",
+        narrative_text=narrative.narrative if narrative else None,
+        quarter=quarter,
     )
 
     await _audit_school_action(
@@ -1418,14 +1546,40 @@ async def notify_sponsor_lead(
         profile.id,
         "notify_sponsor_lead",
         student_id=student_id,
-        outcome="simulated",
+        outcome="success" if distribution.get("distributed") else "no_circle",
+        detail=distribution,
     )
     await db.commit()
+
+    if not distribution.get("distributed"):
+        return {
+            "status": "error",
+            "message": (
+                f"{student.full_name} is not linked to a sponsor circle yet, "
+                "or the circle chat channel could not be reached. "
+                "Confirm the student has a circle on the Students page, then try again."
+            ),
+            "sl_name": student.sl_name,
+            "circle_id": distribution.get("circle_id"),
+            "circle_name": distribution.get("circle_name"),
+        }
+
+    circle_label = distribution.get("circle_name") or "sponsor circle"
+    parts = []
+    if distribution.get("circle_chat"):
+        parts.append("circle chat")
+    if distribution.get("partner_thread"):
+        parts.append("School Communication")
+    where = " and ".join(parts) if parts else "the sponsor circle"
     return {
-        "status": "simulated",
-        "message": f"Simulation only: notification preview generated for {sl_name}. Delivery integration is not enabled yet.",
-        "sl_name": sl_name,
-        "notification_preview": notification_message,
+        "status": "success",
+        "message": (
+            f"Report shared with {circle_label} — leaders and members can review it in {where}."
+        ),
+        "sl_name": student.sl_name or "Sponsor Lead",
+        "circle_name": distribution.get("circle_name"),
+        "circle_chat": distribution.get("circle_chat"),
+        "partner_thread": distribution.get("partner_thread"),
     }
 
 
@@ -1548,6 +1702,11 @@ async def update_student_narrative(
         )
     )
     narrative = narrative_res.scalar_one_or_none()
+    if narrative and narrative.finalized:
+        raise HTTPException(
+            status_code=409,
+            detail=f"The {body.quarter} report is finalized and cannot be changed.",
+        )
     if narrative:
         narrative.narrative = body.narrative
     else:
@@ -2665,6 +2824,7 @@ async def list_school_partner_circles(
     from app.services.circle_school_partner import list_partner_circles_for_school
 
     rows = await list_partner_circles_for_school(db, _school_id())
+    await db.commit()  # persist any circle_id backfills from circle_name
     return [SchoolPartnerCircleResponse(**r) for r in rows]
 
 

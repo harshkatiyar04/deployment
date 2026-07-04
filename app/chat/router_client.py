@@ -27,6 +27,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.jwt_auth import get_current_user_from_token
 from app.core.settings import settings
 from app.db.session import get_db, SessionLocal
+from app.services.zenq_ras_ai import message_quality_fields_async
+from app.services.zenq_event_processor import run_chat_message_zenq_pipeline
 from app.chat.models import (
     ChatChannel,
     ChatMessage,
@@ -194,13 +196,16 @@ async def _process_kia_bot_response(
                 return
                 
             kia_persona = await _get_kia_persona(db)
-            
+            kia_quality = await message_quality_fields_async(response_text, "allow")
+
             # Persist Kia's message
             msg = ChatMessage(
                 channel_id=channel_id,
                 gamified_persona_id=kia_persona.id,
                 content_text=response_text,
-                shield_action="allow"
+                shield_action="allow",
+                ras_score=float(kia_quality["ras_score"]),
+                zenq_substantive=bool(kia_quality["zenq_substantive"]),
             )
             db.add(msg)
             await db.commit()
@@ -477,6 +482,10 @@ async def circle_websocket(
                     )
 
                 # Persist message (append-only)
+                quality = await message_quality_fields_async(
+                    data.content_text,
+                    shield_result["action"],
+                )
                 msg = ChatMessage(
                     channel_id=str(data.channel_id),
                     gamified_persona_id=persona.id,
@@ -484,6 +493,8 @@ async def circle_websocket(
                     media_url=data.media_url,
                     shield_action=shield_result["action"],
                     shield_reason=shield_result["reason"],
+                    ras_score=float(quality["ras_score"]),
+                    zenq_substantive=bool(quality["zenq_substantive"]),
                 )
                 db.add(msg)
                 await db.commit()
@@ -497,6 +508,18 @@ async def circle_websocket(
                         "payload": msg_out.model_dump(mode="json"),
                     },
                 )
+
+                if settings.zenq_live_events and role in ("sponsor", "sponsor_leader"):
+                    asyncio.create_task(
+                        run_chat_message_zenq_pipeline(
+                            message_id=str(msg.id),
+                            circle_id=circle_id,
+                            actor_user_id=str(user.id),
+                            ras_score=float(quality["ras_score"]),
+                            substantive=bool(quality["zenq_substantive"]),
+                            shield_action=shield_result["action"],
+                        )
+                    )
 
                 # ── Trigger Kia Bot on @kia mention ──
                 if "@kia" in (data.content_text or "").lower():

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import ChatChannel, ChatMessage, CircleMember, GamifiedPersona, SponsorCircle
 from app.microservices.vendor.models import VendorOrder
-from app.models.school import SchoolStudentEnrollmentRequest
+from app.models.school import SchoolStudent, SchoolStudentEnrollmentRequest
 from app.services.school_enrollment_constants import ENROLLMENT_APPROVED
 from app.services.sponsor_gamification import _order_clauses_for_circle
 
@@ -409,14 +409,26 @@ async def build_member_participation(
         if uid:
             pending_removals.add(uid)
 
-    member_stats: list[dict[str, Any]] = []
+    roster: list[tuple[Any, Any]] = []
     for cm, signup in rows:
         if is_beneficiary_role(cm.role):
             continue
+        roster.append((cm, signup))
+
+    user_ids = [signup.id for _, signup in roster]
+    activity_by_user = await batch_member_activity_for_circle(db, circle, user_ids, since)
+
+    member_stats: list[dict[str, Any]] = []
+    for cm, signup in roster:
         display_name, initials, role_label = await display_name_for_roster(
             db, signup, cm_role=cm.role or ""
         )
-        act = await member_activity_since(db, signup.id, circle, since)
+        act = activity_by_user.get(signup.id) or {
+            "hours": 0.0,
+            "messages_count": 0,
+            "orders_count": 0,
+            "enrollment_reviews_count": 0,
+        }
         member_stats.append(
             {
                 "user_id": signup.id,
@@ -552,11 +564,24 @@ def _time_impact_unavailable(
     }
 
 
+async def _circle_ids_with_students(
+    db: AsyncSession,
+    circle_ids: list[str],
+) -> set[str]:
+    if not circle_ids:
+        return set()
+    res = await db.execute(
+        select(SchoolStudent.circle_id)
+        .where(SchoolStudent.circle_id.in_(circle_ids))
+        .group_by(SchoolStudent.circle_id)
+    )
+    return {row[0] for row in res.all() if row[0]}
+
+
 async def build_time_impact(
     db: AsyncSession, circle_id: str
 ) -> dict[str, Any]:
     """Time-on-impact for one circle this calendar month (student-linked circles only)."""
-    from app.services.circle_student_enrollment_gate import circle_enrolled_student_count
 
     since = _month_start()
 
@@ -567,15 +592,16 @@ async def build_time_impact(
     if not circle:
         return _time_impact_unavailable("Circle not found.")
 
-    enrolled = await circle_enrolled_student_count(db, circle_id)
-    if enrolled < 1:
+    enrolled_ids = await _circle_ids_with_students(db, [circle_id])
+    if circle_id not in enrolled_ids:
         return _time_impact_unavailable(
             "Time on impact unlocks after a school enrolls a sponsored student in your circle. "
             "Setup chat and leader onboarding are not counted.",
             has_enrolled_student=False,
         )
 
-    my_hrs = await circle_hours_since(db, circle, since)
+    hours_map = await batch_circle_hours_since(db, [circle], since)
+    my_hrs = hours_map.get(circle_id, 0.0)
     if my_hrs <= 0:
         return _time_impact_unavailable(
             "No impact activity this month yet. Hours appear when members chat about the "
@@ -583,18 +609,19 @@ async def build_time_impact(
             has_enrolled_student=True,
         )
 
-    # Benchmark only among circles that also have enrolled students this month.
+    # Benchmark peers in one batched pass (avoid N×queries per active circle).
     peer_res = await db.execute(
         select(SponsorCircle).where(SponsorCircle.status == "active")
     )
     peer_circles = list(peer_res.scalars().all())
+    peer_with_students = await _circle_ids_with_students(db, [c.id for c in peer_circles])
+    eligible = [c for c in peer_circles if c.id in peer_with_students]
+    peer_hours = await batch_circle_hours_since(db, eligible, since)
 
     per_circle: list[tuple[str, str, float]] = []
     total_hrs = 0.0
-    for c in peer_circles:
-        if await circle_enrolled_student_count(db, c.id) < 1:
-            continue
-        hrs = await circle_hours_since(db, c, since)
+    for c in eligible:
+        hrs = peer_hours.get(c.id, 0.0)
         if hrs <= 0:
             continue
         per_circle.append((c.id, c.name, hrs))

@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+ALGORITHM_VERSION = "1.5.1-ras-ai"
+
+SPARK_DURATION_DAYS = 7
+SPARK_COOLDOWN_DAYS = 30
+
 BASE_IMPACT = 100.0
 DECAY_RATE = 0.04
 SPARK_MULTIPLIER = 1.5

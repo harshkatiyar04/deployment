@@ -62,11 +62,61 @@ async def resolve_school_partner_for_circle(
     }
 
 
+async def _resolve_circle_id_by_name(
+    db: AsyncSession,
+    circle_name: Optional[str],
+) -> Optional[str]:
+    name = (circle_name or "").strip()
+    if not name:
+        return None
+    exact = await db.execute(
+        select(SponsorCircle).where(func.lower(SponsorCircle.name) == name.lower())
+    )
+    row = exact.scalar_one_or_none()
+    if row:
+        return row.id
+    # Tolerate slight naming drift (e.g. trailing spaces / partial labels)
+    fuzzy = await db.execute(
+        select(SponsorCircle).where(SponsorCircle.name.ilike(f"%{name}%")).limit(1)
+    )
+    row = fuzzy.scalar_one_or_none()
+    return row.id if row else None
+
+
+async def ensure_student_circle_id(
+    db: AsyncSession,
+    student: SchoolStudent,
+) -> Optional[str]:
+    """Backfill circle_id from circle_name when enrollment only stored the label."""
+    if student.circle_id:
+        return student.circle_id
+    resolved = await _resolve_circle_id_by_name(db, student.circle_name)
+    if not resolved:
+        return None
+    from app.services.school_circle_sync import sync_school_student_circle_link
+
+    await sync_school_student_circle_link(db, student, resolved)
+    return resolved
+
+
 async def list_partner_circles_for_school(
     db: AsyncSession,
     school_id: str,
 ) -> list[dict[str, Any]]:
     """Circles that have at least one student enrolled from this school."""
+    # Repair rows that have a circle name but missing circle_id
+    orphan_res = await db.execute(
+        select(SchoolStudent).where(
+            SchoolStudent.school_id == school_id,
+            SchoolStudent.circle_id.is_(None),
+            SchoolStudent.circle_name.isnot(None),
+            SchoolStudent.circle_name != "",
+        )
+    )
+    for student in orphan_res.scalars().all():
+        await ensure_student_circle_id(db, student)
+    await db.flush()
+
     res = await db.execute(
         select(
             SchoolStudent.circle_id,

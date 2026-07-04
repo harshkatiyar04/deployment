@@ -11,7 +11,8 @@ from slowapi.errors import RateLimitExceeded
 from app.core.rate_limit import limiter
 
 from app.core.security_headers import SecurityHeadersMiddleware
-from app.core.settings import api_docs_enabled
+from app.core.settings import api_docs_enabled, settings
+from app.services.zenq_maintenance import zenq_maintenance_loop
 
 from app.api.router import api_router
 from app.db.init_db import init_db
@@ -120,6 +121,8 @@ async def _startup() -> None:
     except Exception as exc:
         logger.warning("[Startup] School migrations skipped: %s", exc)
     asyncio.create_task(_keepalive_loop())
+    if settings.zenq_live_events:
+        asyncio.create_task(zenq_maintenance_loop())
     logger.info("[Startup] Server ready. DB keepalive task started.")
 
 

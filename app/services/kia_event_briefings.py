@@ -101,18 +101,38 @@ async def post_admin_kia_briefing(
     await _post(db, text, event_type=event_type, action_path=action_path)
 
 
-async def post_circle_kia_briefing(db: AsyncSession, circle_id: str, text: str) -> None:
+async def post_circle_kia_briefing(db: AsyncSession, circle_id: str, text: str) -> bool:
+    """Post Kia message to circle #general. Creates the channel if missing. Returns True if posted."""
     if not circle_id or not text.strip():
-        return
+        return False
+    # Prefer public #general (or first non-DM channel)
     channel_res = await db.execute(
         select(ChatChannel)
-        .where(ChatChannel.circle_id == circle_id)
+        .where(
+            ChatChannel.circle_id == circle_id,
+            ChatChannel.dm_for.is_(None),
+        )
         .order_by(ChatChannel.created_at)
-        .limit(1)
     )
-    channel = channel_res.scalar_one_or_none()
+    channels = list(channel_res.scalars().all())
+    channel = None
+    for ch in channels:
+        if (ch.name or "").strip().lower() in ("general", "main", "announcements"):
+            channel = ch
+            break
+    if channel is None and channels:
+        channel = channels[0]
     if not channel:
-        return
+        from app.chat.models import ChannelType
+
+        channel = ChatChannel(
+            circle_id=circle_id,
+            name="general",
+            channel_type=ChannelType.persistent,
+        )
+        db.add(channel)
+        await db.flush()
+
     kia = await _get_kia_persona(db)
     db.add(
         ChatMessage(
@@ -123,6 +143,7 @@ async def post_circle_kia_briefing(db: AsyncSession, circle_id: str, text: str) 
             shield_action="allow",
         )
     )
+    return True
 
 
 async def notify_circle_leads(
@@ -365,7 +386,23 @@ async def emit_report_published(
     finalized: bool = True,
 ) -> None:
     if not finalized:
-        return
+        return {
+            "school_briefing": False,
+            "circle_id": None,
+            "circle_name": None,
+            "circle_chat": False,
+            "partner_thread": False,
+        }
+
+    from app.models.school import SchoolStudentSubjectScore
+    from app.services.circle_school_partner import (
+        ensure_student_circle_id,
+        post_partner_message,
+    )
+    from app.services.student_circle_privacy import (
+        pseudonym_for_signup,
+        resolve_student_signup_for_school_row,
+    )
 
     prof_res = await db.execute(
         select(SchoolProfile.school_name).where(SchoolProfile.id == school_id)
@@ -373,36 +410,98 @@ async def emit_report_published(
     school_name = prof_res.scalar_one_or_none() or "School"
 
     summary = _narrative_snippet(narrative)
-    circle_line = (
-        f"**Circle:** {student.circle_name}\n" if student.circle_name else ""
+    attendance = int(student.attendance_pct or 0)
+    avg_score = int(student.avg_score or 0)
+    zqa = int(student.zqa_score or 0)
+    q = (quarter or "Q4").upper()
+
+    subj_res = await db.execute(
+        select(SchoolStudentSubjectScore).where(
+            SchoolStudentSubjectScore.student_id == student.id,
+            SchoolStudentSubjectScore.quarter == q,
+        )
     )
+    subject_rows = list(subj_res.scalars().all())
+    subject_preview = ""
+    if subject_rows:
+        parts = [
+            f"{(r.subject or 'Subject').title()} {int(round(float(r.score or 0)))}%"
+            for r in subject_rows[:8]
+        ]
+        subject_preview = " · ".join(parts)
+
+    circle_name = (student.circle_name or "").strip()
+    circle_line = f"**Circle:** {circle_name}\n" if circle_name else ""
 
     school_text = (
-        f"📊 **Report published** — {quarter} · {fy}\n\n"
+        f"📊 **Report published** — {q} · {fy}\n\n"
         f"**Student:** {student.full_name} · **Grade:** {student.grade}\n"
         f"**Submitted by:** {teacher_name}\n"
-        f"**Attendance:** {int(student.attendance_pct or 0)}% · "
-        f"**Avg score:** {int(student.avg_score or 0)}%\n"
-        f"**ZQA composite:** {int(student.zqa_score or 0)}\n"
-        f"{circle_line}\n"
-        f"**Kia summary:** {summary}\n\n"
+        f"**Attendance:** {attendance}% · **Avg score:** {avg_score}%\n"
+        f"**ZQA composite:** {zqa}\n"
+        f"{circle_line}"
+        f"{('**Subjects:** ' + subject_preview + chr(10)) if subject_preview else ''}"
+        f"\n**Kia summary:** {summary}\n\n"
         f"View details under **Students → Reports**."
     )
 
+    result = {
+        "school_briefing": False,
+        "circle_id": None,
+        "circle_name": (student.circle_name or "").strip() or None,
+        "circle_chat": False,
+        "partner_thread": False,
+    }
+
     try:
         await post_school_kia_briefing(db, school_id, school_text)
-        if student.circle_id:
-            circle_text = (
-                f"📊 **School report published** — {school_name}\n\n"
-                f"**Student:** {student.full_name} ({student.grade})\n"
-                f"**Quarter:** {quarter} · **FY:** {fy}\n"
-                f"**ZQA:** {int(student.zqa_score or 0)} · "
-                f"**Attendance:** {int(student.attendance_pct or 0)}%\n\n"
-                f"**Summary:** {summary}"
+        result["school_briefing"] = True
+
+        circle_id = await ensure_student_circle_id(db, student)
+        result["circle_id"] = circle_id
+        if student.circle_name:
+            result["circle_name"] = student.circle_name
+        if not circle_id:
+            return result
+
+        signup = await resolve_student_signup_for_school_row(db, student)
+        display_name = (
+            await pseudonym_for_signup(db, signup) if signup else (student.circle_name or "Student")
+        )
+
+        circle_text = (
+            f"📋 **ZenK progress transcript** — {school_name}\n"
+            f"**Quarter {q}** · FY {fy}\n\n"
+            f"**Student:** {display_name} · Grade {student.grade or '—'}\n"
+            f"**Circle:** {student.circle_name or '—'}\n\n"
+            f"**Key metrics**\n"
+            f"• Attendance: {attendance}%\n"
+            f"• Avg academic: {avg_score}%\n"
+            f"• ZQA: {zqa}\n"
+            f"• Risk: {student.risk_level or '—'}\n"
+            f"{('• Subjects: ' + subject_preview + chr(10)) if subject_preview else ''}"
+            f"\n**Teacher summary:** {summary}\n\n"
+            f"_Official school transcript shared with circle leaders and members._"
+        )
+        result["circle_chat"] = await post_circle_kia_briefing(db, circle_id, circle_text)
+
+        # Also surface in school ↔ leader partner messaging thread
+        try:
+            await post_partner_message(
+                db,
+                circle_id=circle_id,
+                school_id=school_id,
+                sender_side="school",
+                body=circle_text,
+                sender_name="Kia · School reports",
             )
-            await post_circle_kia_briefing(db, student.circle_id, circle_text)
+            result["partner_thread"] = True
+        except Exception:
+            logger.exception("Partner-thread report preview failed")
     except Exception:
         logger.exception("Kia report_published briefing failed")
+
+    return result
 
 
 # ── Circle operations ─────────────────────────────────────────────────────────

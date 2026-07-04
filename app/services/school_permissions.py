@@ -26,6 +26,7 @@ PRINCIPAL_ONLY: FrozenSet[str] = frozenset({
 
 ALL_PERMISSIONS: FrozenSet[str] = frozenset({
     "view_dashboard",
+    "view_students",
     "submit_quarterly_report",
     "import_csv",
     "import_pdf",

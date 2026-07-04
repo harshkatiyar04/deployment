@@ -44,7 +44,7 @@ def extract_kyc_review_note(admin_note: str | None) -> str | None:
         human_notes.append(chunk)
     if review_notes:
         return review_notes[-1]
-    circle_id, _ = parse_invite_note(admin_note)
+    circle_id, _, _ = parse_invite_note(admin_note)
     if circle_id or admin_note.startswith("circle_invite="):
         return None
     if human_notes:

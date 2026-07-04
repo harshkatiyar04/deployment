@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.jwt_auth import get_current_user
 from app.db.session import get_db
 from app.chat.models import CircleMember, SponsorCircle
-from app.models.school import SchoolProfile, SchoolStudentEnrollmentRequest
+from app.models.school import SchoolProfile, SchoolStudent, SchoolStudentEnrollmentRequest
 from app.models.signup import SignupRequest
 from app.microservices.school.schemas import (
     SchoolEnrollmentRequestResponse,
@@ -74,6 +74,8 @@ from app.microservices.sponsor_circle.schemas import (
     CircleRenameStatusOut,
     CircleAdminRequestOut,
     CircleAdminRequestCreateResponse,
+    ZenqTargetAchievementRequest,
+    ZenqTargetAchievementResponse,
 )
 from app.services.circle_membership_ops import (
     assert_can_add_member,
@@ -184,6 +186,7 @@ from app.services.circle_member_invite import (
     LEADER_APPROVED,
     LEADER_PENDING,
     LEADER_REJECTED,
+    application_applied_at_iso,
     build_invite_note,
     invite_tag_for_query,
     parse_invite_note,
@@ -245,10 +248,25 @@ async def list_pending_member_signups(
         )
         in_circle_ids = {uid for uid in member_res.scalars().all() if uid}
     items: list[PendingCircleMemberItem] = []
+    notes_dirty = False
     for r in rows:
-        _cid, leader_status = parse_invite_note(r.admin_note)
+        _cid, leader_status, stored_applied = parse_invite_note(r.admin_note)
         if _cid and _cid != circle.id:
             continue
+        applied_iso = application_applied_at_iso(
+            r.admin_note,
+            created_at=r.created_at,
+            updated_at=r.updated_at,
+        )
+        # Persist applied_at so display no longer depends on botched created_at.
+        if _cid and not stored_applied and applied_iso:
+            r.admin_note = build_invite_note(
+                _cid,
+                leader_status=leader_status,
+                applied_at=applied_iso,
+                existing_note=r.admin_note,
+            )
+            notes_dirty = True
         kyc = r.kyc_status.value if hasattr(r.kyc_status, "value") else str(r.kyc_status)
         kyc_norm = (kyc or "").strip().lower()
         leader_norm = (leader_status or LEADER_PENDING).strip().lower()
@@ -272,8 +290,11 @@ async def list_pending_member_signups(
                 can_approve=can_decide,
                 can_reject=leader_norm == LEADER_PENDING and not in_circle,
                 created_at=r.created_at,
+                applied_at=applied_iso,
             )
         )
+    if notes_dirty:
+        await db.commit()
     return PendingCircleMembersResponse(
         circle_id=circle.id,
         circle_name=circle.name,
@@ -304,7 +325,7 @@ async def decide_member_application(
     if not applicant or applicant.persona != Persona.sponsor_member:
         raise HTTPException(status_code=404, detail="Member application not found.")
 
-    invite_cid, leader_status = parse_invite_note(applicant.admin_note)
+    invite_cid, leader_status, _applied = parse_invite_note(applicant.admin_note)
     if invite_cid != circle.id:
         raise HTTPException(status_code=403, detail="This application is not for your circle.")
 
@@ -343,7 +364,11 @@ async def decide_member_application(
                 )
             )
 
-    applicant.admin_note = build_invite_note(circle.id, leader_status=decision)
+    applicant.admin_note = build_invite_note(
+        circle.id,
+        leader_status=decision,
+        existing_note=applicant.admin_note,
+    )
     if decision == LEADER_APPROVED:
         from app.services.kia_event_briefings import emit_member_joined
         from app.services.student_circle_privacy import display_name_for_roster
@@ -730,21 +755,44 @@ async def get_rankings(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Platform-wide rankings are not published yet; return your circle only when ZQA exists."""
-    from app.models.school import SchoolStudent
+    """Circle ZenQ ranking — materialized ZIQ league when available."""
+    from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
 
     circle, _ = await resolve_user_circle(db, user.id, circle_id)
-    avg_res = await db.execute(
-        select(func.avg(SchoolStudent.zqa_score)).where(SchoolStudent.circle_id == circle.id)
+    student_res = await db.execute(
+        select(func.count()).select_from(SchoolStudent).where(SchoolStudent.circle_id == circle.id)
     )
-    avg = avg_res.scalar_one()
-    if avg is None:
+    student_count = int(student_res.scalar_one() or 0)
+
+    league = await list_engine_league_rows(db, circle.id)
+    if league:
+        return RankingsResponse(
+            circles=[
+                CircleRankRow(
+                    rank=row["rank"],
+                    name=row["circle_name"],
+                    zenq=row["zenq_avg"],
+                    city="",
+                    is_mine=row["is_mine"],
+                )
+                for row in league
+            ],
+            platform_rankings_available=len(league) > 1,
+            message=(
+                "Live Circle Impact rankings across scored circles."
+                if len(league) > 1
+                else "Showing your circle only. More circles appear as they are scored."
+            ),
+        )
+
+    display = await resolve_circle_zenq_display(db, circle.id, student_count=student_count)
+    if not display.get("zenq_available"):
         return RankingsResponse(
             circles=[],
             platform_rankings_available=False,
-            message="No ZQA data yet. Rankings appear after students are enrolled and schools submit reports.",
+            message="No ZenQ data yet. Rankings appear after students enroll and activity is recorded.",
         )
-    zenq = int(round(float(avg)))
+    zenq = int(display.get("zenq_score") or 0)
     return RankingsResponse(
         circles=[
             CircleRankRow(
@@ -1240,31 +1288,43 @@ async def get_impact_league(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.models.school import SchoolStudent
+    from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
 
     circle, _ = await resolve_user_circle(db, user.id, circle_id)
     student_res = await db.execute(
         select(func.count()).select_from(SchoolStudent).where(SchoolStudent.circle_id == circle.id)
     )
     count = int(student_res.scalar_one() or 0)
-    avg_res = await db.execute(
-        select(func.avg(SchoolStudent.zqa_score)).where(SchoolStudent.circle_id == circle.id)
-    )
-    avg = avg_res.scalar_one()
-    if count == 0 or avg is None:
+
+    league = await list_engine_league_rows(db, circle.id)
+    if league:
+        return ImpactLeagueResponse(
+            rows=[ImpactLeagueRow(**row) for row in league],
+            available=True,
+            message=(
+                "Live Circle Impact league across scored circles."
+                if len(league) > 1
+                else "Showing your circle only. More circles appear as they are scored."
+            ),
+        )
+
+    display = await resolve_circle_zenq_display(db, circle.id, student_count=count)
+    if not display.get("zenq_available"):
         return ImpactLeagueResponse(
             rows=[],
             available=False,
             message="Impact League needs sponsored students with ZQA data. Enroll students via School Comm first.",
         )
+    score = int(display.get("zenq_score") or 0)
     return ImpactLeagueResponse(
         rows=[
             ImpactLeagueRow(
                 rank=1,
                 circle_name=circle.name,
-                impact_score=int(round(float(avg))),
+                impact_score=score,
                 student_count=count,
-                zenq_avg=int(round(float(avg))),
+                zenq_avg=score,
+                is_mine=True,
             )
         ],
         available=True,
@@ -1364,6 +1424,43 @@ async def post_school_partner_message(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     await db.commit()
     return SchoolPartnerMessage(**row)
+
+
+@router.post("/zenq/target-achievement", response_model=ZenqTargetAchievementResponse)
+async def log_zenq_target_achievement(
+    body: ZenqTargetAchievementRequest,
+    user: SignupRequest = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Circle leader logs sponsor target achievement for the current quarter (ZenQ A component)."""
+    if user.persona != Persona.sponsor_leader:
+        raise HTTPException(status_code=403, detail="Only circle leaders can log target achievement.")
+    circle, role = await resolve_user_circle(db, user.id, body.circle_id)
+    if not _can_set_budget(role):
+        raise HTTPException(status_code=403, detail="Only circle leaders can log target achievement.")
+
+    member_res = await db.execute(
+        select(CircleMember.user_id).where(
+            CircleMember.circle_id == circle.id,
+            CircleMember.user_id == body.sponsor_user_id,
+        )
+    )
+    if not member_res.scalar_one_or_none():
+        raise HTTPException(status_code=400, detail="User is not a member of this circle.")
+
+    from app.services.zenq_target_log import create_target_log
+
+    result = await create_target_log(
+        db,
+        circle_id=circle.id,
+        sponsor_user_id=body.sponsor_user_id,
+        target_status=body.target_status,
+        logged_by_user_id=user.id,
+        notes=body.notes,
+        quarter=body.quarter,
+        fy=body.fy,
+    )
+    return ZenqTargetAchievementResponse(**result)
 
 
 @router.post("/invite-link", response_model=CircleInviteLinkResponse)

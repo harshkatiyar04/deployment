@@ -91,7 +91,11 @@ async def provision_parent_after_student_enrollment(
         except Exception:
             logger.exception("Kia parent provision briefing failed")
 
-    parent.admin_note = build_invite_note(circle_id, leader_status=LEADER_APPROVED)
+    parent.admin_note = build_invite_note(
+        circle_id,
+        leader_status=LEADER_APPROVED,
+        existing_note=parent.admin_note,
+    )
     parent.updated_at = datetime.now(timezone.utc)
 
     try:

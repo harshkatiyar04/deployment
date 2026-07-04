@@ -561,6 +561,11 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
     if body.decision == KycStatus.approved and signup.persona == Persona.school:
         await ensure_school_profile(db, signup, is_partner=True, onboarding_source="public_signup")
 
+    if body.decision == KycStatus.approved and signup.persona == Persona.mentor:
+        from app.services.mentor_provision import ensure_mentor_profile
+
+        await ensure_mentor_profile(db, signup)
+
     await db.commit()
 
     # Notify user via email and in-app notification
