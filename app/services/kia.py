@@ -295,7 +295,8 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
             f"Circle Budget ({circle_budget.get('fy_label')}): "
             f"Total Collected: ₹{circle_budget.get('collected', 0):,} | "
             f"Total Spent: ₹{circle_budget.get('spent', 0):,} | "
-            f"Remaining: ₹{circle_budget.get('balance_to_spend', 0):,}"
+            f"Available to spend: ₹{circle_budget.get('available_balance', circle_budget.get('balance_to_spend', 0)):,} | "
+            f"Remaining vs annual target: ₹{circle_budget.get('remaining_target', 0):,}"
         )
 
     has_students = user_context.get("has_sponsored_students", False)
@@ -612,7 +613,8 @@ DATA:
 - Total Annual Budget: ₹{budget_data.get('total_budget', 0):,}
 - Total Spent: ₹{budget_data.get('spent', 0):,}
 - Total Collected: ₹{budget_data.get('collected', 0):,}
-- Balance to Spend: ₹{budget_data.get('balance_to_spend', 0):,}
+- Available to spend (collected − spent): ₹{budget_data.get('available_balance', budget_data.get('balance_to_spend', 0)):,}
+- Remaining vs annual target: ₹{budget_data.get('remaining_target', 0):,}
 - Months Elapsed: {budget_data.get('months_elapsed', 0)} of 12
 
 TASK:

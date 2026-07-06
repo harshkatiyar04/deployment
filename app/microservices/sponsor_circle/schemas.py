@@ -26,6 +26,8 @@ class BudgetResponse(BaseModel):
     total_budget: int
     spent: int
     collected: int
+    available_balance: int = 0
+    remaining_target: int = 0
     balance_to_spend: int
     fy_label: str
     fy_key: Optional[str] = "2025-26"
@@ -306,6 +308,8 @@ class StatementResponse(BaseModel):
     total_budget: int
     spent: int
     collected: int
+    available_balance: int = 0
+    remaining_target: int = 0
     balance_to_spend: int
     fy_label: str
     circle_name: Optional[str] = None
@@ -553,6 +557,8 @@ class CircleOverviewBudget(BaseModel):
     total_budget: int
     spent: int
     collected: int
+    available_balance: int = 0
+    remaining_target: int = 0
     balance_to_spend: int
     fy_label: str
 

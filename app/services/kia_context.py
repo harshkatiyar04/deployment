@@ -95,7 +95,18 @@ async def _fetch_circle_budget(circle_id: str, user_id: str, db: AsyncSession) -
                 "total_budget": int(circle.annual_budget or 0),
                 "spent": int(circle.budget_spent or 0),
                 "collected": int(circle.budget_collected or 0),
-                "balance_to_spend": max(0, int(circle.annual_budget or 0) - int(circle.budget_spent or 0)),
+                "available_balance": max(
+                    0,
+                    int(circle.budget_collected or 0) - int(circle.budget_spent or 0),
+                ),
+                "remaining_target": max(
+                    0,
+                    int(circle.annual_budget or 0) - int(circle.budget_spent or 0),
+                ),
+                "balance_to_spend": max(
+                    0,
+                    int(circle.budget_collected or 0) - int(circle.budget_spent or 0),
+                ),
                 "fy_label": circle.fy_label or "FY 2025-26",
             }
         circle, role = row
@@ -104,6 +115,8 @@ async def _fetch_circle_budget(circle_id: str, user_id: str, db: AsyncSession) -
             "total_budget": payload["total_budget"],
             "spent": payload["spent"],
             "collected": payload["collected"],
+            "available_balance": payload["available_balance"],
+            "remaining_target": payload["remaining_target"],
             "balance_to_spend": payload["balance_to_spend"],
             "fy_label": payload["fy_label"],
         }

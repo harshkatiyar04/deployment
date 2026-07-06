@@ -117,6 +117,8 @@ async def build_circle_overview(
             "total_budget": budget["total_budget"],
             "spent": budget["spent"],
             "collected": budget["collected"],
+            "available_balance": budget["available_balance"],
+            "remaining_target": budget["remaining_target"],
             "balance_to_spend": budget["balance_to_spend"],
             "fy_label": budget["fy_label"],
         },

@@ -88,7 +88,7 @@ async def build_sponsor_scoreboard(
     my_card = score_card("zeq", my_zeq) if my_zeq is not None else None
     if my_card:
         my_card = {**my_card, "title": "Your Effort (ZEQ)"}
-    elif not is_engine:
+    else:
         my_card = _activity_effort_card(activity)
 
     breakdown = zenq_display.get("zenq_breakdown") or {}

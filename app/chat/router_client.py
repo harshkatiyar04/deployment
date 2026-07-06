@@ -29,6 +29,7 @@ from app.core.settings import settings
 from app.db.session import get_db, SessionLocal
 from app.services.zenq_ras_ai import message_quality_fields_async
 from app.services.zenq_event_processor import run_chat_message_zenq_pipeline
+from app.services.zenq_materializer import ZENQ_SCORING_ROLES
 from app.chat.models import (
     ChatChannel,
     ChatMessage,
@@ -509,7 +510,8 @@ async def circle_websocket(
                     },
                 )
 
-                if settings.zenq_live_events and role in ("sponsor", "sponsor_leader"):
+                scoring_role = (membership.role or role or "sponsor").lower()
+                if settings.zenq_live_events and scoring_role in ZENQ_SCORING_ROLES:
                     asyncio.create_task(
                         run_chat_message_zenq_pipeline(
                             message_id=str(msg.id),

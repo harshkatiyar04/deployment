@@ -89,12 +89,15 @@ async def compute_spent_from_orders(db: AsyncSession, circle: SponsorCircle) -> 
 def budget_numbers(circle: SponsorCircle, spent: int) -> dict[str, int]:
     total = int(circle.annual_budget or 0)
     collected = int(circle.budget_collected or 0)
-    balance = max(0, total - spent) if total > 0 else 0
+    available_balance = max(0, collected - spent)
+    remaining_target = max(0, total - spent) if total > 0 else 0
     return {
         "total_budget": total,
         "spent": spent,
         "collected": collected,
-        "balance_to_spend": balance,
+        "available_balance": available_balance,
+        "remaining_target": remaining_target,
+        "balance_to_spend": available_balance,
     }
 
 

@@ -41,7 +41,11 @@ from app.services.zenq_spark import active_spark_student_ids
 
 logger = logging.getLogger(__name__)
 
-SPONSOR_ROLES = frozenset({"sponsor", "lead", "sponsor_leader", "mentor"})
+# Circle roles that earn personal ZEQ and trigger live recompute on chat.
+ZENQ_SCORING_ROLES = frozenset(
+    {"sponsor", "sponsor_member", "lead", "sponsor_leader", "mentor"}
+)
+SPONSOR_ROLES = ZENQ_SCORING_ROLES
 
 
 def _utcnow() -> datetime:

@@ -57,7 +57,8 @@ def build_budget_payload(
     total = int(circle.annual_budget or 0)
     spent_val = int(spent if spent is not None else (circle.budget_spent or 0))
     collected = int(circle.budget_collected or 0)
-    balance_to_spend = max(0, total - spent_val) if total > 0 else 0
+    available_balance = max(0, collected - spent_val)
+    remaining_target = max(0, total - spent_val) if total > 0 else 0
 
     return {
         "circle_id": circle.id,
@@ -65,7 +66,9 @@ def build_budget_payload(
         "total_budget": total,
         "spent": spent_val,
         "collected": collected,
-        "balance_to_spend": balance_to_spend,
+        "available_balance": available_balance,
+        "remaining_target": remaining_target,
+        "balance_to_spend": available_balance,
         "fy_label": _fy_display(circle.fy_label),
         "fy_key": circle.fy_label or "2025-26",
         "transactions": transactions if transactions is not None else [],
