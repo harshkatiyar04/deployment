@@ -41,6 +41,7 @@ async def apply_all_migrations() -> None:
     from app.db.migrations.migration_039_zenq_target_logs import run_migration as m039
     from app.db.migrations.migration_040_zenq_spark_welfare import run_migration as m040
     from app.db.migrations.migration_041_zenq_weight_analysis import run_migration as m041
+    from app.db.migrations.migration_042_landing_contact_inquiries import run_migration as m042
 
     for label, fn in (
         ("008", m008),
@@ -76,6 +77,7 @@ async def apply_all_migrations() -> None:
         ("039", m039),
         ("040", m040),
         ("041", m041),
+        ("042", m042),
     ):
         try:
             await fn()

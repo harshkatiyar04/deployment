@@ -12,6 +12,8 @@ from app.api.routers import (
     admin_overview,
     admin_legal,
     admin_zenq,
+    admin_landing_contact,
+    contact,
     auth,
     legal,
     notifications,
@@ -34,6 +36,7 @@ api_router = APIRouter()
 api_router.include_router(auth.router)
 api_router.include_router(legal.router)
 api_router.include_router(signup.router)
+api_router.include_router(contact.router)
 api_router.include_router(admin_kyc.router)
 api_router.include_router(admin_circle_ops.router)
 api_router.include_router(admin_other_requests.router)
@@ -45,6 +48,7 @@ api_router.include_router(user_support.router)
 api_router.include_router(admin_overview.router)
 api_router.include_router(admin_legal.router)
 api_router.include_router(admin_zenq.router)
+api_router.include_router(admin_landing_contact.router)
 api_router.include_router(notifications.router)
 api_router.include_router(router_client.router)
 api_router.include_router(consent.router)

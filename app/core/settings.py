@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Email identities / routing
     email_from: str = Field(default="leninstark@gmail.com")
     admin_notification_to: str = Field(default="leninstark@gmail.com")
+    landing_contact_to: str = Field(
+        default="info@zenkimpact.com",
+        validation_alias="LANDING_CONTACT_TO",
+    )
     # Content Moderation API
     gemini_api_key: Optional[str] = Field(default=None)
     groq_api_key: Optional[str] = Field(default=None)
