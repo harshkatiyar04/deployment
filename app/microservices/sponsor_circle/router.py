@@ -382,6 +382,8 @@ async def decide_member_application(
             member_name=member_label,
             leader_name=user.full_name or "Circle leader",
             role_label=role_label,
+            member_user_id=applicant.id,
+            welcome_kind="member",
         )
     await db.commit()
 

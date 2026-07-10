@@ -184,9 +184,17 @@ async def _fetch_circle_students(circle_id: str, db: AsyncSession) -> list[dict]
         elif st.tutor_recommendation:
             teacher_notes = st.tutor_recommendation
 
+        # Prefer a short human label — never dump raw UUID zenk_id into chat.
+        zenk_label = str(st.zenk_id or "").strip()
+        if zenk_label and len(zenk_label.replace("-", "")) >= 32 and zenk_label.replace("-", "").isalnum():
+            masked = _mask_student_label(idx, None)
+        else:
+            masked = _mask_student_label(idx, st.zenk_id)
+
         out.append(
             {
-                "masked_name": _mask_student_label(idx, st.zenk_id),
+                "masked_name": masked,
+                "pseudonym": masked,
                 "grade": st.grade,
                 "attendance_pct": round(float(st.attendance_pct or 0)),
                 "zenq_score": round(float(st.zqa_score or 0)),

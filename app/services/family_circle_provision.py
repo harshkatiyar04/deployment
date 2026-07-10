@@ -81,12 +81,15 @@ async def provision_parent_after_student_enrollment(
             )
             circle = circle_res.scalar_one_or_none()
             if circle:
+                parent_label = (parent.full_name or "").strip() or "Parent / guardian"
                 await emit_member_joined(
                     db,
                     circle=circle,
-                    member_name="Parent / guardian",
+                    member_name=parent_label,
                     leader_name="Circle enrollment",
                     role_label="Parent",
+                    member_user_id=parent.id,
+                    welcome_kind="parent",
                 )
         except Exception:
             logger.exception("Kia parent provision briefing failed")

@@ -540,6 +540,213 @@ async def emit_budget_updated(
         logger.exception("Kia budget_updated briefing failed")
 
 
+def _format_inr(amount: Optional[int]) -> str:
+    try:
+        return f"₹{int(amount or 0):,}"
+    except (TypeError, ValueError):
+        return "₹0"
+
+
+def _friendly_student_label(raw: Optional[str], index: int = 0) -> str:
+    """Never show raw UUIDs / emails as the sponsored-child label in chat."""
+    label = (raw or "").strip()
+    if not label:
+        return f"Sponsored student {index + 1}"
+    # UUID / long opaque ids → soft label
+    compact = label.replace("-", "")
+    if len(label) >= 32 and compact.isalnum():
+        return f"Sponsored student {index + 1}"
+    if "@" in label:
+        return f"Sponsored student {index + 1}"
+    return label
+
+
+def _strip_kia_suggests_prefix(text: Optional[str]) -> Optional[str]:
+    """
+    Chat UI wraps everything after 'Kia suggests:' into a suggestion card.
+    Welcome messages must never use that marker — strip it if the LLM adds it.
+    """
+    if not text:
+        return text
+    cleaned = text.strip().strip('"').strip("'")
+    for marker in ("Kia suggests:", "Kia Suggests:", "kia suggests:"):
+        idx = cleaned.lower().find(marker.lower())
+        if idx >= 0:
+            before = cleaned[:idx].strip()
+            after = cleaned[idx + len(marker) :].strip()
+            cleaned = " ".join(p for p in (before, after) if p).strip()
+    return cleaned or None
+
+
+def _build_child_snapshot_lines(students: list[dict]) -> list[str]:
+    """Masked student snapshot lines safe for circle chat."""
+    if not students:
+        return []
+
+    lines: list[str] = []
+    for idx, st in enumerate(students[:3]):
+        name = _friendly_student_label(
+            st.get("pseudonym") or st.get("masked_name"),
+            index=idx,
+        )
+        grade = st.get("grade") or "—"
+        zqa = st.get("zenq_score")
+        attendance = st.get("attendance_pct")
+        bits = [f"**{name}** · Grade {grade}"]
+        metrics: list[str] = []
+        if zqa is not None:
+            metrics.append(f"ZQA {int(zqa)}")
+        if attendance is not None:
+            metrics.append(f"attendance {int(attendance)}%")
+        if metrics:
+            bits.append(" · ".join(metrics))
+        lines.append(f"· {' · '.join(bits)}")
+
+    if len(students) > 3:
+        lines.append(f"· _+{len(students) - 3} more sponsored student(s) on the circle roster_")
+    return lines
+
+
+async def _compose_member_welcome_text(
+    db: AsyncSession,
+    *,
+    circle: SponsorCircle,
+    member_name: str,
+    leader_name: str,
+    role_label: str,
+    member_user_id: Optional[str] = None,
+    welcome_kind: str = "member",
+) -> str:
+    """
+    Warm Kia welcome for a new circle member.
+
+    Includes a gentle circle snapshot and, when a child/student is enrolled,
+    a privacy-safe progress snapshot.
+    """
+    from app.services.kia_context import (
+        _fetch_circle_budget,
+        _fetch_circle_students,
+        _fetch_pending_enrollments,
+    )
+
+    member_count_res = await db.execute(
+        select(CircleMember).where(CircleMember.circle_id == circle.id)
+    )
+    member_count = len(list(member_count_res.scalars().all()))
+
+    students = await _fetch_circle_students(circle.id, db)
+    pending = await _fetch_pending_enrollments(circle.id, db)
+    budget = None
+    if member_user_id:
+        budget = await _fetch_circle_budget(circle.id, member_user_id, db)
+    if budget is None:
+        budget = await _fetch_circle_budget(circle.id, KIA_SYSTEM_USER_ID, db)
+
+    # Prefer a short LLM welcome when available; always fall back to a warm template.
+    # Never keep "Kia suggests:" — MessageBubble treats that as a suggestion card.
+    llm_opener: Optional[str] = None
+    try:
+        from app.services.kia import handle_proactive_trigger
+
+        llm_opener = await handle_proactive_trigger(
+            "new_member_joined",
+            {
+                "member_name": member_name,
+                "circle_name": circle.name,
+                "member_count": member_count,
+                "role_label": role_label,
+                "has_sponsored_students": bool(students),
+                "welcome_kind": welcome_kind,
+            },
+        )
+        llm_opener = _strip_kia_suggests_prefix(llm_opener)
+        if llm_opener and len(llm_opener) > 280:
+            llm_opener = llm_opener[:277].rstrip() + "…"
+    except Exception:
+        logger.exception("Kia LLM welcome opener failed; using template")
+
+    if welcome_kind == "parent":
+        greeting = (
+            llm_opener
+            or (
+                f"Welcome, **{member_name}** — we're glad you're here with your child's circle. "
+                f"**{circle.name}** is a caring space for sponsors, mentors, and families walking this journey together."
+            )
+        )
+        headline = "💛 **Welcome, parent / guardian**"
+    else:
+        greeting = (
+            llm_opener
+            or (
+                f"Welcome to **{circle.name}**, **{member_name}**! "
+                f"We're so glad you're here — this circle grows stronger with every caring member who joins."
+            )
+        )
+        headline = "💛 **Welcome to the circle**"
+
+    parts = [
+        headline,
+        "",
+        greeting,
+        "",
+        f"**Joined as:** {role_label}",
+        f"**Welcomed by:** {leader_name}",
+        f"**Circle family:** {member_count} member{'s' if member_count != 1 else ''}",
+    ]
+
+    if budget and int(budget.get("total_budget") or 0) > 0:
+        fy = budget.get("fy_label") or circle.fy_label or "this FY"
+        parts.extend(
+            [
+                "",
+                "**Circle snapshot**",
+                f"· FY budget: {_format_inr(budget.get('total_budget'))} ({fy})",
+                f"· Balance to spend: {_format_inr(budget.get('balance_to_spend') or budget.get('available_balance'))}",
+            ]
+        )
+    elif budget:
+        parts.extend(
+            [
+                "",
+                "**Circle snapshot**",
+                "· Budget tracker is ready — your leader can set the FY target anytime.",
+            ]
+        )
+
+    child_lines = _build_child_snapshot_lines(students)
+    if child_lines:
+        parts.extend(
+            [
+                "",
+                "**Your circle's sponsored child snapshot**",
+                *child_lines,
+                "",
+                "Open **Student** or ask **@Kia** anytime for a gentler deep-dive on progress, ZQA, and next steps.",
+            ]
+        )
+    else:
+        parts.extend(
+            [
+                "",
+                "No sponsored student is linked yet — when a child is enrolled, I'll share a soft progress snapshot here so the whole circle can celebrate together.",
+            ]
+        )
+        if pending:
+            parts.append(
+                f"There {'is' if pending == 1 else 'are'} **{pending}** enrollment request"
+                f"{'' if pending == 1 else 's'} waiting for leader review in **School Comm**."
+            )
+
+    parts.extend(
+        [
+            "",
+            "Say hello in **Chat & Kia**, explore **My Circle**, and tag **@Kia** whenever you need a calm guide. "
+            "You're among friends now — welcome home. 🌿",
+        ]
+    )
+    return "\n".join(parts)
+
+
 async def emit_member_joined(
     db: AsyncSession,
     *,
@@ -547,17 +754,35 @@ async def emit_member_joined(
     member_name: str,
     leader_name: str,
     role_label: str = "Sponsor member",
+    member_user_id: Optional[str] = None,
+    welcome_kind: str = "member",
 ) -> None:
-    text = (
-        f"👋 **New circle member**\n\n"
-        f"**{member_name}** ({role_label}) joined **{circle.name}** after leader approval.\n"
-        f"**Approved by:** {leader_name}\n\n"
-        f"Welcome them in **Chat & Kia** and share your invite link for more sponsors."
-    )
     try:
+        text = await _compose_member_welcome_text(
+            db,
+            circle=circle,
+            member_name=member_name,
+            leader_name=leader_name,
+            role_label=role_label,
+            member_user_id=member_user_id,
+            welcome_kind=welcome_kind,
+        )
         await post_circle_kia_briefing(db, circle.id, text)
     except Exception:
         logger.exception("Kia member_joined briefing failed")
+        # Last-resort short welcome so join never stays silent.
+        try:
+            await post_circle_kia_briefing(
+                db,
+                circle.id,
+                (
+                    f"💛 **Welcome to {circle.name}**, **{member_name}**!\n\n"
+                    f"You're in as **{role_label}**. Say hello in Chat & Kia — "
+                    f"I'm here whenever you need a gentle guide."
+                ),
+            )
+        except Exception:
+            logger.exception("Kia member_joined fallback briefing also failed")
 
 
 async def emit_circle_renamed(

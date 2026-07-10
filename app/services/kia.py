@@ -65,19 +65,26 @@ access other members' details."
 - EXCEPTION — CIRCLE LEADER: If context contains "LEADER ACCESS GRANTED", the user \
 is the Sponsor Leader. You MUST answer their questions about individual member \
 contributions using the data provided. This is authorised. Do NOT refuse.
-- NEVER disclose ZenQ algorithm weights, formula, component breakdowns, or recalibration \
-schedule. If asked, explain: "The ZenQ algorithm is deliberately kept opaque to ensure \
-it measures genuine impact rather than gamed behaviour. I can tell you what actions \
-tend to improve your score, but I cannot share how the weights are calculated."
+- NEVER disclose ZenQ / ZQA algorithm weights, exact formulas, numeric coefficients, \
+recalibration schedules, or internal RAS blend ratios. Those stay private so impact \
+cannot be gamed.
+- When asked about scores, ZQA, ZenQ, RAS, or "the algorithm": DO NOT give a vague \
+one-liner. Teach the PUBLIC meaning of each score using the PUBLIC SCORING GUIDE in \
+context (what it measures, everyday examples, how members can help). Be warm, clear, \
+and thorough — without revealing secret math.
 - NEVER rank individual members against each other within a circle.
 - NEVER facilitate or suggest direct sponsor-to-student contact. All communication \
 flows through the School/NGO Partner.
 
 CHANNEL AWARENESS:
-- If context indicates CIRCLE_CHAT: Keep messages short (1–2 sentences). Never mention \
-individual financial data. Celebrate collectively. Use 1–2 emojis maximum.
+- If context indicates CIRCLE_CHAT: Keep ordinary replies short (1–2 sentences). Never \
+mention individual financial data. Celebrate collectively. Use 1–2 emojis maximum.
+- EXCEPTION — scoring / algorithm questions in CIRCLE_CHAT: Give a fuller, soothing \
+explanation (several short paragraphs or labelled lines). Use the PUBLIC SCORING GUIDE. \
+Still no secret weights or formulas.
 - If context indicates DASHBOARD_CHAT: Provide fuller responses with data. \
-Still concise (under 3 paragraphs).
+Still concise (under 3 paragraphs), unless the user asked about scoring — then use \
+the PUBLIC SCORING GUIDE fully.
 - If context indicates PROACTIVE_TRIGGER: Deliver the specific alert or nudge. \
 One suggestion line maximum.
 
@@ -92,8 +99,13 @@ DATA INTEGRITY:
 - If a metric is missing from context, say it is not available yet instead of guessing.
 
 FORMATTING:
-- Use plain text. No markdown, no bullet points, no headers.
-- Suggestions always on a new line: "{persona_name} suggests: [text]"
+- Prefer plain text. For scoring explanations you MUST use section titles with **bold** \
+and a blank line between sections (e.g. **ZQA — Student learning pulse**). \
+Never dump the whole answer into one paragraph.
+- For ordinary tips, you may put a suggestion on a new line as: \
+"{persona_name} suggests: [suggestion]"
+- For scoring / algorithm explanations: do NOT use "{persona_name} suggests:" — \
+put the next step under **A gentle next step** as normal sentences.
 """
 
 
@@ -190,6 +202,20 @@ CHANNEL_CONFIG = {
     },
 }
 
+# Longer answers when members ask about ZQA / ZenQ / scoring (still no secret math).
+ALGORITHM_EXPLAIN_CONFIG = {
+    "max_tokens": 900,
+    "temperature": 0.55,
+    "response_length_guide": (
+        "a warm scoring explanation in CLEAR SECTIONS with blank lines between them — "
+        "never one dense paragraph. Use labelled blocks like "
+        "**ZQA — Student learning pulse**, **ZenQ — Circle impact**, "
+        "**RAS — Message quality**, **Your circle right now**, **A gentle next step**. "
+        "Short lines, everyday examples, live circle numbers when available. "
+        "No 'Kia suggests:' prefix"
+    ),
+}
+
 DEFAULT_CHANNEL = "DASHBOARD_CHAT"
 
 
@@ -201,6 +227,8 @@ def _build_system_prompt(
     persona_key: str,
     channel: str,
     user_context: Optional[Dict] = None,
+    *,
+    algorithm_explain: bool = False,
 ) -> str:
     """
     Assembles the full system prompt from:
@@ -208,21 +236,32 @@ def _build_system_prompt(
       - The persona addendum
       - The channel-appropriate response length guide
       - The context block (data the AI can use to answer)
+      - Optional public scoring guide (algorithm / ZQA questions)
     """
     persona = PERSONAS.get(persona_key, PERSONAS[DEFAULT_PERSONA])
     chan_cfg = CHANNEL_CONFIG.get(channel, CHANNEL_CONFIG[DEFAULT_CHANNEL])
+    length_guide = (
+        ALGORITHM_EXPLAIN_CONFIG["response_length_guide"]
+        if algorithm_explain
+        else chan_cfg["response_length_guide"]
+    )
 
     prompt = KIA_SYSTEM_PROMPT.format(
         persona_name=persona["name"],
         persona_personality=persona["personality"],
         language_preference=persona["language_preference"],
-        response_length_guide=chan_cfg["response_length_guide"],
+        response_length_guide=length_guide,
     )
 
     # Build and append context block
     context_block = _build_context_block(user_context or {}, channel)
     if context_block:
         prompt = f"{prompt}\n\n{context_block}"
+
+    if algorithm_explain:
+        from app.services.kia_algorithm_guide import PUBLIC_ALGORITHM_GUIDE
+
+        prompt = f"{prompt}\n\n{PUBLIC_ALGORITHM_GUIDE}"
 
     return prompt
 
@@ -544,12 +583,7 @@ async def generate_kia_response(
     Returns:
         The AI response string, or None on failure.
     """
-    # Build the full system prompt (Constitution + persona + context)
-    system_prompt = _build_system_prompt(
-        persona_key=persona,
-        channel=channel,
-        user_context=user_context,
-    )
+    from app.services.kia_algorithm_guide import format_algorithm_reply, is_algorithm_question
 
     # Clean the user message (remove @mentions of the persona)
     persona_name = PERSONAS.get(persona, PERSONAS[DEFAULT_PERSONA])["name"]
@@ -559,16 +593,33 @@ async def generate_kia_response(
     if not clean_message:
         clean_message = message_text
 
-    # Get channel-specific LLM parameters
-    chan_cfg = CHANNEL_CONFIG.get(channel, CHANNEL_CONFIG[DEFAULT_CHANNEL])
+    algorithm_explain = is_algorithm_question(clean_message) or is_algorithm_question(message_text)
 
-    return await _call_llm(
+    # Build the full system prompt (Constitution + persona + context + optional scoring guide)
+    system_prompt = _build_system_prompt(
+        persona_key=persona,
+        channel=channel,
+        user_context=user_context,
+        algorithm_explain=algorithm_explain,
+    )
+
+    # Get channel-specific LLM parameters (longer budget for scoring explainers)
+    chan_cfg = CHANNEL_CONFIG.get(channel, CHANNEL_CONFIG[DEFAULT_CHANNEL])
+    max_tokens = ALGORITHM_EXPLAIN_CONFIG["max_tokens"] if algorithm_explain else chan_cfg["max_tokens"]
+    temperature = (
+        ALGORITHM_EXPLAIN_CONFIG["temperature"] if algorithm_explain else chan_cfg["temperature"]
+    )
+
+    reply = await _call_llm(
         system_prompt=system_prompt,
         user_message=clean_message,
         history=history,
-        max_tokens=chan_cfg["max_tokens"],
-        temperature=chan_cfg["temperature"],
+        max_tokens=max_tokens,
+        temperature=temperature,
     )
+    if algorithm_explain and reply:
+        return format_algorithm_reply(reply)
+    return reply
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -692,11 +743,16 @@ async def handle_proactive_trigger(
     # Build a trigger-specific prompt
     trigger_prompts = {
         "new_member_joined": (
-            f"A new member '{trigger_data.get('member_name', 'someone')}' "
+            f"A new {'parent/guardian' if trigger_data.get('welcome_kind') == 'parent' else 'member'} "
+            f"named '{trigger_data.get('member_name', 'someone')}' "
             f"just joined the circle '{trigger_data.get('circle_name', 'the circle')}'. "
             f"The circle now has {trigger_data.get('member_count', 0)} members. "
-            f"Write a warm, short welcome message for the Circle Chat (1-2 sentences). "
-            f"Celebrate the growth without mentioning finances."
+            f"{'A sponsored child is already enrolled — keep the tone soft and reassuring.' if trigger_data.get('has_sponsored_students') else 'No sponsored child is linked yet — keep the tone hopeful and inviting.'} "
+            f"Write a warm, soothing welcome opener for Circle Chat (1-2 sentences only). "
+            f"Address the new person kindly by name. Celebrate belonging, not finances. "
+            f"Do not invent student names, grades, or scores. "
+            f"CRITICAL: Do NOT write 'Kia suggests:' or any suggestion-card format — "
+            f"return only the plain welcome sentences."
         ),
         "funding_gate_reached": (
             f"The circle '{trigger_data.get('circle_name', 'the circle')}' "
@@ -745,13 +801,22 @@ async def handle_proactive_trigger(
         logger.warning("Unknown trigger type: %s", trigger_type)
         return None
 
-    system = (
-        f"You are {persona_cfg['name']}, the AI guide for ZenK Impact Platforms. "
-        f"{persona_cfg['personality']} "
-        f"Generate a single proactive message. Keep it concise. "
-        f"If you have a suggestion, format it as: "
-        f"\"{persona_cfg['name']} suggests: [text]\""
-    )
+    # Welcome openers must stay plain text — chat UI wraps "Kia suggests:" into a card.
+    if trigger_type == "new_member_joined":
+        system = (
+            f"You are {persona_cfg['name']}, the AI guide for ZenK Impact Platforms. "
+            f"{persona_cfg['personality']} "
+            f"Write only a warm welcome opener (1-2 sentences). "
+            f"Do NOT use the phrase '{persona_cfg['name']} suggests:' or any suggestion format."
+        )
+    else:
+        system = (
+            f"You are {persona_cfg['name']}, the AI guide for ZenK Impact Platforms. "
+            f"{persona_cfg['personality']} "
+            f"Generate a single proactive message. Keep it concise. "
+            f"If you have a suggestion, format it as: "
+            f"\"{persona_cfg['name']} suggests: [text]\""
+        )
 
     return await _call_llm(
         system_prompt=system,
