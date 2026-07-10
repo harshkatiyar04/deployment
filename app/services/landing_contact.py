@@ -33,9 +33,10 @@ async def notify_landing_contact_inquiry(
         f"{body}\n"
     )
 
-    if not settings.smtp_enabled:
+    if not (settings.smtp_enabled or settings.resend_api_key):
         logger.warning(
-            "Landing contact notification skipped (SMTP disabled): name=%s email=%s interest=%s",
+            "Landing contact notification skipped (email disabled — set RESEND_API_KEY or SMTP_ENABLED): "
+            "name=%s email=%s interest=%s",
             name,
             email,
             interest,

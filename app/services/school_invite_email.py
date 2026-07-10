@@ -45,8 +45,8 @@ async def send_school_portal_invite_email(
     </div>
     """
 
-    if not settings.smtp_enabled:
-        logger.info("School invite email skipped (SMTP disabled) to=%s", to_email)
+    if not (settings.smtp_enabled or settings.resend_api_key):
+        logger.info("School invite email skipped (email disabled) to=%s", to_email)
         return False
 
     try:

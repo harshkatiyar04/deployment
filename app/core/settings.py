@@ -22,13 +22,16 @@ class Settings(BaseSettings):
         validation_alias="FRONTEND_BASE_URL",
     )
 
-    # SMTP (for email notifications)
+    # SMTP (for email notifications) — works locally; Railway Hobby/Trial blocks outbound SMTP.
     smtp_enabled: bool = Field(default=False)
     smtp_host: Optional[str] = Field(default=None)
     smtp_port: int = Field(default=587)
     smtp_username: Optional[str] = Field(default=None)
     smtp_password: Optional[str] = Field(default=None)
     smtp_use_starttls: bool = Field(default=True)
+
+    # Resend HTTPS API (preferred on Railway — uses port 443, not blocked)
+    resend_api_key: Optional[str] = Field(default=None, validation_alias="RESEND_API_KEY")
 
     # Email identities / routing
     email_from: str = Field(default="leninstark@gmail.com")
