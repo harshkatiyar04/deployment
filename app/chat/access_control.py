@@ -132,8 +132,9 @@ def require_channel_create_persona(user: SignupRequest) -> None:
 
 
 async def set_admin_audit_actor(db: AsyncSession, admin_id: str) -> None:
-    """Set Postgres session variable for audit triggers (parameterized)."""
+    """Set Postgres session variable for audit triggers (transaction-local)."""
+    # SET LOCAL does not accept bind params ($1) — use set_config() instead.
     await db.execute(
-        text("SET LOCAL zenk.current_admin_id = :admin_id"),
+        text("SELECT set_config('zenk.current_admin_id', :admin_id, true)"),
         {"admin_id": str(admin_id)},
     )
