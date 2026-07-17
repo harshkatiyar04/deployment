@@ -13,6 +13,7 @@ import app.models.school  # noqa: F401
 import app.models.mentor  # noqa: F401
 import app.models.refresh_token  # noqa: F401
 import app.models.landing_contact  # noqa: F401
+import app.models.landing_feedback  # noqa: F401
 # student_family / student_portal tables: migration 019–020 only (avoids school_students FK drift)
 # circle_ops tables are created via migration_014 (not create_all — avoids FK/PK drift)
 
@@ -51,13 +52,13 @@ async def init_db() -> None:
 
             IF (TG_OP = 'INSERT') THEN
                 INSERT INTO audit.admin_access_log (id, admin_id, action, target_table, target_id, changes_json, created_at)
-                VALUES (uuid_generate_v4()::text, admin_id_val, 'CREATE_BAN', 'chat_bans', NEW.id::text, 
+                VALUES (gen_random_uuid()::text, admin_id_val, 'CREATE_BAN', 'chat_bans', NEW.id::text, 
                         jsonb_build_object('circle_id', NEW.circle_id, 'user_id', NEW.user_id, 'reason', NEW.reason), 
                         now());
                 RETURN NEW;
             ELSIF (TG_OP = 'DELETE') THEN
                 INSERT INTO audit.admin_access_log (id, admin_id, action, target_table, target_id, changes_json, created_at)
-                VALUES (uuid_generate_v4()::text, admin_id_val, 'REVOKE_BAN', 'chat_bans', OLD.id::text, 
+                VALUES (gen_random_uuid()::text, admin_id_val, 'REVOKE_BAN', 'chat_bans', OLD.id::text, 
                         jsonb_build_object('circle_id', OLD.circle_id, 'user_id', OLD.user_id), 
                         now());
                 RETURN OLD;

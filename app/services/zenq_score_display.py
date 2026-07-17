@@ -109,12 +109,12 @@ async def build_sponsor_scoreboard(
         ziq_num = float(ziq_val or 0) if ziq_val is not None else 0.0
         if ziq_num >= 55 and zeq_avg is not None and float(zeq_avg) < 0.4:
             insight = (
-                "Circle Impact reflects student progress (ZQA), not just chat this month. "
+                "Circle Impact (ZIQ) reflects student progress (ZQA), not just chat this month. "
                 "Your Effort score tracks your personal mentorship activity."
             )
         elif spd_avg is not None and float(spd_avg) >= 1.1 and zeq_avg is not None and float(zeq_avg) < 0.5:
             insight = (
-                "Strong student progress is lifting Circle Impact. "
+                "Strong student progress is lifting Circle Impact (ZIQ). "
                 "More regular mentorship will raise your personal Effort score."
             )
     elif zenq_display.get("zenq_source") == "legacy_zqa_avg":
