@@ -25,6 +25,9 @@ class LandingFeedbackSubmission(Base):
     interest: Mapped[str] = mapped_column(String(120), nullable=False)
     found_via: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     rating: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    algorithm_clarity: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    most_useful_signal: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    trust_for_decisions: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
     suggestion: Mapped[str] = mapped_column(Text, nullable=False, default="")
     mailing_list_opt_in: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 

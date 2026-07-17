@@ -54,6 +54,9 @@ class LandingFeedbackIn(BaseModel):
     interest: str = Field(min_length=1, max_length=120)
     found_via: Optional[str] = Field(default=None, max_length=120)
     rating: Optional[int] = Field(default=None, ge=1, le=5)
+    algorithm_clarity: Optional[str] = Field(default=None, max_length=80)
+    most_useful_signal: Optional[str] = Field(default=None, max_length=120)
+    trust_for_decisions: Optional[str] = Field(default=None, max_length=120)
     suggestion: str = Field(default="", max_length=4000)
     mailing_list_opt_in: bool = True
     visitor: Optional[VisitorMetaIn] = None
@@ -137,6 +140,9 @@ async def submit_landing_feedback(
             interest=interest,
             found_via=payload.found_via,
             rating=payload.rating,
+            algorithm_clarity=payload.algorithm_clarity,
+            most_useful_signal=payload.most_useful_signal,
+            trust_for_decisions=payload.trust_for_decisions,
             suggestion=payload.suggestion or "",
             mailing_list_opt_in=payload.mailing_list_opt_in,
             visitor_meta=meta,
