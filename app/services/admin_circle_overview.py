@@ -18,10 +18,12 @@ from app.models.signup import SignupRequest
 from app.services.circle_membership_ops import circle_member_limit
 from app.services.student_circle_privacy import BENEFICIARY_ROLE
 from app.services.sponsor_circle_time_impact import (
+    _allocate_percentages,
+    _minutes_as_hours,
     _month_start,
-    batch_circle_hours_since,
+    batch_circle_minutes_since,
     batch_member_activity_for_circle,
-    platform_hours_since,
+    platform_minutes_since,
 )
 
 LEADER_ROLES = frozenset({"lead", "sponsor_leader", "coordinator"})
@@ -31,6 +33,10 @@ def _iso(dt) -> Optional[str]:
     if not dt:
         return None
     return dt.isoformat()
+
+
+def _is_beneficiary(role: Optional[str]) -> bool:
+    return (role or "").lower() == BENEFICIARY_ROLE
 
 
 async def _circle_leader_name(db: AsyncSession, circle_id: str) -> Optional[str]:
@@ -104,10 +110,11 @@ async def list_admin_circles(db: AsyncSession) -> list[dict[str, Any]]:
     )
     pending_counts = {cid: int(cnt) for cid, cnt in pend_res.all()}
 
-    hours_by_circle = await batch_circle_hours_since(db, circles, since)
+    minutes_by_circle = await batch_circle_minutes_since(db, circles, since)
 
     out: list[dict[str, Any]] = []
     for circle in circles:
+        mins = int(minutes_by_circle.get(circle.id, 0) or 0)
         out.append(
             {
                 "id": circle.id,
@@ -117,7 +124,8 @@ async def list_admin_circles(db: AsyncSession) -> list[dict[str, Any]]:
                 "member_limit": circle_member_limit(circle),
                 "created_at": _iso(circle.created_at),
                 "leader_name": leader_names.get(circle.id),
-                "circle_hours_month": hours_by_circle.get(circle.id, 0.0),
+                "circle_minutes_month": mins,
+                "circle_hours_month": _minutes_as_hours(mins),
                 "pending_ops_count": pending_counts.get(circle.id, 0),
             }
         )
@@ -142,13 +150,16 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
     activity_by_user = await batch_member_activity_for_circle(
         db, circle, user_ids, since
     )
+    # Same source as the list Activity column (circle-wide, not sum of seats).
+    minutes_map = await batch_circle_minutes_since(db, [circle], since)
+    circle_minutes = int(minutes_map.get(circle.id, 0) or 0)
 
     members_out: list[dict[str, Any]] = []
-    total_hrs = 0.0
+    minute_parts: list[int] = []
     for cm, signup in member_rows:
         act = activity_by_user.get(signup.id, {})
-        hrs = float(act.get("hours") or 0)
-        total_hrs += hrs
+        mins = int(act.get("minutes") or 0)
+        minute_parts.append(mins)
         members_out.append(
             {
                 "user_id": signup.id,
@@ -156,13 +167,15 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
                 "email": signup.email,
                 "role": cm.role,
                 "joined_at": _iso(cm.joined_at),
-                "hours_this_month": hrs,
+                "minutes_this_month": mins,
+                "hours_this_month": _minutes_as_hours(mins),
                 "messages_count": act.get("messages_count", 0),
                 "orders_count": act.get("orders_count", 0),
                 "enrollment_reviews_count": act.get("enrollment_reviews_count", 0),
             }
         )
 
+    pcts = _allocate_percentages(minute_parts)
     pending_removals = await db.execute(
         select(CircleAdminRequest.target_user_id).where(
             CircleAdminRequest.circle_id == circle.id,
@@ -172,25 +185,24 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
     )
     pending_removal_ids = {uid for (uid,) in pending_removals.all() if uid}
 
-    for m in members_out:
+    for i, m in enumerate(members_out):
         m["pending_removal"] = m["user_id"] in pending_removal_ids
-        if total_hrs > 0:
-            m["participation_pct"] = int(round(100 * m["hours_this_month"] / total_hrs))
-        else:
-            m["participation_pct"] = 0
+        m["participation_pct"] = pcts[i] if i < len(pcts) else 0
 
-    members_out.sort(key=lambda x: x["hours_this_month"], reverse=True)
+    members_out.sort(key=lambda x: x["minutes_this_month"], reverse=True)
+    seat_count = sum(1 for cm, _ in member_rows if not _is_beneficiary(cm.role))
 
     return {
         "id": circle.id,
         "name": circle.name,
         "status": circle.status,
         "description": circle.description,
-        "member_count": len(members_out),
+        "member_count": seat_count,
         "member_limit": circle_member_limit(circle),
         "created_at": _iso(circle.created_at),
         "leader_name": await _circle_leader_name(db, circle.id),
-        "circle_hours_month": round(total_hrs, 1),
+        "circle_minutes_month": circle_minutes,
+        "circle_hours_month": _minutes_as_hours(circle_minutes),
         "pending_ops_count": await _pending_ops_count(db, circle.id),
         "annual_budget": circle.annual_budget,
         "budget_spent": circle.budget_spent,
@@ -219,13 +231,14 @@ async def admin_circles_summary_light(db: AsyncSession) -> dict[str, Any]:
     )
     pending_ops = int(pending_res.scalar_one() or 0)
 
-    total_hours = await platform_hours_since(db, _month_start())
+    total_minutes = await platform_minutes_since(db, _month_start())
 
     return {
         "total_circles": total_circles,
         "total_members": total_members,
         "pending_ops_count": pending_ops,
-        "total_hours_month": round(total_hours, 1),
+        "total_minutes_month": int(total_minutes or 0),
+        "total_hours_month": _minutes_as_hours(total_minutes),
     }
 
 
@@ -241,13 +254,13 @@ async def admin_circle_ops_page_bundle(db: AsyncSession) -> dict[str, Any]:
     # AsyncSession is not safe for concurrent use — load sequentially.
     circles = await list_admin_circles(db)
     pending = await list_pending_membership_ops_queue(db)
+    total_minutes = sum(int(c.get("circle_minutes_month") or 0) for c in circles)
     summary = {
         "total_circles": len(circles),
         "total_members": sum(c["member_count"] for c in circles),
         "pending_ops_count": len(pending),
-        "total_hours_month": round(
-            sum(c["circle_hours_month"] for c in circles), 1
-        ),
+        "total_minutes_month": total_minutes,
+        "total_hours_month": _minutes_as_hours(total_minutes),
     }
     return {
         "summary": summary,

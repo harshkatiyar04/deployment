@@ -111,13 +111,18 @@ async def fetch_mentor_context(user_id: str, db: AsyncSession) -> dict:
 # Response Generators
 # ---------------------------------------------------------------------------
 
-async def generate_mentor_response(message: str, mentor_context: dict) -> Optional[str]:
+async def generate_mentor_response(
+    message: str,
+    mentor_context: dict,
+    history: Optional[list] = None,
+) -> Optional[str]:
     """Generate a Kia response for the mentor dashboard chat."""
     try:
         system_prompt = _build_mentor_system_prompt(mentor_context)
         return await _call_llm(
             system_prompt=system_prompt,
             user_message=message,
+            history=history,
             max_tokens=1024,
             temperature=0.7,
         )

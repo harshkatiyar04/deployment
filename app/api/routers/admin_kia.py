@@ -91,9 +91,22 @@ async def admin_kia_chat(body: AdminKiaChatRequest, db: AsyncSession = Depends(g
     db.add(AdminKiaMessage(role="user", text=msg))
     await db.flush()
 
+    from app.services.kia_history import role_text_rows_to_history
+
+    hist_res = await db.execute(
+        select(AdminKiaMessage)
+        .order_by(AdminKiaMessage.created_at.desc())
+        .limit(22)
+    )
+    prior = list(reversed(hist_res.scalars().all()))
+    history = role_text_rows_to_history(
+        prior,
+        exclude_trailing_user_text=msg,
+    )
+
     context = await fetch_admin_context(db)
     events = await build_admin_portal_events(db)
-    reply = await generate_admin_response(msg, context, events)
+    reply = await generate_admin_response(msg, context, events, history=history)
     if not reply:
         raise HTTPException(status_code=503, detail="Kia is temporarily unavailable.")
 

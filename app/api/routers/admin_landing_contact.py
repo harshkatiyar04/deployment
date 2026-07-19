@@ -53,6 +53,9 @@ class WebsiteFeedbackOut(BaseModel):
     interest: str
     found_via: Optional[str] = None
     rating: Optional[int] = None
+    algorithm_clarity: Optional[str] = None
+    most_useful_signal: Optional[str] = None
+    trust_for_decisions: Optional[str] = None
     suggestion: str = ""
     mailing_list_opt_in: bool = False
     session_id: Optional[str] = None

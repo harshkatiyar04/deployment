@@ -14,7 +14,11 @@ from app.models.signup import SignupRequest
 from app.services.circle_budget import _can_set_budget, build_budget_payload
 from app.services.school_enrollment_constants import ENROLLMENT_PENDING
 from app.services.circle_membership_ops import circle_member_limit, count_circle_members
-from app.services.sponsor_circle_time_impact import build_time_impact, build_member_participation
+from app.services.sponsor_circle_time_impact import (
+    _minutes_as_hours,
+    build_member_participation,
+    build_time_impact,
+)
 from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
 from app.services.zenq_score_display import build_sponsor_scoreboard
 
@@ -74,6 +78,24 @@ async def build_circle_overview(
             my_hours = float(m.get("hours_this_month") or 0)
             break
 
+    # Same source as Active Members total (seat holders only) — not circle-wide
+    # chat that also includes student / non-roster messages.
+    roster_minutes = int(participation_data.get("circle_total_minutes") or 0)
+    roster_hrs = participation_data.get("circle_total_hrs")
+    if roster_hrs is None:
+        roster_hrs = _minutes_as_hours(roster_minutes)
+
+    # Peer "top group" is circle-wide; if we are that top circle, match the roster
+    # figure so the card never shows a higher "Top group" than our own total.
+    my_wide = int(time_data.get("my_circle_minutes") or 0)
+    highest = int(time_data.get("highest_circle_minutes") or 0)
+    if highest > 0 and my_wide >= highest:
+        top_minutes = roster_minutes
+        top_hrs = roster_hrs
+    else:
+        top_minutes = highest
+        top_hrs = time_data.get("highest_circle_hrs")
+
     scoreboard = await build_sponsor_scoreboard(
         db,
         circle_id=circle_id,
@@ -110,8 +132,10 @@ async def build_circle_overview(
         "circle_avg_pct": int(participation_data.get("circle_avg_pct") or 0),
         "participation_vs_avg": my_pct - int(participation_data.get("circle_avg_pct") or 0),
         "participation_available": participation_data.get("metrics_available", True),
-        "time_this_month_hrs": time_data.get("my_circle_hrs"),
-        "top_group_hrs": time_data.get("highest_circle_hrs"),
+        "time_this_month_hrs": roster_hrs,
+        "time_this_month_minutes": roster_minutes,
+        "top_group_hrs": top_hrs,
+        "top_group_minutes": top_minutes,
         "rank_previous": None,
         "budget": {
             "total_budget": budget["total_budget"],

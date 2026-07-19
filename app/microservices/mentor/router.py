@@ -579,8 +579,22 @@ async def mentor_kia_chat(
     db.add(user_msg)
     await db.commit()
 
+    from app.services.kia_history import role_text_rows_to_history
+
+    hist_res = await db.execute(
+        select(MentorKiaMessage)
+        .where(MentorKiaMessage.mentor_id == user.id)
+        .order_by(MentorKiaMessage.created_at.desc())
+        .limit(22)
+    )
+    prior = list(reversed(hist_res.scalars().all()))
+    history = role_text_rows_to_history(
+        prior,
+        exclude_trailing_user_text=body.message,
+    )
+
     mentor_context = await fetch_mentor_context(user.id, db)
-    reply = await generate_mentor_response(body.message, mentor_context)
+    reply = await generate_mentor_response(body.message, mentor_context, history=history)
 
     if not reply:
         raise HTTPException(

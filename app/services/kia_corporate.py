@@ -87,7 +87,11 @@ async def fetch_corporate_context(user_id: str, email: str, db: AsyncSession) ->
 # Generator
 # ---------------------------------------------------------------------------
 
-async def generate_corporate_response(trigger_message: str, user_context: dict) -> Optional[str]:
+async def generate_corporate_response(
+    trigger_message: str,
+    user_context: dict,
+    history: Optional[list] = None,
+) -> Optional[str]:
     """Generate a response from Kia for the corporate dashboard."""
     try:
         system_prompt = _build_corporate_system_prompt(user_context)
@@ -95,6 +99,7 @@ async def generate_corporate_response(trigger_message: str, user_context: dict) 
         return await _call_llm(
             system_prompt=system_prompt,
             user_message=trigger_message,
+            history=history,
         )
     except Exception as e:
         logger.error(f"corporate_kia: Error generating response: {e}")

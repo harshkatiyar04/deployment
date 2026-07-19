@@ -287,7 +287,12 @@ async def build_onboarding_timeline(
     school_student: Optional[SchoolStudent] = None,
 ) -> dict[str, Any]:
     if (student.onboarding_version or "v1") != ONBOARDING_V2:
-        return {"onboarding_version": "v1", "legacy": True, "unlocked": True}
+        return {
+            "onboarding_version": "v1",
+            "legacy": True,
+            "unlocked": True,
+            "onboarding_complete": True,
+        }
 
     link_res = await db.execute(
         select(StudentFamilyLink).where(StudentFamilyLink.student_signup_id == student.id)
@@ -388,6 +393,7 @@ async def build_onboarding_timeline(
 
     unlocked_dashboard = school_done and student_kyc_done and parent_done
     unlocked_circle_request = unlocked_dashboard and not circle_done
+    onboarding_complete = all(bool(s.get("done")) for s in steps)
     tier = student.login_access_tier or LoginAccessTier.consent_required.value
     under_15 = tier == LoginAccessTier.guardian_only.value
 
@@ -398,6 +404,7 @@ async def build_onboarding_timeline(
         "unlocked_dashboard": unlocked_dashboard,
         "unlocked_circle_request": unlocked_circle_request,
         "in_circle": circle_done,
+        "onboarding_complete": onboarding_complete,
         "school_interest_status": interest.status if interest else None,
         "login_access_tier": tier,
         "requires_parent_verification_first": under_15 and not parent_done,

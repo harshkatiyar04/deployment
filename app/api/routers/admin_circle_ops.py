@@ -42,7 +42,8 @@ class AdminCircleMemberRow(BaseModel):
     email: str
     role: str
     joined_at: Optional[str] = None
-    hours_this_month: float = 0
+    minutes_this_month: int = 0
+    hours_this_month: float = 0  # legacy float hours for older clients
     messages_count: int = 0
     orders_count: int = 0
     enrollment_reviews_count: int = 0
@@ -58,7 +59,8 @@ class AdminCircleListItem(BaseModel):
     member_limit: int
     created_at: Optional[str] = None
     leader_name: Optional[str] = None
-    circle_hours_month: float = 0
+    circle_minutes_month: int = 0
+    circle_hours_month: float = 0  # legacy float hours for older clients
     pending_ops_count: int = 0
 
 
@@ -73,7 +75,8 @@ class AdminCirclesSummaryOut(BaseModel):
     total_circles: int
     total_members: int
     pending_ops_count: int
-    total_hours_month: float
+    total_minutes_month: int = 0
+    total_hours_month: float = 0  # legacy float hours for older clients
 
 
 class AdminCircleOpsPageBundleOut(BaseModel):

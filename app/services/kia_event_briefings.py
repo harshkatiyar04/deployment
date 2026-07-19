@@ -590,7 +590,7 @@ def _build_child_snapshot_lines(students: list[dict]) -> list[str]:
             index=idx,
         )
         grade = st.get("grade") or "—"
-        zqa = st.get("zenq_score")
+        zqa = st.get("zqa_score", st.get("zenq_score"))
         attendance = st.get("attendance_pct")
         bits = [f"**{name}** · Grade {grade}"]
         metrics: list[str] = []

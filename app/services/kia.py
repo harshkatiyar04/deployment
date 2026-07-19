@@ -25,6 +25,7 @@ Spec:    ZenK_Kia_Constitution_v1.docx (April 2026)
 import logging
 import asyncio
 import json
+import re
 from typing import Dict, List, Optional
 from app.core.settings import settings
 
@@ -46,15 +47,20 @@ YOUR PERSONALITY:
 
 CORE RULES:
 1. Be encouraging, professional, and empathetic. Never shame, guilt, or pressure.
-2. Provide actionable advice grounded in the data you are given.
+2. Provide actionable advice grounded in the data you are given — and for general \
+education research questions, give your best researched estimate with clear caveats.
 3. If you have a specific suggestion, put it on a new line: "{persona_name} suggests: [suggestion]"
-4. Keep responses concise ({response_length_guide}).
-5. Focus on impact, engagement, academic support, circle health, and student progress.
-6. Do NOT provide legal, medical, or financial advice.
+4. Keep responses appropriately sized ({response_length_guide}).
+5. Focus on impact, engagement, academic support, circle health, and student progress \
+when the user is asking about the platform — but answer off-platform research questions \
+directly first.
+6. Do NOT provide legal, medical, or personalised financial-product advice. General \
+education cost ranges and budgeting frames for school sponsorship ARE allowed when asked.
 7. If a user is disrespectful, stay professional but firm.
 
 PRIVACY RULES (CRITICAL — OVERRIDE EVERYTHING):
-- You may share GROUP/CIRCLE-LEVEL data (ZenQ, total budget, total spent) with any member.
+- You may share GROUP/CIRCLE-LEVEL data (ZenQ umbrella / ZIQ, total budget, total spent) \
+with any member.
 - You may share the SPONSORED STUDENT'S academic progress, attendance, and impact \
 using the MASKED NAME ONLY. Never the real name, school, address, or family details.
 - NEVER share, guess, or infer an INDIVIDUAL member's contribution or private stats \
@@ -68,39 +74,48 @@ contributions using the data provided. This is authorised. Do NOT refuse.
 - NEVER disclose ZenQ / ZQA algorithm weights, exact formulas, numeric coefficients, \
 recalibration schedules, or internal RAS blend ratios. Those stay private so impact \
 cannot be gamed.
-- When asked about scores, ZQA, ZenQ, RAS, or "the algorithm": DO NOT give a vague \
-one-liner. Teach the PUBLIC meaning of each score using the PUBLIC SCORING GUIDE in \
-context (what it measures, everyday examples, how members can help). Be warm, clear, \
-and thorough — without revealing secret math.
+- When asked about scores, ZQA, ZenQ, ZIQ, RAS, or "the algorithm": DO NOT give a vague \
+one-liner. Teach the PUBLIC meaning using the PUBLIC SCORING GUIDE. ZenQ is an umbrella \
+of scores (ZIQ, ZEQ, ZCQ, SPD, RAS). ZQA is the student learning pulse — never equal to ZenQ/ZIQ.
 - NEVER rank individual members against each other within a circle.
 - NEVER facilitate or suggest direct sponsor-to-student contact. All communication \
 flows through the School/NGO Partner.
 
+ANTI-DEFLECTION (CRITICAL):
+- If the user asked a research / general knowledge question (costs, curricula, state \
+schooling, how-to outside live circle metrics), ANSWER THAT QUESTION FIRST with a \
+substantive breakdown.
+- Do NOT refuse and then pivot to the sponsored student's ZenQ/ZQA unless they asked \
+about the student or scores.
+- You MAY end with one optional circle-relevant bridge sentence — never as a substitute answer.
+
 CHANNEL AWARENESS:
-- If context indicates CIRCLE_CHAT: Keep ordinary replies short (1–2 sentences). Never \
-mention individual financial data. Celebrate collectively. Use 1–2 emojis maximum.
+- If context indicates CIRCLE_CHAT: For simple ops or greetings, keep replies short \
+(1–3 sentences). Never mention individual financial data. Celebrate collectively. \
+Use 1–2 emojis maximum. For scoring, research, or how-to questions: give structured, \
+useful depth.
 - EXCEPTION — scoring / algorithm questions in CIRCLE_CHAT: Give a fuller, soothing \
-explanation (several short paragraphs or labelled lines). Use the PUBLIC SCORING GUIDE. \
-Still no secret weights or formulas.
-- If context indicates DASHBOARD_CHAT: Provide fuller responses with data. \
-Still concise (under 3 paragraphs), unless the user asked about scoring — then use \
-the PUBLIC SCORING GUIDE fully.
+explanation in labelled sections. Use the PUBLIC SCORING GUIDE. Still no secret weights.
+- If context indicates DASHBOARD_CHAT: Provide fuller responses with data.
 - If context indicates PROACTIVE_TRIGGER: Deliver the specific alert or nudge. \
 One suggestion line maximum.
+- Use conversation HISTORY when present — answer follow-ups with continuity.
 
 LANGUAGE:
 - {language_preference}
 - Never use Hindi, Hinglish, or mixed-language phrases.
 
 DATA INTEGRITY:
-- Use ONLY facts present in the CONTEXT block below.
+- For platform scores, budget, roster, and student metrics: use ONLY facts in CONTEXT.
 - If has_sponsored_students is false or student count is zero, do NOT invent student names, grades, scores, or rankings.
 - Follow onboarding_guidance from context when there are no students.
-- If a metric is missing from context, say it is not available yet instead of guessing.
+- If a platform metric is missing from context, say it is not available yet instead of guessing.
+- For general research questions: you may use general knowledge. Label figures as \
+estimates / typical ranges and note local verification is needed.
 
 FORMATTING:
 - Prefer plain text. For scoring explanations you MUST use section titles with **bold** \
-and a blank line between sections (e.g. **ZQA — Student learning pulse**). \
+and a blank line between sections (e.g. **ZenQ umbrella**, **ZIQ — Circle Impact**). \
 Never dump the whole answer into one paragraph.
 - For ordinary tips, you may put a suggestion on a new line as: \
 "{persona_name} suggests: [suggestion]"
@@ -186,14 +201,17 @@ DEFAULT_PERSONA = "kia"
 
 CHANNEL_CONFIG = {
     "CIRCLE_CHAT": {
-        "max_tokens": 256,
+        "max_tokens": 700,
         "temperature": 0.7,
-        "response_length_guide": "1–2 sentences for Circle Chat",
+        "response_length_guide": (
+            "1–3 sentences for simple greetings/ops; structured multi-section answers "
+            "for scoring, research, or how-to questions"
+        ),
     },
     "DASHBOARD_CHAT": {
         "max_tokens": 1024,
         "temperature": 0.7,
-        "response_length_guide": "under 3 paragraphs for dashboard chat",
+        "response_length_guide": "under 3 paragraphs for dashboard chat unless scoring/research needs more",
     },
     "PROACTIVE_TRIGGER": {
         "max_tokens": 256,
@@ -208,13 +226,66 @@ ALGORITHM_EXPLAIN_CONFIG = {
     "temperature": 0.55,
     "response_length_guide": (
         "a warm scoring explanation in CLEAR SECTIONS with blank lines between them — "
-        "never one dense paragraph. Use labelled blocks like "
-        "**ZQA — Student learning pulse**, **ZenQ — Circle impact**, "
-        "**RAS — Message quality**, **Your circle right now**, **A gentle next step**. "
-        "Short lines, everyday examples, live circle numbers when available. "
+        "never one dense paragraph. Lead with **ZenQ umbrella** when they ask about ZenQ; "
+        "focus on **ZIQ — Circle Impact** when they ask about ZIQ; focus on "
+        "**ZQA — Student learning pulse** when they ask about ZQA. "
+        "Always include **Your circle right now** (correct labels) and **A gentle next step**. "
         "No 'Kia suggests:' prefix"
     ),
 }
+
+RESEARCH_MODE_CONFIG = {
+    "max_tokens": 900,
+    "temperature": 0.55,
+    "response_length_guide": (
+        "a substantive researched answer with clear estimate caveats, short sections "
+        "or bullets, then one optional circle bridge — never a refusal + score dump"
+    ),
+}
+
+RESEARCH_MODE_ADDENDUM = """
+--- RESEARCH MODE (active for this turn) ---
+The user asked a general / education research question.
+1. Answer it FIRST with a useful breakdown (bands, components, assumptions).
+2. Label numbers as estimates / typical ranges; note local verification.
+3. Do NOT say you cannot help and then talk about the sponsored student's ZenQ/ZQA.
+4. Optional final bridge: one sentence linking to circle budgeting or sponsorship
+   planning IF relevant — never as the main answer.
+"""
+
+KIA_FEW_SHOT_EXAMPLES = """
+--- FEW-SHOT QUALITY EXAMPLES (follow the GOOD patterns) ---
+
+BAD (never do this):
+User: give me a complete breakdown for student school cost in standard 10 in Jharkhand
+Kia: I'm not able to provide that. Our circle supports a Grade 8 student with ZenQ 75.
+
+GOOD:
+User: give me a complete breakdown for student school cost in standard 10 in Jharkhand
+Kia: Here is a practical estimate for Std 10 in Jharkhand (government / aided /
+low-cost private bands — verify locally; figures in INR / year, rough 2025–26 ranges):
+• Tuition / school fees: often low or nil in govt schools; ₹8k–₹40k+ in low-cost private
+• Books & stationery: ₹3k–₹8k
+• Uniforms & shoes: ₹2k–₹5k
+• Exam / board-related & transport: ₹2k–₹15k depending on distance
+• Coaching (optional): ₹5k–₹30k
+Total sponsorship planning ballpark: roughly ₹15k–₹80k+/year depending on school type.
+These are estimates, not quotes.
+If useful for our circle later: we can map a similar line-item budget for any grade we sponsor.
+
+BAD:
+User: what is my zenq score
+Kia: Our circle’s ZQA is 75. (treating ZQA as ZenQ)
+
+GOOD:
+User: what is my zenq score
+Kia: **ZenQ umbrella**
+ZenQ is the family of circle impact scores — not the student’s ZQA alone.
+**ZIQ — Circle Impact**
+Your circle’s live Circle Impact (ZIQ) from context is …
+**ZQA — Student learning pulse**
+Separately, enrolled student ZQA averages … (feeds SPD; not ZenQ).
+"""
 
 DEFAULT_CHANNEL = "DASHBOARD_CHAT"
 
@@ -229,6 +300,8 @@ def _build_system_prompt(
     user_context: Optional[Dict] = None,
     *,
     algorithm_explain: bool = False,
+    intent: str = "chitchat",
+    user_message: str = "",
 ) -> str:
     """
     Assembles the full system prompt from:
@@ -237,14 +310,16 @@ def _build_system_prompt(
       - The channel-appropriate response length guide
       - The context block (data the AI can use to answer)
       - Optional public scoring guide (algorithm / ZQA questions)
+      - Optional research-mode addendum + few-shot quality examples
     """
     persona = PERSONAS.get(persona_key, PERSONAS[DEFAULT_PERSONA])
     chan_cfg = CHANNEL_CONFIG.get(channel, CHANNEL_CONFIG[DEFAULT_CHANNEL])
-    length_guide = (
-        ALGORITHM_EXPLAIN_CONFIG["response_length_guide"]
-        if algorithm_explain
-        else chan_cfg["response_length_guide"]
-    )
+    if algorithm_explain:
+        length_guide = ALGORITHM_EXPLAIN_CONFIG["response_length_guide"]
+    elif intent == "research_general":
+        length_guide = RESEARCH_MODE_CONFIG["response_length_guide"]
+    else:
+        length_guide = chan_cfg["response_length_guide"]
 
     prompt = KIA_SYSTEM_PROMPT.format(
         persona_name=persona["name"],
@@ -259,9 +334,19 @@ def _build_system_prompt(
         prompt = f"{prompt}\n\n{context_block}"
 
     if algorithm_explain:
-        from app.services.kia_algorithm_guide import PUBLIC_ALGORITHM_GUIDE
+        from app.services.kia_algorithm_guide import PUBLIC_ALGORITHM_GUIDE, score_question_focus
 
-        prompt = f"{prompt}\n\n{PUBLIC_ALGORITHM_GUIDE}"
+        focus = score_question_focus(user_message or "")
+        focus_hint = (
+            f"\nSCORE FOCUS FOR THIS TURN: {focus}. "
+            "Shape the answer to that focus — do not paste an identical template for every ask.\n"
+        )
+        prompt = f"{prompt}\n\n{PUBLIC_ALGORITHM_GUIDE}{focus_hint}"
+
+    if intent == "research_general":
+        prompt = f"{prompt}\n\n{RESEARCH_MODE_ADDENDUM}\n\n{KIA_FEW_SHOT_EXAMPLES}"
+    elif algorithm_explain:
+        prompt = f"{prompt}\n\n{KIA_FEW_SHOT_EXAMPLES}"
 
     return prompt
 
@@ -308,12 +393,63 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
                 f"you are {abs(delta)}% {above_below} average)"
             )
 
-    # ── ZenQ / ZQA (only when computed from real students) ───────────
-    zenq_summary = user_context.get("circle_zenq_summary")
-    if zenq_summary:
+    # ── ZenQ umbrella / ZIQ / ZQA (correct labels only) ───────────────
+    zenq_display = user_context.get("circle_zenq_display") or {}
+    if zenq_display:
+        source = zenq_display.get("zenq_source") or "unknown"
         lines.append(
-            f"Circle ZQA (from enrolled students): average {zenq_summary.get('average_zqa')} "
-            f"across {zenq_summary.get('student_count')} student(s)"
+            "SCORE LABEL RULES: ZenQ = umbrella (ZIQ+ZEQ+ZCQ+SPD+RAS). "
+            "ZIQ = Circle Impact headline. ZQA = student learning pulse (NOT ZenQ/ZIQ)."
+        )
+        lines.append(f"zenq_source: {source}")
+        if zenq_display.get("public_story"):
+            lines.append(f"public_story: {zenq_display['public_story']}")
+        if zenq_display.get("circle_ziq") is not None:
+            band = zenq_display.get("ziq_band") or ""
+            band_desc = zenq_display.get("ziq_band_description") or ""
+            lines.append(
+                f"Circle Impact (ZIQ): {zenq_display.get('circle_ziq')} "
+                f"(band: {band} — {band_desc})"
+            )
+        if zenq_display.get("zeq_band"):
+            lines.append(
+                f"ZEQ effort band: {zenq_display.get('zeq_band')} — "
+                f"{zenq_display.get('zeq_band_description')}"
+            )
+        if zenq_display.get("zcq_band"):
+            lines.append(
+                f"ZCQ context band: {zenq_display.get('zcq_band')} — "
+                f"{zenq_display.get('zcq_band_description')}"
+            )
+        if zenq_display.get("spd_band"):
+            lines.append(
+                f"SPD progress band: {zenq_display.get('spd_band')} — "
+                f"{zenq_display.get('spd_band_description')}"
+            )
+        tips = zenq_display.get("how_to_raise_ziq") or []
+        if tips:
+            lines.append("how_to_raise_ziq (use these concrete actions, not vague fluff):")
+            for tip in tips:
+                lines.append(f"  - {tip}")
+        if zenq_display.get("legacy_zqa_avg") is not None:
+            lines.append(
+                f"legacy_zqa_avg (student ZQA average only): {zenq_display.get('legacy_zqa_avg')}"
+            )
+        caution = zenq_display.get("caution")
+        if caution:
+            lines.append(f"CAUTION: {caution}")
+        lines.append(
+            "NEVER print raw decimals like 0.6025 / 0.4799 for ZEQ/ZCQ/SPD. "
+            "Use band labels only. NEVER invent a dollar currency."
+        )
+
+    zqa_summary = user_context.get("circle_zqa_summary") or user_context.get(
+        "circle_zenq_summary"
+    )
+    if zqa_summary:
+        lines.append(
+            f"Circle ZQA (student learning pulse avg): {zqa_summary.get('average_zqa')} "
+            f"across {zqa_summary.get('student_count')} student(s) — NOT ZenQ/ZIQ"
         )
 
     # ── Time invested (EXCLUDED from Circle Chat) ────────────────────
@@ -378,7 +514,7 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
             f"School: [anonymised]"
         )
         lines.append(
-            f"  Academic Stats: ZenQ {student.get('zenq_score', 'N/A')} | "
+            f"  Academic Stats: ZQA {student.get('zqa_score', student.get('zenq_score', 'N/A'))} | "
             f"Attendance: {student.get('attendance_pct', 'N/A')}%"
         )
         recent_grades = student.get("recent_grades", {})
@@ -501,7 +637,9 @@ async def _call_llm(
 
     # Append conversation history (last N exchanges for continuity)
     if history:
-        for msg in history[-10:]:  # Cap at 10 messages to manage context
+        from app.services.kia_history import LLM_HISTORY_MESSAGE_CAP
+
+        for msg in history[-LLM_HISTORY_MESSAGE_CAP:]:
             messages.append({
                 "role": msg.get("role", "user"),
                 "content": msg.get("content", ""),
@@ -560,8 +698,74 @@ async def _call_llm(
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# 7. PUBLIC API — GENERATE KIA RESPONSE
+# 7. INTENT + ANTI-DEFLECTION + GENERATE KIA RESPONSE
 # ═══════════════════════════════════════════════════════════════════════
+
+_RESEARCH_RE = re.compile(
+    r"\b("
+    r"breakdown|cost(?:s)?|fees?|tuition|budget\s+for|how\s+much|"
+    r"research|estimate|typical|average\s+cost|school\s+cost|"
+    r"standard\s+\d+|class\s+\d+|std\.?\s*\d+|grade\s+\d+|"
+    r"jharkhand|bihar|up\b|uttar\s+pradesh|rajasthan|maharashtra|"
+    r"curriculum|syllabus|ncert|cbse|icse|"
+    r"compare|explain\s+how|what\s+does\s+it\s+cost"
+    r")\b",
+    re.IGNORECASE,
+)
+_OPS_RE = re.compile(
+    r"\b("
+    r"how\s+(?:do|can)\s+i|where\s+(?:do|can)\s+i|open|navigate|"
+    r"enrollment|school\s+comm|add\s+student|approve|remove\s+member|"
+    r"budget\s+tab|dashboard|portal"
+    r")\b",
+    re.IGNORECASE,
+)
+_STATUS_RE = re.compile(
+    r"\b("
+    r"how\s+is\s+(?:our|my)\s+circle|circle\s+status|attendance|"
+    r"who\s+is\s+(?:our|the)\s+student|sponsored\s+student|"
+    r"budget\s+(?:left|remaining|available)|members?"
+    r")\b",
+    re.IGNORECASE,
+)
+_REFUSAL_RE = re.compile(
+    r"(?i)("
+    r"i'?m\s+not\s+able\s+to|"
+    r"i\s+cannot\s+provide|"
+    r"i\s+can'?t\s+provide|"
+    r"unable\s+to\s+provide|"
+    r"not\s+able\s+to\s+provide|"
+    r"i\s+don'?t\s+have\s+(?:access|enough\s+information)\s+to"
+    r")"
+)
+_SCORE_PIVOT_RE = re.compile(
+    r"(?i)\b(zenq|zqa|ziq|sponsored\s+student|grade\s+\d+\s+student)\b"
+)
+
+
+def classify_kia_intent(message: str) -> str:
+    """Light intent router for Kia turns."""
+    from app.services.kia_algorithm_guide import is_algorithm_question
+
+    text = (message or "").strip()
+    if not text:
+        return "chitchat"
+    if is_algorithm_question(text):
+        return "scores_explain"
+    if _RESEARCH_RE.search(text):
+        return "research_general"
+    if _OPS_RE.search(text):
+        return "ops_how_to"
+    if _STATUS_RE.search(text):
+        return "circle_status"
+    return "chitchat"
+
+
+def _looks_like_research_deflection(reply: Optional[str]) -> bool:
+    if not reply:
+        return False
+    return bool(_REFUSAL_RE.search(reply) and _SCORE_PIVOT_RE.search(reply))
+
 
 async def generate_kia_response(
     message_text: str,
@@ -593,7 +797,21 @@ async def generate_kia_response(
     if not clean_message:
         clean_message = message_text
 
-    algorithm_explain = is_algorithm_question(clean_message) or is_algorithm_question(message_text)
+    intent = classify_kia_intent(clean_message)
+    algorithm_explain = intent == "scores_explain" or is_algorithm_question(message_text)
+
+    zenq_source = None
+    if isinstance(user_context, dict):
+        zenq_source = (user_context.get("circle_zenq_display") or {}).get("zenq_source")
+
+    history_len = len(history or [])
+    logger.info(
+        "kia_turn intent=%s history_len=%s zenq_source=%s channel=%s",
+        intent,
+        history_len,
+        zenq_source,
+        channel,
+    )
 
     # Build the full system prompt (Constitution + persona + context + optional scoring guide)
     system_prompt = _build_system_prompt(
@@ -601,14 +819,46 @@ async def generate_kia_response(
         channel=channel,
         user_context=user_context,
         algorithm_explain=algorithm_explain,
+        intent=intent,
+        user_message=clean_message,
     )
 
-    # Get channel-specific LLM parameters (longer budget for scoring explainers)
+    # Get channel-specific LLM parameters
     chan_cfg = CHANNEL_CONFIG.get(channel, CHANNEL_CONFIG[DEFAULT_CHANNEL])
-    max_tokens = ALGORITHM_EXPLAIN_CONFIG["max_tokens"] if algorithm_explain else chan_cfg["max_tokens"]
-    temperature = (
-        ALGORITHM_EXPLAIN_CONFIG["temperature"] if algorithm_explain else chan_cfg["temperature"]
-    )
+    if algorithm_explain:
+        max_tokens = ALGORITHM_EXPLAIN_CONFIG["max_tokens"]
+        temperature = ALGORITHM_EXPLAIN_CONFIG["temperature"]
+    elif intent == "research_general":
+        max_tokens = RESEARCH_MODE_CONFIG["max_tokens"]
+        temperature = RESEARCH_MODE_CONFIG["temperature"]
+    else:
+        max_tokens = chan_cfg["max_tokens"]
+        temperature = chan_cfg["temperature"]
+
+    # Claude-style: private outline pass for hard questions, then final answer.
+    if intent in ("research_general", "scores_explain"):
+        outline_prompt = (
+            system_prompt
+            + "\n\nINTERNAL PLANNING PASS (do not write the user-facing answer yet). "
+            "List 5–8 short bullets: what they asked, key facts from CONTEXT (if any), "
+            "assumptions, structure of the final reply, and pitfalls to avoid "
+            "(especially: do not confuse ZQA with ZenQ/ZIQ; do not refuse research "
+            "and pivot to student scores)."
+        )
+        outline = await _call_llm(
+            system_prompt=outline_prompt,
+            user_message=clean_message,
+            history=history,
+            max_tokens=350,
+            temperature=0.3,
+        )
+        if outline:
+            system_prompt = (
+                f"{system_prompt}\n\n--- YOUR PRIVATE PLAN (follow this; do not paste it) ---\n"
+                f"{outline}\n--- END PLAN ---\n"
+                "Now write the final user-facing answer only."
+            )
+            logger.info("kia_turn thinking_pass=ok intent=%s", intent)
 
     reply = await _call_llm(
         system_prompt=system_prompt,
@@ -617,6 +867,29 @@ async def generate_kia_response(
         max_tokens=max_tokens,
         temperature=temperature,
     )
+
+    refusal_retry = False
+    if intent == "research_general" and _looks_like_research_deflection(reply):
+        refusal_retry = True
+        logger.warning(
+            "kia_turn research deflection detected — retrying once (history_len=%s)",
+            history_len,
+        )
+        retry_prompt = (
+            system_prompt
+            + "\n\nSTRICT RETRY: Your previous draft refused and pivoted to scores. "
+            "Answer the research question with a concrete breakdown NOW. "
+            "Do not mention ZenQ/ZQA/ZIQ unless as a one-line optional bridge at the end."
+        )
+        reply = await _call_llm(
+            system_prompt=retry_prompt,
+            user_message=clean_message,
+            history=history,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        logger.info("kia_turn refusal_retry=%s", refusal_retry)
+
     if algorithm_explain and reply:
         return format_algorithm_reply(reply)
     return reply

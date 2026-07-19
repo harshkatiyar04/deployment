@@ -197,7 +197,7 @@ async def _fetch_circle_students(circle_id: str, db: AsyncSession) -> list[dict]
                 "pseudonym": masked,
                 "grade": st.grade,
                 "attendance_pct": round(float(st.attendance_pct or 0)),
-                "zenq_score": round(float(st.zqa_score or 0)),
+                "zqa_score": round(float(st.zqa_score or 0)),
                 "avg_score": round(float(st.avg_score or 0)),
                 "risk_level": st.risk_level,
                 "q_report_status": st.q_report_status,
@@ -267,15 +267,52 @@ async def fetch_user_context(
         if students:
             context["sponsored_students"] = students
             context["sponsored_student"] = students[0]
-            zqa_vals = [s["zenq_score"] for s in students if s.get("zenq_score") is not None]
+            zqa_vals = [s["zqa_score"] for s in students if s.get("zqa_score") is not None]
             if zqa_vals:
-                context["circle_zenq_summary"] = {
+                context["circle_zqa_summary"] = {
                     "average_zqa": round(sum(zqa_vals) / len(zqa_vals)),
                     "student_count": student_count,
                 }
+            # Live circle ZenQ / ZIQ (never confuse with student ZQA).
+            try:
+                from app.services.zenq_public_scores import resolve_circle_zenq_display
+                from app.services.kia_zenq_snapshot import enrich_zenq_display_for_kia
+
+                display = await resolve_circle_zenq_display(
+                    db,
+                    circle_id,
+                    student_count=student_count,
+                    materialize_if_missing=False,
+                )
+                context["circle_zenq_display"] = enrich_zenq_display_for_kia(display)
+            except Exception as zenq_exc:
+                logger.warning(
+                    "kia_context: zenq display failed for circle %s: %s",
+                    circle_id,
+                    zenq_exc,
+                )
         else:
             context["sponsored_students"] = []
             context["sponsored_student"] = None
+
+        if "circle_zenq_display" not in context:
+            try:
+                from app.services.zenq_public_scores import resolve_circle_zenq_display
+                from app.services.kia_zenq_snapshot import enrich_zenq_display_for_kia
+
+                display = await resolve_circle_zenq_display(
+                    db,
+                    circle_id,
+                    student_count=student_count,
+                    materialize_if_missing=False,
+                )
+                context["circle_zenq_display"] = enrich_zenq_display_for_kia(display)
+            except Exception as zenq_exc:
+                logger.warning(
+                    "kia_context: zenq display failed for circle %s: %s",
+                    circle_id,
+                    zenq_exc,
+                )
 
         if is_leader:
             context["leader_note"] = (

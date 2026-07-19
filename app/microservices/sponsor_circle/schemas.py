@@ -273,11 +273,14 @@ class TimeImpactResponse(BaseModel):
     metrics_available: bool = False
     has_enrolled_student: bool = False
     message: Optional[str] = None
-    total_hrs_all_circles: Optional[int] = None
+    total_hrs_all_circles: Optional[float] = None
+    total_minutes_all_circles: Optional[int] = None
     total_circles_count: Optional[int] = None
     highest_circle_hrs: Optional[float] = None
+    highest_circle_minutes: Optional[int] = None
     highest_circle_name: Optional[str] = None
     my_circle_hrs: Optional[float] = None
+    my_circle_minutes: Optional[int] = None
 
 
 class CircleRankRow(BaseModel):

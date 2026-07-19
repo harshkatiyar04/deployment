@@ -69,6 +69,7 @@ from app.services.shield import shield_message_async
 from app.services.kia import generate_kia_response
 from app.services.kia_context import fetch_user_context
 from app.services.kia_corporate import generate_corporate_response, fetch_corporate_context
+from app.services.kia_history import load_circle_channel_history
 from app.models.enums import Persona as UserPersonaRole
 
 logger = logging.getLogger(__name__)
@@ -173,7 +174,17 @@ async def _process_kia_bot_response(
                     email=email,
                     db=db
                 )
-                response_text = await generate_corporate_response(trigger_message, user_context=user_context)
+                chat_history = await load_circle_channel_history(
+                    db,
+                    channel_id,
+                    kia_persona_id=kia_persona_id,
+                    exclude_trailing_user_text=trigger_message,
+                )
+                response_text = await generate_corporate_response(
+                    trigger_message,
+                    user_context=user_context,
+                    history=chat_history,
+                )
             else:
                 user_context = await fetch_user_context(
                     user_id=requesting_user_id,
@@ -182,9 +193,16 @@ async def _process_kia_bot_response(
                     include_private=True,
                     is_leader=is_leader,
                 )
+                chat_history = await load_circle_channel_history(
+                    db,
+                    channel_id,
+                    kia_persona_id=kia_persona_id,
+                    exclude_trailing_user_text=trigger_message,
+                )
                 response_text = await generate_kia_response(
                     trigger_message,
                     user_context=user_context,
+                    history=chat_history,
                     channel="CIRCLE_CHAT",
                 )
                 

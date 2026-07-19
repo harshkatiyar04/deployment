@@ -142,12 +142,17 @@ async def fetch_school_context(school_id: str, db: AsyncSession) -> dict:
     }
 
 
-async def generate_school_response(message: str, school_context: dict) -> Optional[str]:
+async def generate_school_response(
+    message: str,
+    school_context: dict,
+    history: Optional[list] = None,
+) -> Optional[str]:
     try:
         system_prompt = _build_school_prompt(school_context)
         return await _call_llm(
             system_prompt=system_prompt,
             user_message=message,
+            history=history,
             max_tokens=1024,
             temperature=0.65,
         )

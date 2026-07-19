@@ -272,6 +272,7 @@ async def build_admin_dashboard_overview(db: AsyncSession) -> dict[str, Any]:
             "circle_members": circle_summary["total_members"],
             "circles_change": circles_this_month - circles_last_month,
             "circles_new_this_month": circles_this_month,
+            "circle_minutes_month": circle_summary.get("total_minutes_month", 0),
             "circle_hours_month": circle_summary["total_hours_month"],
             "suppliers_total": vendors_total,
             "suppliers_approved": vendors_approved,

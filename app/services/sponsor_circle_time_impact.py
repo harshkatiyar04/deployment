@@ -20,6 +20,49 @@ MINUTES_PER_ORDER = 25
 MINUTES_PER_ENROLLMENT_REVIEW = 12
 
 
+def _activity_minutes(
+    messages: int, orders: int, enrollment_reviews: int
+) -> int:
+    """Weighted engagement minutes from activity counts (never fractional)."""
+    return (
+        max(0, int(messages or 0)) * MINUTES_PER_MESSAGE
+        + max(0, int(orders or 0)) * MINUTES_PER_ORDER
+        + max(0, int(enrollment_reviews or 0)) * MINUTES_PER_ENROLLMENT_REVIEW
+    )
+
+
+def _minutes_as_hours(minutes: int) -> float:
+    """Legacy float-hours field (1 decimal) for older clients."""
+    return round(max(0, int(minutes or 0)) / 60.0, 1)
+
+
+def _minutes_to_hours(
+    messages: int, orders: int, enrollment_reviews: int
+) -> float:
+    return _minutes_as_hours(_activity_minutes(messages, orders, enrollment_reviews))
+
+
+def _allocate_percentages(parts: list[int]) -> list[int]:
+    """Largest-remainder percentages that always sum to 100 (or 0)."""
+    total = sum(max(0, int(p or 0)) for p in parts)
+    n = len(parts)
+    if n == 0:
+        return []
+    if total <= 0:
+        return [0] * n
+    raw = [(100.0 * max(0, int(p or 0)) / total) for p in parts]
+    floors = [int(x) for x in raw]
+    rem = 100 - sum(floors)
+    order = sorted(
+        range(n),
+        key=lambda i: (raw[i] - floors[i], parts[i], -i),
+        reverse=True,
+    )
+    for i in order[: max(0, rem)]:
+        floors[i] += 1
+    return floors
+
+
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -85,32 +128,27 @@ async def _count_circle_enrollment_reviews(
     return int(res.scalar() or 0)
 
 
-def _minutes_to_hours(
-    messages: int, orders: int, enrollment_reviews: int
-) -> float:
-    total_min = (
-        messages * MINUTES_PER_MESSAGE
-        + orders * MINUTES_PER_ORDER
-        + enrollment_reviews * MINUTES_PER_ENROLLMENT_REVIEW
-    )
-    return round(total_min / 60.0, 1)
+async def circle_minutes_since(
+    db: AsyncSession, circle: SponsorCircle, since: datetime
+) -> int:
+    msgs = await _count_circle_messages(db, circle.id, since)
+    orders = await _count_circle_orders(db, circle, since)
+    reviews = await _count_circle_enrollment_reviews(db, circle.id, since)
+    return _activity_minutes(msgs, orders, reviews)
 
 
 async def circle_hours_since(
     db: AsyncSession, circle: SponsorCircle, since: datetime
 ) -> float:
-    msgs = await _count_circle_messages(db, circle.id, since)
-    orders = await _count_circle_orders(db, circle, since)
-    reviews = await _count_circle_enrollment_reviews(db, circle.id, since)
-    return _minutes_to_hours(msgs, orders, reviews)
+    return _minutes_as_hours(await circle_minutes_since(db, circle, since))
 
 
-async def batch_circle_hours_since(
+async def batch_circle_minutes_since(
     db: AsyncSession,
     circles: list[SponsorCircle],
     since: datetime,
-) -> dict[str, float]:
-    """Circle-level hours for many circles — sequential session use, batched counts."""
+) -> dict[str, int]:
+    """Circle-level engagement minutes for many circles — batched counts."""
     if not circles:
         return {}
 
@@ -173,7 +211,7 @@ async def batch_circle_hours_since(
         orders_by_circle[circle.id] = int(ord_res.scalar() or 0)
 
     return {
-        cid: _minutes_to_hours(
+        cid: _activity_minutes(
             msgs_by_circle.get(cid, 0),
             orders_by_circle.get(cid, 0),
             revs_by_circle.get(cid, 0),
@@ -182,8 +220,17 @@ async def batch_circle_hours_since(
     }
 
 
-async def platform_hours_since(db: AsyncSession, since: datetime) -> float:
-    """Platform-wide impact hours in one pass — for admin dashboard KPIs only."""
+async def batch_circle_hours_since(
+    db: AsyncSession,
+    circles: list[SponsorCircle],
+    since: datetime,
+) -> dict[str, float]:
+    minutes_map = await batch_circle_minutes_since(db, circles, since)
+    return {cid: _minutes_as_hours(mins) for cid, mins in minutes_map.items()}
+
+
+async def platform_minutes_since(db: AsyncSession, since: datetime) -> int:
+    """Platform-wide engagement minutes in one pass — for admin dashboard KPIs."""
     since_naive = _since_naive(since)
     msgs_res = await db.execute(
         select(func.count(ChatMessage.id))
@@ -207,11 +254,16 @@ async def platform_hours_since(db: AsyncSession, since: datetime) -> float:
             SchoolStudentEnrollmentRequest.reviewed_at >= since_naive,
         )
     )
-    return _minutes_to_hours(
+    return _activity_minutes(
         int(msgs_res.scalar() or 0),
         int(orders_res.scalar() or 0),
         int(reviews_res.scalar() or 0),
     )
+
+
+async def platform_hours_since(db: AsyncSession, since: datetime) -> float:
+    """Platform-wide impact hours in one pass — legacy float for older clients."""
+    return _minutes_as_hours(await platform_minutes_since(db, since))
 
 
 async def _count_user_messages_in_circle(
@@ -276,8 +328,10 @@ async def member_activity_since(
     msgs = await _count_user_messages_in_circle(db, user_id, circle.id, since)
     orders = await _count_user_orders_for_circle(db, user_id, circle, since)
     reviews = await _count_user_enrollment_reviews(db, user_id, circle.id, since)
+    minutes = _activity_minutes(msgs, orders, reviews)
     return {
-        "hours": _minutes_to_hours(msgs, orders, reviews),
+        "minutes": minutes,
+        "hours": _minutes_as_hours(minutes),
         "messages_count": msgs,
         "orders_count": orders,
         "enrollment_reviews_count": reviews,
@@ -356,8 +410,10 @@ async def batch_member_activity_for_circle(
         msgs = msgs_by_user.get(uid, 0)
         orders = orders_by_user.get(uid, 0)
         reviews = revs_by_user.get(uid, 0)
+        minutes = _activity_minutes(msgs, orders, reviews)
         out[uid] = {
-            "hours": _minutes_to_hours(msgs, orders, reviews),
+            "minutes": minutes,
+            "hours": _minutes_as_hours(minutes),
             "messages_count": msgs,
             "orders_count": orders,
             "enrollment_reviews_count": reviews,
@@ -424,6 +480,7 @@ async def build_member_participation(
             db, signup, cm_role=cm.role or ""
         )
         act = activity_by_user.get(signup.id) or {
+            "minutes": 0,
             "hours": 0.0,
             "messages_count": 0,
             "orders_count": 0,
@@ -437,6 +494,7 @@ async def build_member_participation(
                 "role": cm.role,
                 "role_label": role_label,
                 "is_leader": (cm.role or "").lower() in ("lead", "coordinator", "sponsor_leader"),
+                "minutes": int(act.get("minutes") or 0),
                 "hours": act["hours"],
                 "messages_count": act["messages_count"],
                 "orders_count": act["orders_count"],
@@ -444,18 +502,15 @@ async def build_member_participation(
             }
         )
 
-    total_hrs = round(sum(m["hours"] for m in member_stats), 1)
+    total_minutes = sum(int(m["minutes"] or 0) for m in member_stats)
+    total_hrs = _minutes_as_hours(total_minutes)
+    pcts = _allocate_percentages([int(m["minutes"] or 0) for m in member_stats])
 
     leader_name = ""
     leader_pct = None
     members_out: list[dict[str, Any]] = []
 
-    for m in member_stats:
-        if total_hrs > 0:
-            pct = int(round(100 * m["hours"] / total_hrs))
-        else:
-            pct = 0
-
+    for m, pct in zip(member_stats, pcts):
         if m["is_leader"]:
             leader_name = m["name"]
             leader_pct = pct
@@ -475,7 +530,8 @@ async def build_member_participation(
                 "participation_pct": pct,
                 "badge": "you" if m["user_id"] == current_user_id else "",
                 "is_top": False,
-                "hours_this_month": m["hours"],
+                "minutes_this_month": int(m["minutes"] or 0),
+                "hours_this_month": _minutes_as_hours(int(m["minutes"] or 0)),
                 "messages_count": m["messages_count"],
                 "orders_count": m["orders_count"],
                 "enrollment_reviews_count": m["enrollment_reviews_count"],
@@ -486,8 +542,11 @@ async def build_member_participation(
             }
         )
 
-    members_out.sort(key=lambda x: x["hours_this_month"] or 0, reverse=True)
-    if members_out and (members_out[0]["hours_this_month"] or 0) > 0:
+    members_out.sort(
+        key=lambda x: int(x.get("minutes_this_month") or 0),
+        reverse=True,
+    )
+    if members_out and int(members_out[0].get("minutes_this_month") or 0) > 0:
         members_out[0]["is_top"] = True
 
     avg_pct = None
@@ -531,11 +590,13 @@ async def build_member_participation(
         "leader_name": leader_name,
         "leader_pct": leader_pct,
         "circle_total_hrs": total_hrs,
+        "circle_total_minutes": total_minutes,
         "period_label": since.strftime("%B %Y"),
         "metrics_available": True,
         "message": (
-            "Member hours are estimated from chat, marketplace orders, and enrollment "
-            "approvals this month. Visible to everyone in your circle."
+            "Member time is estimated from each seat holder’s chat, marketplace orders, "
+            "and enrollment approvals this month. Totals match the sum of member rows "
+            "(student activity is listed separately and not counted in seat totals)."
         ),
         "member_count": member_count,
         "member_limit": limit,
@@ -557,10 +618,13 @@ def _time_impact_unavailable(
         "has_enrolled_student": has_enrolled_student,
         "message": message,
         "total_hrs_all_circles": 0,
+        "total_minutes_all_circles": 0,
         "total_circles_count": 0,
         "highest_circle_hrs": 0.0,
+        "highest_circle_minutes": 0,
         "highest_circle_name": None,
         "my_circle_hrs": 0.0,
+        "my_circle_minutes": 0,
     }
 
 
@@ -601,10 +665,12 @@ async def build_time_impact(
         )
 
     hours_map = await batch_circle_hours_since(db, [circle], since)
+    minutes_map = await batch_circle_minutes_since(db, [circle], since)
     my_hrs = hours_map.get(circle_id, 0.0)
-    if my_hrs <= 0:
+    my_minutes = int(minutes_map.get(circle_id, 0) or 0)
+    if my_minutes <= 0:
         return _time_impact_unavailable(
-            "No impact activity this month yet. Hours appear when members chat about the "
+            "No impact activity this month yet. Time appears when members chat about the "
             "sponsored student, place student-fund orders, or approve school enrollments.",
             has_enrolled_student=True,
         )
@@ -616,22 +682,21 @@ async def build_time_impact(
     peer_circles = list(peer_res.scalars().all())
     peer_with_students = await _circle_ids_with_students(db, [c.id for c in peer_circles])
     eligible = [c for c in peer_circles if c.id in peer_with_students]
-    peer_hours = await batch_circle_hours_since(db, eligible, since)
+    peer_minutes = await batch_circle_minutes_since(db, eligible, since)
 
-    per_circle: list[tuple[str, str, float]] = []
-    total_hrs = 0.0
+    per_circle: list[tuple[str, str, int]] = []
+    total_minutes = 0
     for c in eligible:
-        hrs = peer_hours.get(c.id, 0.0)
-        if hrs <= 0:
+        mins = int(peer_minutes.get(c.id, 0) or 0)
+        if mins <= 0:
             continue
-        per_circle.append((c.id, c.name, hrs))
-        total_hrs += hrs
+        per_circle.append((c.id, c.name, mins))
+        total_minutes += mins
 
-    total_hrs = round(total_hrs, 1)
     highest_name: Optional[str] = None
-    highest_hrs = 0.0
+    highest_minutes = 0
     if per_circle:
-        _cid, highest_name, highest_hrs = max(per_circle, key=lambda x: x[2])
+        _cid, highest_name, highest_minutes = max(per_circle, key=lambda x: x[2])
 
     activity_note = (
         "Estimated from circle chat, student-fund marketplace orders, and school "
@@ -642,9 +707,12 @@ async def build_time_impact(
         "metrics_available": True,
         "has_enrolled_student": True,
         "message": activity_note,
-        "total_hrs_all_circles": int(round(total_hrs)),
+        "total_hrs_all_circles": _minutes_as_hours(total_minutes),
+        "total_minutes_all_circles": total_minutes,
         "total_circles_count": len(per_circle),
-        "highest_circle_hrs": highest_hrs,
+        "highest_circle_hrs": _minutes_as_hours(highest_minutes),
+        "highest_circle_minutes": highest_minutes,
         "highest_circle_name": highest_name,
         "my_circle_hrs": my_hrs,
+        "my_circle_minutes": my_minutes,
     }

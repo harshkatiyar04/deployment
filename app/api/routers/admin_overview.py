@@ -38,6 +38,7 @@ class AdminKpisOut(BaseModel):
     circle_members: int = 0
     circles_change: int = 0
     circles_new_this_month: int = 0
+    circle_minutes_month: int = 0
     circle_hours_month: float = 0
     suppliers_total: int
     suppliers_approved: int = 0

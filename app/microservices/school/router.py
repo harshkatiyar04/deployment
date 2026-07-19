@@ -2576,8 +2576,23 @@ async def kia_chat(
     db.add(user_msg)
     await db.flush()
 
+    # Prior turns for continuity (exclude the message we just flushed).
+    from app.services.kia_history import role_text_rows_to_history
+
+    hist_res = await db.execute(
+        select(SchoolKiaMessage)
+        .where(SchoolKiaMessage.school_id == profile.id)
+        .order_by(SchoolKiaMessage.created_at.desc())
+        .limit(22)
+    )
+    prior = list(reversed(hist_res.scalars().all()))
+    history = role_text_rows_to_history(
+        prior,
+        exclude_trailing_user_text=body.message,
+    )
+
     context = await fetch_school_context(_school_id(), db)
-    reply = await generate_school_response(body.message, context)
+    reply = await generate_school_response(body.message, context, history=history)
 
     if not reply:
         raise HTTPException(status_code=503, detail="Kia is temporarily unavailable. Please try again shortly.")

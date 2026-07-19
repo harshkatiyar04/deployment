@@ -109,6 +109,12 @@ async def build_sponsored_student_profile(
 ) -> dict[str, Any]:
     base = await mask_student_for_circle(db, school_student)
     pseudonym = base["pseudonym"]
+    if viewer == "admin":
+        base = {
+            **base,
+            "full_name": school_student.full_name,
+            "legal_name": school_student.full_name,
+        }
 
     subj_res = await db.execute(
         select(SchoolStudentSubjectScore).where(
@@ -224,7 +230,14 @@ async def build_sponsored_student_profile(
     if has_quarter_data and (subject_scores or blooms_row or sel_row):
         try:
             raw = await get_zqa_breakdown(db, school_student, display_q)
-            zqa_breakdown = _sanitize_zqa_breakdown(raw, pseudonym)
+            if viewer == "admin":
+                zqa_breakdown = {
+                    **raw,
+                    "pseudonym": pseudonym,
+                    "full_name": school_student.full_name,
+                }
+            else:
+                zqa_breakdown = _sanitize_zqa_breakdown(raw, pseudonym)
         except Exception:
             zqa_breakdown = None
 
@@ -297,17 +310,24 @@ async def build_sponsored_student_profile(
         "privacy_note": _privacy_note_for_viewer(viewer),
         "parent_approved_uploads": parent_approved_uploads,
         "viewer": viewer,
-        "read_only": viewer in ("student", "parent", "sponsor"),
+        "read_only": viewer in ("student", "parent", "sponsor", "admin"),
     }
 
     if has_quarter_data:
         if quarter_avg_score is not None:
             payload["avg_score"] = quarter_avg_score
     else:
-        payload["attendance_pct"] = None
-        payload["avg_score"] = None
-        payload["zqa_score"] = None
-        payload["risk_level"] = None
+        # Keep live roster KPIs visible for admin even when a quarter has no published rows.
+        if viewer == "admin":
+            payload["attendance_pct"] = int(school_student.attendance_pct or 0)
+            payload["avg_score"] = int(school_student.avg_score or 0)
+            payload["zqa_score"] = int(round(float(school_student.zqa_score or 0)))
+            payload["risk_level"] = school_student.risk_level
+        else:
+            payload["attendance_pct"] = None
+            payload["avg_score"] = None
+            payload["zqa_score"] = None
+            payload["risk_level"] = None
 
     return payload
 
@@ -317,6 +337,8 @@ def _privacy_note_for_viewer(viewer: str) -> str:
         return "View only — your school updates official records. Parents can submit documents for principal review."
     if viewer == "parent":
         return "View only — submit marks or grades above for principal review. School owns official quarterly reports."
+    if viewer == "admin":
+        return "Platform admin view — legal name and full academic records are visible for progress tracking."
     return "Identity is masked. Only your school principal sees the student's legal name."
 
 

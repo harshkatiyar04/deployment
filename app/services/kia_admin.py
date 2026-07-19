@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
+import re
 import uuid
 from typing import Any, Optional
 
@@ -19,46 +19,222 @@ from app.services.kia import _call_llm
 
 logger = logging.getLogger(__name__)
 
-_ADMIN_CONSTITUTION = """You are Kia, ZenK's Platform Admin Advisor.
+_ADMIN_CONSTITUTION = """You are Kia, ZenK's Platform Admin Advisor for India.
 You assist the ZenK operations admin managing sponsor circles, schools, vendors, KYC, safety, and spend.
 
+CURRENCY (CRITICAL):
+- ZenK money is ALWAYS Indian Rupees (INR).
+- Write amounts as ₹2,49,000 or "₹2.49 lakh" — NEVER use $, USD, dollars, or £.
+- If a figure in context is already labelled with ₹, copy that format.
+
 YOUR ROLE:
-- Summarize live platform metrics and queues that need human action.
-- Prioritize what the admin should handle first (KYC, circle ops, SOS, uplift, safety).
-- Explain circle membership, spend, and activity using only the Admin Context provided.
-- Suggest concrete next steps with dashboard paths when relevant.
+- Answer with LIVE numbers from Admin Snapshot only — never invent or round into a different currency.
+- When asked how many circles / total contributions / spend, quote the exact snapshot fields.
+- Prioritize queues that need human action (KYC, circle ops, SOS, uplift, safety).
+- Suggest concrete next steps with clickable portal paths.
 
 TONE: Calm, precise, operational. Respect the admin's time.
 
 RULES:
-1. Use ONLY data from Admin Context and Events — never invent counts or names.
-2. When citing queues, mention exact numbers from context.
-3. For sensitive removals or limits, remind that leader requests need admin approval.
-4. Keep chat replies under 4 short paragraphs. Plain text only — no markdown bullets.
-5. When recommending action, prefix: "Kia recommends: [text]"
-6. Never expose passwords, API keys, or raw document content.
+1. Use ONLY Admin Snapshot + Priority Events — never invent counts, names, or money.
+2. Cite exact numbers from the snapshot (e.g. active_circles, total_contributions_inr).
+3. Keep replies under 4 short paragraphs.
+4. When recommending action, you MAY use: "Kia recommends: [text]"
+5. Never expose passwords, API keys, or raw document content.
+6. Portal paths MUST be markdown links so the UI can make them clickable, e.g.
+   [Circle ops](/dashboard/circle-ops) — never bare paths without a link.
 
-ADMIN PORTAL PATHS (for recommendations):
-- /dashboard/signup-review — KYC queue
-- /dashboard/circle-ops — circles, members, removal/limit requests
-- /dashboard/uplift-queue — mentor uplift verification
-- /dashboard/report-queue — SOS reports
-- /dashboard/safety — flagged chat content
-- /dashboard/chat-bans — active bans
-- /dashboard — main overview
+ADMIN PORTAL PATHS (use as markdown links):
+- [Overview](/dashboard)
+- [Signup & KYC](/dashboard/signup-review)
+- [Circle ops](/dashboard/circle-ops)
+- [Other requests](/dashboard/other-requests)
+- [Uplift queue](/dashboard/uplift-queue)
+- [SOS reports](/dashboard/report-queue)
+- [Safety](/dashboard/safety)
+- [Chat bans](/dashboard/chat-bans)
+- [Suppliers](/dashboard/suppliers)
+- [ZenQ observatory](/dashboard/zenq-lab)
 """
 
 
+def _inr_indian(amount: Any) -> str:
+    try:
+        n = int(round(float(amount or 0)))
+    except (TypeError, ValueError):
+        n = 0
+    if n < 0:
+        return f"-{_inr_indian(-n)}"
+    s = str(n)
+    if len(s) <= 3:
+        return f"₹{s}"
+    last3 = s[-3:]
+    rest = s[:-3]
+    chunks: list[str] = []
+    while rest:
+        chunks.append(rest[-2:])
+        rest = rest[:-2]
+    return "₹" + ",".join(reversed(chunks)) + "," + last3
+
+
+def _build_platform_snapshot(overview: dict[str, Any]) -> dict[str, Any]:
+    k = overview.get("kpis") or {}
+    q = overview.get("queues") or {}
+    return {
+        "currency": "INR (Indian Rupees) — NEVER use USD/$",
+        "active_circles": int(k.get("active_circles") or 0),
+        "circle_members": int(k.get("circle_members") or 0),
+        "circles_new_this_month": int(k.get("circles_new_this_month") or 0),
+        "total_users": int(k.get("total_users") or 0),
+        "users_new_this_month": int(k.get("users_new_this_month") or 0),
+        "total_contributions_inr": int(k.get("total_contributions") or 0),
+        "total_contributions_display": _inr_indian(k.get("total_contributions") or 0),
+        "circle_spend_total_inr": int(k.get("circle_spend_total") or 0),
+        "circle_spend_total_display": _inr_indian(k.get("circle_spend_total") or 0),
+        "marketplace_gmv_inr": float(k.get("marketplace_gmv") or 0),
+        "marketplace_gmv_display": _inr_indian(k.get("marketplace_gmv") or 0),
+        "gmv_mtd_display": _inr_indian(k.get("gmv_mtd") or 0),
+        "suppliers_approved": int(k.get("suppliers_approved") or 0),
+        "active_products": int(k.get("active_products") or 0),
+        "time_this_month_minutes": int(k.get("circle_minutes_month") or 0),
+        "queues": {
+            "kyc_pending": int(q.get("kyc_pending") or 0),
+            "circle_ops_pending": int(q.get("circle_ops_pending") or 0),
+            "other_requests_pending": int(q.get("other_requests_pending") or 0),
+            "uplift_pending": int(q.get("uplift_pending") or 0),
+            "sos_open": int(q.get("sos_open") or 0),
+            "chat_warned": int(q.get("chat_warned") or 0),
+            "chat_bans": int(q.get("chat_bans") or 0),
+        },
+        "how_to_answer_examples": {
+            "circles_question": (
+                f"There are {int(k.get('active_circles') or 0)} circles on the platform."
+            ),
+            "contributions_question": (
+                f"Total circle contributions collected so far: "
+                f"{_inr_indian(k.get('total_contributions') or 0)}. "
+                f"Total circle spend: {_inr_indian(k.get('circle_spend_total') or 0)}."
+            ),
+        },
+    }
+
+
 def _build_admin_prompt(context: dict, events: list[dict]) -> str:
-    prompt = _ADMIN_CONSTITUTION + "\n\n--- ADMIN CONTEXT (live) ---\n"
-    prompt += json.dumps(context, indent=2, default=str)[:12000]
-    prompt += "\n\n--- PRIORITY EVENTS ---\n"
+    snapshot = context.get("platform_snapshot") or {}
+    lines = [
+        _ADMIN_CONSTITUTION,
+        "",
+        "--- ADMIN SNAPSHOT (live INR figures — source of truth) ---",
+    ]
+    for key, val in snapshot.items():
+        if key == "how_to_answer_examples":
+            continue
+        if key == "queues" and isinstance(val, dict):
+            lines.append("queues:")
+            for qk, qv in val.items():
+                lines.append(f"  {qk}: {qv}")
+        else:
+            lines.append(f"{key}: {val}")
+
+    examples = snapshot.get("how_to_answer_examples") or {}
+    if examples:
+        lines.append("")
+        lines.append("--- ANSWER STYLE (copy currency format) ---")
+        for label, sample in examples.items():
+            lines.append(f"{label}: {sample}")
+
+    pending = context.get("pending_circle_ops") or []
+    if pending:
+        lines.append("")
+        lines.append("--- PENDING CIRCLE OPS (sample) ---")
+        for req in pending[:8]:
+            lines.append(
+                f"- {req.get('request_type')}: {req.get('circle_name')} "
+                f"(leader={req.get('leader_name')}, status={req.get('status')})"
+            )
+
+    kyc = context.get("kyc_queue_sample") or []
+    if kyc:
+        lines.append("")
+        lines.append("--- KYC QUEUE SAMPLE ---")
+        for row in kyc[:6]:
+            lines.append(f"- {row.get('name')} ({row.get('persona')})")
+
+    lines.append("")
+    lines.append("--- PRIORITY EVENTS ---")
     if events:
         for ev in events[:15]:
-            prompt += f"- [{ev.get('severity','info').upper()}] {ev.get('title')}: {ev.get('detail')} (action: {ev.get('action_path','')})\n"
+            path = ev.get("action_path") or ""
+            lines.append(
+                f"- [{str(ev.get('severity', 'info')).upper()}] {ev.get('title')}: "
+                f"{ev.get('detail')} → link as [{ev.get('title')}]({path})"
+            )
     else:
-        prompt += "No urgent events right now.\n"
-    return prompt
+        lines.append("No urgent events right now.")
+
+    return "\n".join(lines)
+
+
+_DOLLAR_AMOUNT_RE = re.compile(
+    r"\$\s*([0-9]{1,3}(?:,[0-9]{2,3})*(?:\.[0-9]+)?|[0-9]+(?:\.[0-9]+)?)\s*(k|K|lakh|L|cr|CR)?",
+)
+_BARE_DASHBOARD_PATH_RE = re.compile(
+    r"(?<!\()(?<!\]\()(/dashboard(?:/[a-z0-9\-]+)*)",
+    re.IGNORECASE,
+)
+_USD_WORD_RE = re.compile(r"\b(USD|US\$|dollars?)\b", re.IGNORECASE)
+
+
+def format_admin_reply(text: Optional[str]) -> Optional[str]:
+    """Force INR currency and ensure portal paths are markdown-linked."""
+    if not text:
+        return text
+    cleaned = text.strip()
+
+    def _dollar_to_inr(match: re.Match) -> str:
+        raw = match.group(1).replace(",", "")
+        suffix = (match.group(2) or "").lower()
+        try:
+            n = float(raw)
+        except ValueError:
+            return f"₹{match.group(1)}"
+        if suffix == "k":
+            n *= 1000
+        elif suffix in ("l", "lakh"):
+            n *= 100_000
+        elif suffix in ("cr",):
+            n *= 10_000_000
+        return _inr_indian(n)
+
+    cleaned = _DOLLAR_AMOUNT_RE.sub(_dollar_to_inr, cleaned)
+    cleaned = _USD_WORD_RE.sub("INR", cleaned)
+
+    # Linkify bare /dashboard/... paths that are not already markdown links.
+    def _linkify_path(match: re.Match) -> str:
+        path = match.group(1)
+        label_map = {
+            "/dashboard": "Overview",
+            "/dashboard/signup-review": "Signup & KYC",
+            "/dashboard/circle-ops": "Circle ops",
+            "/dashboard/other-requests": "Other requests",
+            "/dashboard/uplift-queue": "Uplift queue",
+            "/dashboard/report-queue": "SOS reports",
+            "/dashboard/safety": "Safety",
+            "/dashboard/chat-bans": "Chat bans",
+            "/dashboard/suppliers": "Suppliers",
+            "/dashboard/zenq-observatory": "ZenQ observatory",
+            "/dashboard/zenq-lab": "ZenQ observatory",
+            "/dashboard/student-progress": "Student progress",
+            "/dashboard/users": "Users",
+            "/dashboard/legal": "Legal & terms",
+            "/dashboard/suppliers": "Suppliers",
+        }
+        label = label_map.get(path.rstrip("/"), path.split("/")[-1].replace("-", " ").title())
+        return f"[{label}]({path})"
+
+    cleaned = _BARE_DASHBOARD_PATH_RE.sub(_linkify_path, cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned).strip()
+    return cleaned
 
 
 async def fetch_admin_context(db: AsyncSession) -> dict[str, Any]:
@@ -81,10 +257,13 @@ async def fetch_admin_context(db: AsyncSession) -> dict[str, Any]:
     ]
 
     return {
-        "overview": overview,
+        "platform_snapshot": _build_platform_snapshot(overview),
         "pending_circle_ops": pending_ops[:10],
         "kyc_queue_sample": kyc_queue,
-        "data_policy": "All figures are live from the database at request time.",
+        "data_policy": (
+            "All figures are live from the database at request time. "
+            "Money fields are INR. Prefer *_display strings when speaking to the admin."
+        ),
     }
 
 
@@ -194,7 +373,11 @@ async def build_admin_portal_events(db: AsyncSession) -> list[dict[str, Any]]:
                 "id": "circles-growth",
                 "severity": "info",
                 "title": "Circle growth",
-                "detail": f"{k['circles_new_this_month']} new circle(s) this month · {k.get('active_circles', 0)} active",
+                "detail": (
+                    f"{k['circles_new_this_month']} new circle(s) this month · "
+                    f"{k.get('active_circles', 0)} active · "
+                    f"contributions {_inr_indian(k.get('total_contributions') or 0)}"
+                ),
                 "action_path": "/dashboard/circle-ops",
                 "event_type": "circle_growth",
             }
@@ -216,15 +399,22 @@ async def build_admin_portal_events(db: AsyncSession) -> list[dict[str, Any]]:
     return events
 
 
-async def generate_admin_response(message: str, context: dict, events: list[dict]) -> Optional[str]:
+async def generate_admin_response(
+    message: str,
+    context: dict,
+    events: list[dict],
+    history: Optional[list] = None,
+) -> Optional[str]:
     try:
         system_prompt = _build_admin_prompt(context, events)
-        return await _call_llm(
+        reply = await _call_llm(
             system_prompt=system_prompt,
             user_message=message,
+            history=history,
             max_tokens=900,
-            temperature=0.55,
+            temperature=0.35,
         )
+        return format_admin_reply(reply)
     except Exception as exc:
         logger.error("kia_admin LLM error: %s", exc)
         return None
@@ -240,7 +430,7 @@ async def post_admin_kia_briefing(
     row = AdminKiaMessage(
         id=str(uuid.uuid4()),
         role="kia",
-        text=text.strip(),
+        text=format_admin_reply(text.strip()) or text.strip(),
         event_type=event_type,
         action_path=action_path,
     )
@@ -253,17 +443,11 @@ async def seed_welcome_if_empty(db: AsyncSession) -> None:
     res = await db.execute(select(AdminKiaMessage.id).limit(1))
     if res.scalar_one_or_none():
         return
-    events = await build_admin_portal_events(db)
-    if events:
-        top = events[0]
-        text = (
-            f"Welcome back. I'm Kia, your platform admin advisor. "
-            f"Top priority: {top['title']} — {top['detail']}. "
-            f"Ask me what needs attention or say 'summarize all portals'."
-        )
-    else:
-        text = (
-            "Welcome back. I'm Kia, your platform admin advisor. "
-            "Queues look clear — ask me for circle activity, spend, or safety status anytime."
-        )
-    await post_admin_kia_briefing(db, text, event_type="welcome", action_path="/dashboard")
+    await post_admin_kia_briefing(
+        db,
+        "I'm Kia, your platform admin advisor. Ask about circles, KYC queues, "
+        "safety, or spend — I'll answer with live INR figures and portal links like "
+        "[Circle ops](/dashboard/circle-ops).",
+        event_type="welcome",
+        action_path="/dashboard",
+    )

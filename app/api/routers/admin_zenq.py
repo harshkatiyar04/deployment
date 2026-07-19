@@ -1,11 +1,9 @@
 """Admin ZenQ algorithm observatory (Phase 0 — read-only scrutiny + backfill)."""
 
-from __future__ import annotations
-
 import json
-from typing import Optional
+from typing import Annotated, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -179,7 +177,7 @@ async def zenq_welfare_scan(
 async def zenq_welfare_resolve(
     request: Request,
     case_id: str,
-    body: ZenqWelfareResolveRequest,
+    body: Annotated[ZenqWelfareResolveRequest, Body()],
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     admin_email = getattr(request.state, "admin_email", None) or "admin"
@@ -203,7 +201,7 @@ async def zenq_weight_configs(db: AsyncSession = Depends(get_db)) -> dict:
 @limiter.limit("12/hour")
 async def zenq_propose_weights(
     request: Request,
-    body: ZenqWeightProposalRequest,
+    body: Annotated[ZenqWeightProposalRequest, Body()],
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     admin_email = getattr(request.state, "admin_email", None) or "admin"
@@ -223,7 +221,7 @@ async def zenq_propose_weights(
 async def zenq_approve_weights(
     request: Request,
     proposal_id: str,
-    body: ZenqWeightDecisionRequest,
+    body: Annotated[ZenqWeightDecisionRequest, Body()],
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     admin_email = getattr(request.state, "admin_email", None) or "admin"
@@ -243,7 +241,7 @@ async def zenq_approve_weights(
 async def zenq_reject_weights(
     request: Request,
     proposal_id: str,
-    body: ZenqWeightDecisionRequest,
+    body: Annotated[ZenqWeightDecisionRequest, Body()],
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     admin_email = getattr(request.state, "admin_email", None) or "admin"

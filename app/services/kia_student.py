@@ -58,6 +58,7 @@ async def fetch_student_context(db: AsyncSession, signup: SignupRequest) -> dict
 async def generate_student_response(
     message: str,
     student_context: dict,
+    history: Optional[list] = None,
 ) -> Optional[str]:
     try:
         system_prompt = _STUDENT_KIA_PROMPT.format(
@@ -66,6 +67,7 @@ async def generate_student_response(
         return await _call_llm(
             system_prompt=system_prompt,
             user_message=message,
+            history=history,
             max_tokens=512,
             temperature=0.6,
         )

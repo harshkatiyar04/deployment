@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.core.rate_limit import limiter
 
+from app.core.docs_auth import DocsAuthMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.settings import api_docs_enabled, settings
 from app.services.zenq_maintenance import zenq_maintenance_loop
@@ -38,8 +39,13 @@ app = FastAPI(
     redoc_url="/redoc" if _DOCS_ENABLED else None,
     openapi_url="/openapi.json" if _DOCS_ENABLED else None,
 )
-if not _DOCS_ENABLED:
-    logger.info("[Security] OpenAPI docs disabled (set ENABLE_API_DOCS=true to override).")
+if _DOCS_ENABLED:
+    logger.info(
+        "[Security] OpenAPI docs ON at /docs (HTTP Basic: ZENK_ADMIN_EMAIL / "
+        "ZENK_ADMIN_PASSWORD). Set ENABLE_API_DOCS=false to disable."
+    )
+else:
+    logger.info("[Security] OpenAPI docs disabled (set ENABLE_API_DOCS=true to enable).")
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -85,6 +91,9 @@ def _build_allowed_origins() -> list[str]:
 ALLOWED_ORIGINS = _build_allowed_origins()
 
 app.add_middleware(SecurityHeadersMiddleware)
+if _DOCS_ENABLED:
+    # Added after SecurityHeaders so it runs first (Starlette: last added = outermost).
+    app.add_middleware(DocsAuthMiddleware)
 
 app.add_middleware(
     CORSMiddleware,

@@ -339,8 +339,22 @@ async def student_kia_chat(
     await db.commit()
     await db.refresh(user_msg)
 
+    from app.services.kia_history import role_text_rows_to_history
+
+    hist_res = await db.execute(
+        select(StudentKiaMessage)
+        .where(StudentKiaMessage.student_signup_id == user.id)
+        .order_by(StudentKiaMessage.created_at.desc())
+        .limit(22)
+    )
+    prior = list(reversed(hist_res.scalars().all()))
+    history = role_text_rows_to_history(
+        prior,
+        exclude_trailing_user_text=body.message.strip(),
+    )
+
     ctx = await fetch_student_context(db, user)
-    reply = await generate_student_response(body.message, ctx)
+    reply = await generate_student_response(body.message, ctx, history=history)
     if not reply:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

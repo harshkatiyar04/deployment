@@ -9,17 +9,35 @@ exact formulas, recalibration schedules, or internal coefficients.
 from __future__ import annotations
 
 import re
+from typing import Optional
 
 # Phrases that mean the user wants a scoring / algorithm explanation.
 _ALGO_QUERY_RE = re.compile(
     r"\b("
     r"zqa|zenq|zeq|zcq|spd|ras|ziq|"
     r"algorithm|algo|scoring|score(?:s)?|"
-    r"how\s+(?:do|does|is)\s+(?:zqa|zenq|scoring|score)|"
-    r"what\s+(?:is|are)\s+(?:zqa|zenq|the\s+score)|"
-    r"explain\s+(?:zqa|zenq|the\s+score|scoring|algorithm)|"
-    r"impact\s+score|student\s+score|attendance\s+score"
+    r"how\s+(?:do|does|is|can|should)\s+(?:i\s+|we\s+)?(?:increase|improve|raise|boost)?\s*"
+    r"(?:my\s+|our\s+)?(?:zqa|zenq|ziq|scoring|score)|"
+    r"how\s+(?:do|does|is)\s+(?:zqa|zenq|ziq|scoring|score)|"
+    r"what\s+(?:is|are)\s+(?:my\s+)?(?:zqa|zenq|ziq|the\s+score)|"
+    r"explain\s+(?:zqa|zenq|ziq|the\s+score|scoring|algorithm)|"
+    r"impact\s+score|student\s+score|attendance\s+score|"
+    r"umbrella\s+(?:of\s+)?score|"
+    r"increase\s+(?:my\s+|our\s+)?(?:ziq|zenq|zqa)"
     r")\b",
+    re.IGNORECASE,
+)
+
+_FOCUS_ZIQ_RE = re.compile(
+    r"\b(ziq|circle\s+impact(?:\s+score)?)\b",
+    re.IGNORECASE,
+)
+_FOCUS_ZQA_RE = re.compile(
+    r"\b(zqa|student\s+(?:learning\s+)?(?:pulse|score)|learning\s+pulse)\b",
+    re.IGNORECASE,
+)
+_FOCUS_UMBRELLA_RE = re.compile(
+    r"\b(zenq|umbrella|zeq|zcq|spd|ras|algorithm|scoring)\b",
     re.IGNORECASE,
 )
 
@@ -28,24 +46,78 @@ def is_algorithm_question(message: str) -> bool:
     return bool(_ALGO_QUERY_RE.search(message or ""))
 
 
+def score_question_focus(message: str) -> str:
+    """
+    Which score the user is asking about.
+
+    Returns: ziq | zqa | umbrella | general
+    """
+    text = message or ""
+    if re.search(r"\bziq\b", text, re.IGNORECASE):
+        return "ziq"
+    if re.search(r"\bcircle\s+impact\b", text, re.IGNORECASE):
+        return "ziq"
+    if _FOCUS_ZQA_RE.search(text) and not re.search(
+        r"\b(zenq|ziq|zeq|zcq|spd)\b", text, re.I
+    ):
+        return "zqa"
+    if re.search(r"\bzqa\b", text, re.IGNORECASE) and not re.search(
+        r"\b(zenq|ziq)\b", text, re.IGNORECASE
+    ):
+        return "zqa"
+    if _FOCUS_UMBRELLA_RE.search(text) or _FOCUS_ZIQ_RE.search(text):
+        return "umbrella"
+    return "general"
+
+
 def format_algorithm_reply(text: Optional[str]) -> Optional[str]:
     """
-    Ensure scoring explanations stay scannable even if the LLM returns
-    a dense paragraph. Inserts blank lines before known section titles.
+    Clean scoring explanations: scannable sections, no orphan bullets,
+    no raw engine decimals leaked as “breakdown”.
     """
     if not text:
         return text
     cleaned = text.strip()
-    # Normalize "Kia suggests:" so it does not open the suggestion card.
     cleaned = re.sub(r"(?i)\bKia suggests:\s*", "", cleaned).strip()
 
-    # Match optional **bold** around known section titles; keep the whole match intact.
+    # Strip leaked raw component decimals (0.6025 style) with optional labels.
+    cleaned = re.sub(
+        r"(?im)^\s*[-•*]?\s*(?:ZEQ|ZCQ|SPD)\s*(?:\([^)]+\))?\s*:\s*0\.\d{2,}\b.*$",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"(?i)\b(ZEQ|ZCQ|SPD)\s*(?:\([^)]+\))?\s*:\s*0\.\d{2,}\b(?:\s*\([^)]*\))?",
+        "",
+        cleaned,
+    )
+
+    # Fix broken "Increasing\nZEQ" / "Enhancing\nZCQ" / "Supporting\nSPD"
+    cleaned = re.sub(
+        r"(?i)\b(Increasing|Enhancing|Supporting|Improving)\s*\n+\s*((?:ZEQ|ZCQ|SPD)\b)",
+        r"\1 \2",
+        cleaned,
+    )
+
+    # Collapse orphan bullet-only lines
+    cleaned = re.sub(r"(?m)^\s*[-•*]\s*$", "", cleaned)
+    cleaned = re.sub(r"(?m)^\s*[-•*]\s*\n+(?=\s*[-•*]?\s*(?:ZEQ|ZCQ|SPD|Increasing|Enhancing|Supporting))", "", cleaned)
+
+    # Normalize list markers to "- "
+    cleaned = re.sub(r"(?m)^\s*[•*]\s+", "- ", cleaned)
+
     section_re = re.compile(
         r"(?<!\n)\s*"
         r"(\*\*\s*)?"
         r"("
+        r"ZenQ\s+[Uu]mbrella|"
+        r"ZIQ\s*[—\-]\s*Circle [Ii]mpact|"
         r"ZQA\s*[—\-]\s*Student learning pulse|"
         r"ZenQ\s*[—\-]\s*Circle impact|"
+        r"Understanding ZIQ|"
+        r"How to raise your ZIQ|"
+        r"Breaking down ZIQ|"
+        r"Increasing ZIQ|"
         r"RAS\s*[—\-]\s*Message quality|"
         r"Your circle right now|"
         r"A gentle next step"
@@ -55,24 +127,20 @@ def format_algorithm_reply(text: Optional[str]) -> Optional[str]:
     )
 
     def _section_break(match: re.Match) -> str:
-        open_b = match.group(1) or ""
         title = match.group(2).strip()
-        close_b = match.group(3) or ""
-        # Prefer clean bold titles in chat.
-        if open_b or close_b:
-            return f"\n\n**{title}**"
-        return f"\n\n{title}"
+        return f"\n\n**{title}**"
 
     cleaned = section_re.sub(_section_break, cleaned)
 
-    # Soft-break common inline labels if still jammed together
     cleaned = re.sub(r"(?<!\n)\s+(ZQA:)", r"\n\n\1", cleaned)
     cleaned = re.sub(r"(?<!\n)\s+(ZenQ:)", r"\n\n\1", cleaned)
+    cleaned = re.sub(r"(?<!\n)\s+(ZIQ:)", r"\n\n\1", cleaned)
     cleaned = re.sub(r"(?<!\n)\s+(RAS:)", r"\n\n\1", cleaned)
 
-    # Put body text on the line after a bold section title when still inline.
     cleaned = re.sub(
-        r"(\*\*(?:ZQA|ZenQ|RAS|Your circle right now|A gentle next step)[^*]*\*\*)\s+(?=\S)",
+        r"(\*\*(?:ZenQ umbrella|ZIQ|ZQA|ZenQ|Understanding ZIQ|How to raise your ZIQ|"
+        r"Breaking down ZIQ|Increasing ZIQ|RAS|Your circle right now|"
+        r"A gentle next step)[^*]*\*\*)\s+(?=\S)",
         r"\1\n",
         cleaned,
         flags=re.IGNORECASE,
@@ -85,96 +153,67 @@ def format_algorithm_reply(text: Optional[str]) -> Optional[str]:
 PUBLIC_ALGORITHM_GUIDE = """
 --- PUBLIC SCORING GUIDE (safe to teach; NEVER reveal weights or formulas) ---
 
-When a member asks about ZQA, ZenQ, scores, or "the algorithm", explain warmly
-and clearly using the guide below. Use everyday examples. Be soothing and
-encouraging. You MAY use short labelled lines (ZQA:, ZenQ:, etc.) for clarity.
+ZenQ is an UMBRELLA of scores — not a single student number.
+Never treat student ZQA as ZenQ or ZIQ.
 
 HARD SECRETS — never reveal:
 - Numeric weights, percentages inside formulas, or exact equations
+- Raw engine decimals for ZEQ/ZCQ/SPD (like 0.6025) — use BAND LABELS only
 - Recalibration schedules, RAS AI/heuristic blend ratios, decay rates
-- Internal component codes beyond the public names below
 If pressed for the formula, say gently that the exact math stays private so
-people grow real impact instead of gaming numbers — then teach the meaning
-and the behaviours that help.
+people grow real impact instead of gaming numbers — then teach behaviours.
 
-PUBLIC STORY OF THE SCORES:
+PUBLIC MAP:
 
-1) ZQA — Student Quality / Academic pulse (0–100 style)
-   What it is: A holistic picture of the sponsored child's learning health —
-   not just one exam mark.
-   What feeds it (conceptually): school academics (subjects like English,
-   Maths, Science, History/Social), deeper thinking skills (Bloom's levels —
-   remembering → creating), and social-emotional growth (self-awareness,
-   relationships, responsible choices). Attendance and report completeness
-   also matter so the picture stays honest.
-   Everyday example: Think of a report card that also asks "Is the child
-   understanding ideas, applying them, and growing as a person?" — not only
-   "Did they pass the test?"
-   Bands (public language): Beginning → Emerging → Developing → Insightful.
-   How the circle helps: Mentoring that builds confidence, celebrating
-   subject wins, supporting attendance, and asking the school for timely
-   quarterly updates.
+0) **ZenQ umbrella** = ZIQ + ZEQ + ZCQ + SPD (+ RAS for chat). ZQA feeds SPD only.
 
-2) ZenQ / Circle Impact (often shown as the circle's impact score)
-   What it is: How much genuine, shared sponsorship impact the circle is
-   creating around the student.
-   Public building blocks (names only — no math):
-   - Your Effort (ZEQ): time with the student journey, keeping commitments,
-     meaningful chat, inspiring others, fair teamwork, and staying consistent.
-   - Circle Context (ZCQ): the real-world need around the child (support
-     needs, attendance patterns, circle size) so harder contexts are
-     recognised fairly.
-   - Student Progress (SPD): whether the child's ZQA is moving forward from
-     their own starting point — growth relative to their baseline, not
-     comparison to other children.
-   Everyday example: Like a garden score — your watering and care (effort),
-   the soil and weather the plant faces (context), and how much the plant
-   has grown since you started (progress). All three matter; none alone
-   tells the full story.
-   Bands (public): Emerging → Developing → Strong → Exceptional.
+1) **ZQA** — Student learning pulse (0–100 style). Not Circle Impact.
 
-3) RAS — Message quality (chat authenticity)
-   What it is: How thoughtful and student-centred a chat message feels —
-   not how long or flashy it is.
-   Everyday example: "Hope you're fine" scores lower than a kind note that
-   asks about a maths struggle and offers one concrete tip.
-   Public bands: Low effort → Moderate → Strong → Excellent.
+2) **ZIQ — Circle Impact** — headline under ZenQ.
+   Built from three public building blocks (names only):
+   - ZEQ — circle effort (showing up, thoughtful chat, helping)
+   - ZCQ — student/context need (you support it; you don't "hack" it)
+   - SPD — student progress vs their own baseline (ZQA movement)
+   Bands for ZIQ: Emerging → Developing → Strong → Exceptional.
 
-4) Related public ideas you may mention briefly:
-   - Streaks / consistency: showing up regularly matters more than one big day.
-   - Spark: occasional encouragement boosts for healthy momentum (not a cheat code).
-   - Decay: long silence gently softens stale effort so scores stay honest.
-   - Equity: circles do better when effort is shared, not carried by one person.
+3) **RAS** — chat message quality (thoughtful > one-liners).
 
-TEACHING STYLE FOR THIS TOPIC:
-- NEVER write one long paragraph. Section the answer so it is easy to scan.
-- Use this exact shape (blank line between every section):
+════════════════════════════════════════════════════════════
+IF THE QUESTION IS ABOUT ZIQ (or "how do I increase my ZIQ"):
+════════════════════════════════════════════════════════════
+Use THIS shape exactly (blank line between sections). Be concrete — no fluff.
 
-  Happy to walk you through this — here is a simple map of our scores.
+**ZIQ — Circle Impact**
+Your circle's ZIQ is <number from CONTEXT> (<band from CONTEXT>).
+One sentence: what that band means (from CONTEXT band description).
+One sentence: ZenQ is the umbrella; ZIQ is the Circle Impact headline.
 
-  **ZQA — Student learning pulse**
-  What it is: …
-  Example: …
-  (1–3 short lines max)
+**Understanding ZIQ**
+In plain words: ZIQ rises when the circle's effort (ZEQ), care for the child's
+real situation (ZCQ), and the student's progress from their own start (SPD)
+all move in a healthy way — like watering, soil, and growth in a garden.
+Do NOT list raw decimals. If CONTEXT has component bands, say e.g.
+"Effort looks Active, context is Standard, student progress is On track."
 
-  **ZenQ — Circle impact**
-  What it is: … (garden metaphor is fine)
-  Example: …
-  (1–3 short lines max)
+**How to raise your ZIQ**
+Give 3 concrete actions as a clean list (each line starts with "- "):
+- Prefer items from CONTEXT how_to_raise_ziq when present.
+- Make them this-week actions (chat quality, school update, attendance check-in).
+- Never say vague things like "provide resources and a nurturing environment" alone.
 
-  **RAS — Message quality**
-  What it is: …
-  Example: …
-  (optional if the question is only about ZQA)
+**Your circle right now**
+Live ZIQ + student ZQA/attendance from CONTEXT only (correct labels).
 
-  **Your circle right now**
-  Live numbers from CONTEXT only (e.g. ZQA 62, attendance 86%). Soft framing.
+**A gentle next step**
+ONE specific next action for the next 48 hours. No "Kia suggests:" prefix.
 
-  **A gentle next step**
-  One calm action. Do NOT write "Kia suggests:".
+════════════════════════════════════════════════════════════
+IF THE QUESTION IS ABOUT ZenQ (umbrella) OR ZQA — adapt; do not paste the ZIQ essay.
+════════════════════════════════════════════════════════════
 
-- Put a blank line before each **Section title**.
-- Keep each section short — scannable, not an essay.
-- Keep the tone soothing; never shame low scores — frame them as a starting
-  point for care.
+Formatting rules:
+- Blank line before every **Section title**
+- Lists: each item on one line starting with "- " (never a lonely bullet on its own line)
+- Never dump the same ZQA template when they asked for ZIQ
+- Never shame low scores — Emerging is a starting point for care
 """

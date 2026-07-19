@@ -4,6 +4,7 @@ from app.api.routers import (
     admin_kyc,
     admin_kia,
     admin_users,
+    admin_students,
     admin_suppliers,
     admin_support,
     user_support,
@@ -42,6 +43,7 @@ api_router.include_router(admin_circle_ops.router)
 api_router.include_router(admin_other_requests.router)
 api_router.include_router(admin_kia.router)
 api_router.include_router(admin_users.router)
+api_router.include_router(admin_students.router)
 api_router.include_router(admin_suppliers.router)
 api_router.include_router(admin_support.router)
 api_router.include_router(user_support.router)
