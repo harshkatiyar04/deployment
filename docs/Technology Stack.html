@@ -5,19 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ZenK Platform - Technology Stack</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 20px;
             min-height: 100vh;
         }
-        
         .container {
             max-width: 1400px;
             margin: 0 auto;
@@ -26,25 +20,24 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             padding: 40px;
         }
-        
         .header {
             text-align: center;
             margin-bottom: 40px;
             padding-bottom: 20px;
             border-bottom: 3px solid #667eea;
         }
-        
-        .header h1 {
-            color: #2d3748;
-            font-size: 42px;
-            margin-bottom: 10px;
+        .header h1 { color: #2d3748; font-size: 42px; margin-bottom: 10px; }
+        .header p { color: #718096; font-size: 18px; }
+        .note {
+            background: #ebf8ff;
+            border-left: 4px solid #3182ce;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 28px;
+            color: #2c5282;
+            font-size: 14px;
+            line-height: 1.6;
         }
-        
-        .header p {
-            color: #718096;
-            font-size: 18px;
-        }
-        
         .stack-category {
             margin-bottom: 40px;
             background: #f7fafc;
@@ -52,7 +45,6 @@
             padding: 30px;
             border: 2px solid #e2e8f0;
         }
-        
         .category-header {
             display: flex;
             align-items: center;
@@ -60,7 +52,6 @@
             padding-bottom: 15px;
             border-bottom: 2px solid #cbd5e0;
         }
-        
         .category-icon {
             width: 50px;
             height: 50px;
@@ -73,28 +64,14 @@
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
         }
-        
-        .category-title {
-            flex: 1;
-        }
-        
-        .category-title h2 {
-            color: #2d3748;
-            font-size: 28px;
-            margin-bottom: 5px;
-        }
-        
-        .category-title p {
-            color: #718096;
-            font-size: 14px;
-        }
-        
+        .category-title { flex: 1; }
+        .category-title h2 { color: #2d3748; font-size: 28px; margin-bottom: 5px; }
+        .category-title p { color: #718096; font-size: 14px; }
         .tech-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
             gap: 20px;
         }
-        
         .tech-item {
             background: white;
             border-radius: 10px;
@@ -103,19 +80,11 @@
             border-left: 4px solid #667eea;
             transition: transform 0.2s, box-shadow 0.2s;
         }
-        
         .tech-item:hover {
             transform: translateY(-3px);
             box-shadow: 0 4px 8px rgba(0,0,0,0.15);
         }
-        
-        .tech-name {
-            font-size: 20px;
-            font-weight: bold;
-            color: #2d3748;
-            margin-bottom: 8px;
-        }
-        
+        .tech-name { font-size: 20px; font-weight: bold; color: #2d3748; margin-bottom: 8px; }
         .tech-version {
             display: inline-block;
             background: #667eea;
@@ -125,20 +94,8 @@
             font-size: 12px;
             margin-bottom: 10px;
         }
-        
-        .tech-description {
-            color: #4a5568;
-            font-size: 14px;
-            line-height: 1.6;
-            margin-bottom: 10px;
-        }
-        
-        .tech-usage {
-            color: #718096;
-            font-size: 13px;
-            font-style: italic;
-        }
-        
+        .tech-description { color: #4a5568; font-size: 14px; line-height: 1.6; margin-bottom: 10px; }
+        .tech-usage { color: #718096; font-size: 13px; font-style: italic; }
         .comparison-table {
             width: 100%;
             border-collapse: collapse;
@@ -147,7 +104,6 @@
             border-radius: 10px;
             overflow: hidden;
         }
-        
         .comparison-table th {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -155,17 +111,12 @@
             text-align: left;
             font-weight: 600;
         }
-        
         .comparison-table td {
             padding: 12px 15px;
             border-bottom: 1px solid #e2e8f0;
             color: #4a5568;
         }
-        
-        .comparison-table tr:hover {
-            background: #f7fafc;
-        }
-        
+        .comparison-table tr:hover { background: #f7fafc; }
         .highlight-box {
             background: linear-gradient(135deg, #667eea, #764ba2);
             color: white;
@@ -173,37 +124,22 @@
             border-radius: 15px;
             margin-top: 30px;
         }
-        
-        .highlight-box h3 {
-            margin-bottom: 15px;
-            font-size: 24px;
-        }
-        
-        .highlight-box ul {
-            list-style: none;
-            padding-left: 0;
-        }
-        
+        .highlight-box h3 { margin-bottom: 15px; font-size: 24px; }
+        .highlight-box ul { list-style: none; padding-left: 0; }
         .highlight-box li {
             margin-bottom: 10px;
             padding-left: 25px;
             position: relative;
         }
-        
         .highlight-box li::before {
             content: '✓';
             position: absolute;
             left: 0;
             font-weight: bold;
         }
-        
         @media print {
-            body {
-                background: white;
-            }
-            .container {
-                box-shadow: none;
-            }
+            body { background: white; }
+            .container { box-shadow: none; }
         }
     </style>
 </head>
@@ -211,322 +147,245 @@
     <div class="container">
         <div class="header">
             <h1>ZenK Platform Technology Stack</h1>
-            <p>Comprehensive Technology Selection & Rationale</p>
+            <p>As-built stack from <code>requirements.txt</code>, <code>.env.example</code>, and runtime config</p>
         </div>
-        
-        <!-- Frontend Stack -->
+
+        <div class="note">
+            Versions below reflect pinned dependencies in this backend repo. Frontend clients are separate Vercel apps
+            consumed via CORS; this document focuses on what the deployment repository actually runs.
+        </div>
+
         <div class="stack-category">
             <div class="category-header">
-                <div class="category-icon">⚛️</div>
+                <div class="category-icon">🖥️</div>
                 <div class="category-title">
-                    <h2>Frontend Technology Stack</h2>
-                    <p>User Interface & User Experience</p>
+                    <h2>Frontend Clients (external)</h2>
+                    <p>Consumed by this API — not packaged in this repo</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">React 18+</div>
-                    <span class="tech-version">v18.2+</span>
+                    <div class="tech-name">Vercel Frontends</div>
+                    <span class="tech-version">zenk-impact / zenk-fe</span>
                     <div class="tech-description">
-                        Modern React with hooks, concurrent features, and server components support.
+                        Production and preview frontends allowed in CORS. Local Vite ports 5173–5175 and 3000 for development.
                     </div>
-                    <div class="tech-usage">Primary UI framework for all dashboards</div>
+                    <div class="tech-usage">Persona dashboards &amp; admin UI</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">TypeScript</div>
-                    <span class="tech-version">v5.0+</span>
+                    <div class="tech-name">Cookie Auth Bridge</div>
+                    <span class="tech-version">SameSite=None when secure</span>
                     <div class="tech-description">
-                        Type-safe JavaScript for better code quality and developer experience.
+                        HttpOnly auth cookies with optional secure mode so Vercel FE can talk to Railway API cross-site.
                     </div>
-                    <div class="tech-usage">All frontend code</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Redux Toolkit</div>
-                    <span class="tech-version">v1.9+</span>
-                    <div class="tech-description">
-                        Simplified state management for complex application state.
-                    </div>
-                    <div class="tech-usage">Global state management</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Material-UI</div>
-                    <span class="tech-version">v5.14+</span>
-                    <div class="tech-description">
-                        Comprehensive React component library with beautiful design system.
-                    </div>
-                    <div class="tech-usage">UI components & theming</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">React Router</div>
-                    <span class="tech-version">v6.15+</span>
-                    <div class="tech-description">
-                        Declarative routing for React applications.
-                    </div>
-                    <div class="tech-usage">Navigation & routing</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Socket.io Client</div>
-                    <span class="tech-version">v4.6+</span>
-                    <div class="tech-description">
-                        Real-time bidirectional event-based communication.
-                    </div>
-                    <div class="tech-usage">Real-time updates (leaderboards, notifications)</div>
+                    <div class="tech-usage">Session continuity across FE/BE hosts</div>
                 </div>
             </div>
         </div>
-        
-        <!-- Backend Stack -->
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">🐍</div>
                 <div class="category-title">
                     <h2>Backend Technology Stack</h2>
-                    <p>Server-Side Logic & APIs</p>
+                    <p>Server-side API &amp; services</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">Python 3.11+</div>
-                    <span class="tech-version">v3.11+</span>
-                    <div class="tech-description">
-                        Modern Python with improved performance and type hints support.
-                    </div>
-                    <div class="tech-usage">All backend services</div>
+                    <div class="tech-name">Python</div>
+                    <span class="tech-version">3.11+ runtime</span>
+                    <div class="tech-description">Primary language for API, algorithms, and integrations.</div>
+                    <div class="tech-usage">Entire backend codebase</div>
                 </div>
                 <div class="tech-item">
                     <div class="tech-name">FastAPI</div>
-                    <span class="tech-version">v0.104+</span>
-                    <div class="tech-description">
-                        High-performance async web framework with automatic API documentation.
-                    </div>
-                    <div class="tech-usage">REST API services</div>
-                </div>
-            
-                <div class="tech-item">
-                    <div class="tech-name">Celery</div>
-                    <span class="tech-version">v5.3+</span>
-                    <div class="tech-description">
-                        Distributed task queue for asynchronous job processing.
-                    </div>
-                    <div class="tech-usage">Background tasks & scheduled jobs</div>
+                    <span class="tech-version">0.115.6</span>
+                    <div class="tech-description">Async web framework with optional OpenAPI docs (gated in production).</div>
+                    <div class="tech-usage">REST API surface (<code>main.py</code>)</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Pydantic</div>
-                    <span class="tech-version">v2.4+</span>
-                    <div class="tech-description">
-                        Data validation using Python type annotations.
-                    </div>
-                    <div class="tech-usage">Request/response validation</div>
+                    <div class="tech-name">Uvicorn</div>
+                    <span class="tech-version">0.34.0</span>
+                    <div class="tech-description">ASGI server with httptools / watchfiles for local reload.</div>
+                    <div class="tech-usage">Process hosting</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Pydantic / Settings</div>
+                    <span class="tech-version">2.12 / 2.7</span>
+                    <div class="tech-description">Request validation and typed environment configuration.</div>
+                    <div class="tech-usage">Schemas + <code>app/core/settings.py</code></div>
                 </div>
                 <div class="tech-item">
                     <div class="tech-name">SQLAlchemy</div>
-                    <span class="tech-version">v2.0+</span>
-                    <div class="tech-description">
-                        SQL toolkit and ORM for Python.
-                    </div>
-                    <div class="tech-usage">Database ORM</div>
+                    <span class="tech-version">2.0.36</span>
+                    <div class="tech-description">Async ORM with greenlet support.</div>
+                    <div class="tech-usage">Models, sessions, migrations helpers</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">SlowAPI</div>
+                    <span class="tech-version">0.1.9</span>
+                    <div class="tech-description">Per-route / global rate limiting on the FastAPI app.</div>
+                    <div class="tech-usage">Abuse protection</div>
                 </div>
             </div>
         </div>
-        
-        <!-- AI/ML Stack -->
+
+        <div class="stack-category">
+            <div class="category-header">
+                <div class="category-icon">🔐</div>
+                <div class="category-title">
+                    <h2>Auth &amp; Security</h2>
+                    <p>Identity, sessions, hardening</p>
+                </div>
+            </div>
+            <div class="tech-grid">
+                <div class="tech-item">
+                    <div class="tech-name">python-jose</div>
+                    <span class="tech-version">3.3.0</span>
+                    <div class="tech-description">JWT access / refresh tokens.</div>
+                    <div class="tech-usage"><code>app/core/jwt_auth.py</code></div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">passlib + bcrypt</div>
+                    <span class="tech-version">1.7.4 / 5.0.0</span>
+                    <div class="tech-description">Password hashing for signup and admin credentials.</div>
+                    <div class="tech-usage">Credential storage</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">HttpOnly Cookies</div>
+                    <span class="tech-version">AUTH_COOKIE_SECURE</span>
+                    <div class="tech-description">Browser session cookies; secure flag auto-true on Railway.</div>
+                    <div class="tech-usage">Frontend session auth</div>
+                </div>
+                <div class="tech-item">
+                    <div class="tech-name">Security Headers</div>
+                    <span class="tech-version">middleware</span>
+                    <div class="tech-description">Custom security headers middleware on every response.</div>
+                    <div class="tech-usage"><code>SecurityHeadersMiddleware</code></div>
+                </div>
+            </div>
+        </div>
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">🤖</div>
                 <div class="category-title">
-                    <h2>AI/ML Technology Stack</h2>
-                    <p>Machine Learning & Intelligence</p>
+                    <h2>AI / ML &amp; Scoring</h2>
+                    <p>Kia intelligence + impact algorithms</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">TensorFlow</div>
-                    <span class="tech-version">v2.13+</span>
-                    <div class="tech-description">
-                        End-to-end open-source platform for machine learning.
-                    </div>
-                    <div class="tech-usage">Deep learning models</div>
+                    <div class="tech-name">Google GenAI (Gemini)</div>
+                    <span class="tech-version">1.3.0</span>
+                    <div class="tech-description">Primary generative model access via <code>GEMINI_API_KEY</code>.</div>
+                    <div class="tech-usage">Kia responses, summaries, moderation assists</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">PyTorch</div>
-                    <span class="tech-version">v2.1+</span>
-                    <div class="tech-description">
-                        Flexible deep learning framework with dynamic computation graphs.
-                    </div>
-                    <div class="tech-usage">Research & experimentation</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">scikit-learn</div>
-                    <span class="tech-version">v1.3+</span>
-                    <div class="tech-description">
-                        Machine learning library with simple and efficient tools.
-                    </div>
-                    <div class="tech-usage">Classical ML algorithms</div>
+                    <div class="tech-name">Groq</div>
+                    <span class="tech-version">1.1.2</span>
+                    <div class="tech-description">Llama-class inference path abstracted in Kia service (migration-ready).</div>
+                    <div class="tech-usage">Alternate / phased LLM provider</div>
                 </div>
                 <div class="tech-item">
                     <div class="tech-name">spaCy</div>
-                    <span class="tech-version">v3.7+</span>
-                    <div class="tech-description">
-                        Industrial-strength natural language processing.
-                    </div>
-                    <div class="tech-usage">NLP & content analysis</div>
+                    <span class="tech-version">3.8.11 + en_core_web_sm</span>
+                    <div class="tech-description">NLP pipeline for content analysis / Shield-style checks.</div>
+                    <div class="tech-usage">Text processing &amp; PII/pattern assist</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Transformers</div>
-                    <span class="tech-version">v4.35+</span>
+                    <div class="tech-name">ZenQ / ZQA Algorithms</div>
+                    <span class="tech-version">app/algorithms/zenq</span>
                     <div class="tech-description">
-                        State-of-the-art NLP models and architectures.
+                        Deterministic scoring: ZEQ, ZCQ, ZIQ, InspireIndex, ZQA composite, RAS/decay, recalibration helpers.
                     </div>
-                    <div class="tech-usage">Advanced NLP tasks</div>
+                    <div class="tech-usage">Circle &amp; student impact metrics</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Pandas</div>
-                    <span class="tech-version">v2.1+</span>
-                    <div class="tech-description">
-                        Data manipulation and analysis library.
-                    </div>
-                    <div class="tech-usage">Data processing & analysis</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Generative AI (GenAI)</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Large Language Models (LLMs) for content generation, personalized learning materials, and intelligent responses.
-                    </div>
-                    <div class="tech-usage">Content generation, personalized tutoring, automated responses</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Agentic AI</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Autonomous AI agents that can plan, execute tasks, and make decisions to optimize learning paths and sponsor impact.
-                    </div>
-                    <div class="tech-usage">Autonomous learning path optimization, intelligent intervention recommendations</div>
+                    <div class="tech-name">NumPy</div>
+                    <span class="tech-version">2.4.3</span>
+                    <div class="tech-description">Numeric helpers for scoring math.</div>
+                    <div class="tech-usage">Algorithm support</div>
                 </div>
             </div>
         </div>
-        
-        <!-- Database Stack -->
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">💾</div>
                 <div class="category-title">
-                    <h2>Database & Storage Stack</h2>
-                    <p>Data Persistence & Management</p>
+                    <h2>Database &amp; Storage</h2>
+                    <p>Persistence &amp; media</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">PostgreSQL</div>
-                    <span class="tech-version">v15+</span>
+                    <div class="tech-name">PostgreSQL (Neon)</div>
+                    <span class="tech-version">asyncpg 0.30.0</span>
                     <div class="tech-description">
-                        Advanced open-source relational database with JSON support.
+                        Serverless Postgres. URL auto-converted from <code>postgresql://</code> to <code>postgresql+asyncpg://</code>.
+                        Schema namespace <code>ZENK</code>.
                     </div>
-                    <div class="tech-usage">Primary database (users, transactions, marketplace)</div>
+                    <div class="tech-usage">Primary system of record</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Redis</div>
-                    <span class="tech-version">v7.2+</span>
-                    <div class="tech-description">
-                        In-memory data structure store for caching and queues.
-                    </div>
-                    <div class="tech-usage">Cache, sessions, real-time leaderboards</div>
+                    <div class="tech-name">Cloudinary</div>
+                    <span class="tech-version">1.38.0</span>
+                    <div class="tech-description">KYC documents, product images, and other media uploads.</div>
+                    <div class="tech-usage"><code>app/services/cloudinary_service.py</code></div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Pinecone / Weaviate</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Vector database for AI embeddings and semantic search.
-                    </div>
-                    <div class="tech-usage">AI recommendations, semantic search</div>
+                    <div class="tech-name">ReportLab + pypdf</div>
+                    <span class="tech-version">latest / ≥5.0</span>
+                    <div class="tech-description">PDF generation (reports) and PDF text extraction (school / parent uploads).</div>
+                    <div class="tech-usage">School reports, transcript extract</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Google Cloud Storage</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Object storage for files and media.
-                    </div>
-                    <div class="tech-usage">User uploads, learning materials, images</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">BigQuery</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Serverless data warehouse for analytics.
-                    </div>
-                    <div class="tech-usage">Analytics, reporting, ML features</div>
+                    <div class="tech-name">Static legal assets</div>
+                    <span class="tech-version">static/ + terms&amp;conditions/</span>
+                    <div class="tech-description">Privacy policy, terms, student declarations served / referenced by legal routes.</div>
+                    <div class="tech-usage">Consent &amp; compliance</div>
                 </div>
             </div>
         </div>
-        
-        <!-- Cloud & Infrastructure -->
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">☁️</div>
                 <div class="category-title">
-                    <h2>Cloud & Infrastructure Stack</h2>
-                    <p>Google Cloud Platform Services</p>
+                    <h2>Hosting &amp; Runtime</h2>
+                    <p>Deployment footprint observed in config</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">Google Kubernetes Engine (GKE)</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Managed Kubernetes service for container orchestration.
-                    </div>
-                    <div class="tech-usage">Container orchestration</div>
+                    <div class="tech-name">Railway</div>
+                    <span class="tech-version">API host</span>
+                    <div class="tech-description">Backend deploy signals in settings (secure cookies, docs gating).</div>
+                    <div class="tech-usage">Production API</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Cloud Run</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Serverless container platform with auto-scaling.
-                    </div>
-                    <div class="tech-usage">Stateless microservices</div>
+                    <div class="tech-name">Vercel</div>
+                    <span class="tech-version">FE host</span>
+                    <div class="tech-description">Frontend apps + preview deployments in CORS allow-list.</div>
+                    <div class="tech-usage">UI hosting</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Cloud SQL</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Fully managed relational database service.
-                    </div>
-                    <div class="tech-usage">PostgreSQL hosting</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Memorystore</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Managed Redis service.
-                    </div>
-                    <div class="tech-usage">Redis hosting</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Cloud Build</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        CI/CD platform for building and deploying applications.
-                    </div>
-                    <div class="tech-usage">CI/CD pipeline</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Cloud Load Balancing</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        Distributed load balancing for high availability.
-                    </div>
-                    <div class="tech-usage">Traffic distribution</div>
+                    <div class="tech-name">Neon</div>
+                    <span class="tech-version">Postgres</span>
+                    <div class="tech-description">Managed serverless database with pool sizing knobs in env.</div>
+                    <div class="tech-usage">Data plane</div>
                 </div>
             </div>
         </div>
-        
-        <!-- Integration Stack -->
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">🔌</div>
                 <div class="category-title">
-                    <h2>Integration & Third-Party Services</h2>
-                    <p>External Service Integrations</p>
+                    <h2>Integrations</h2>
+                    <p>External services wired in code / env</p>
                 </div>
             </div>
             <table class="comparison-table">
@@ -534,101 +393,86 @@
                     <tr>
                         <th>Service</th>
                         <th>Purpose</th>
-                        <th>Usage</th>
+                        <th>Usage in repo</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td><strong>Razorpay</strong></td>
-                        <td>Payment Gateway</td>
-                        <td>Multi-currency payments (USD, GBP, INR), webhooks</td>
+                        <td><strong>ICICI Corporate Gateway</strong></td>
+                        <td>Vendor / payee disbursements</td>
+                        <td><code>circle_vendor_disbursements.py</code> + <code>ICICI_*</code> env vars</td>
                     </tr>
                     <tr>
-                        <td><strong>SendGrid</strong></td>
-                        <td>Email Service</td>
-                        <td>Transactional emails, notifications</td>
+                        <td><strong>SMTP</strong></td>
+                        <td>Transactional email</td>
+                        <td><code>app/services/email.py</code> (school invites, signup/approval templates)</td>
                     </tr>
                     <tr>
-                        <td><strong>Twilio</strong></td>
-                        <td>WhatsApp API</td>
-                        <td>Real-time WhatsApp notifications</td>
+                        <td><strong>Cloudinary</strong></td>
+                        <td>Media / KYC storage</td>
+                        <td>Upload APIs for documents and product images</td>
                     </tr>
                     <tr>
-                        <td><strong>Firebase Cloud Messaging</strong></td>
-                        <td>Push Notifications</td>
-                        <td>Mobile & web push notifications</td>
+                        <td><strong>Google Gemini</strong></td>
+                        <td>Generative AI</td>
+                        <td>Kia persona engine &amp; related services</td>
                     </tr>
                     <tr>
-                        <td><strong>Kong / Envoy</strong></td>
-                        <td>API Gateway</td>
-                        <td>Request routing, rate limiting, authentication</td>
+                        <td><strong>Groq</strong></td>
+                        <td>LLM inference</td>
+                        <td>Alternate provider path in Kia service</td>
                     </tr>
                     <tr>
-                        <td><strong>External LMS APIs</strong></td>
-                        <td>Learning Management</td>
-                        <td>Learning progress import, grade synchronization</td>
+                        <td><strong>Google News RSS</strong></td>
+                        <td>Impact briefing context</td>
+                        <td>News endpoints / impact briefing (no paid news key required)</td>
                     </tr>
                 </tbody>
             </table>
         </div>
-        
-        <!-- Development Tools -->
+
         <div class="stack-category">
             <div class="category-header">
                 <div class="category-icon">🛠️</div>
                 <div class="category-title">
-                    <h2>Development & DevOps Tools</h2>
-                    <p>Development Workflow & Operations</p>
+                    <h2>Dev &amp; Quality Tooling</h2>
+                    <p>Repo scripts and checks</p>
                 </div>
             </div>
             <div class="tech-grid">
                 <div class="tech-item">
-                    <div class="tech-name">Docker</div>
-                    <span class="tech-version">v24+</span>
-                    <div class="tech-description">
-                        Containerization platform for consistent deployments.
-                    </div>
-                    <div class="tech-usage">Container packaging</div>
+                    <div class="tech-name">Black</div>
+                    <span class="tech-version">26.3.1</span>
+                    <div class="tech-description">Code formatter.</div>
+                    <div class="tech-usage">Style consistency</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">Kubernetes</div>
-                    <span class="tech-version">v1.28+</span>
-                    <div class="tech-description">
-                        Container orchestration for scalable deployments.
-                    </div>
-                    <div class="tech-usage">Container orchestration</div>
+                    <div class="tech-name">Verification scripts</div>
+                    <span class="tech-version">scripts/</span>
+                    <div class="tech-description">Import checks, Neon export helpers, legacy contact normalization.</div>
+                    <div class="tech-usage">Ops / migration support</div>
                 </div>
                 <div class="tech-item">
-                    <div class="tech-name">GitHub Actions</div>
-                    <span class="tech-version">Latest</span>
-                    <div class="tech-description">
-                        CI/CD automation for code deployment.
-                    </div>
-                    <div class="tech-usage">CI/CD pipeline</div>
-                </div>
-                <div class="tech-item">
-                    <div class="tech-name">Terraform</div>
-                    <span class="tech-version">v1.6+</span>
-                    <div class="tech-description">
-                        Infrastructure as Code for GCP resources.
-                    </div>
-                    <div class="tech-usage">Infrastructure provisioning</div>
+                    <div class="tech-name">Algorithm tests</div>
+                    <span class="tech-version">tests/</span>
+                    <div class="tech-description">ZenQ/ZQA robustness, Kia priority engine, signup locale checks.</div>
+                    <div class="tech-usage">Scoring &amp; i18n confidence</div>
                 </div>
             </div>
         </div>
-        
+
         <div class="highlight-box">
-            <h3>Key Technology Decisions</h3>
+            <h3>Key Technology Decisions (repo reality)</h3>
             <ul>
-                <li><strong>Python Backend:</strong> Chosen for AI/ML capabilities, extensive libraries, and rapid development</li>
-                <li><strong>React Frontend:</strong> Modern, component-based UI with excellent ecosystem</li>
-                <li><strong>GCP Platform:</strong> Scalable, managed services, cost-effective for India region</li>
-                <li><strong>Microservices:</strong> Independent scaling, technology flexibility, team autonomy</li>
-                <li><strong>Containerization:</strong> Consistent deployments, easy scaling, cloud-native architecture</li>
-                <li><strong>Multi-Database:</strong> Right tool for right job (PostgreSQL for structured, MongoDB for documents, Redis for cache)</li>
+                <li><strong>Modular FastAPI monolith:</strong> Persona routers as microservices folders, one deployable API</li>
+                <li><strong>Neon + async SQLAlchemy:</strong> Serverless Postgres with asyncpg pooling</li>
+                <li><strong>LLM-first intelligence:</strong> Gemini/Groq for Kia; deterministic ZenQ/ZQA for scoring fairness</li>
+                <li><strong>ICICI for disbursements:</strong> Corporate gateway — not Razorpay in this codebase</li>
+                <li><strong>SMTP for email:</strong> Optional, feature-flagged — not SendGrid/Twilio</li>
+                <li><strong>Cloudinary for media:</strong> KYC and marketplace assets without self-hosted object storage</li>
+                <li><strong>Railway + Vercel:</strong> API and UI split with cookie/CORS bridging for production</li>
             </ul>
         </div>
     </div>
 </body>
 </html>
-
