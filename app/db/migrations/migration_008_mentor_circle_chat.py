@@ -47,6 +47,10 @@ async def run_migration():
             WHERE dm_for IS NOT NULL
         """))
 
+    # Neon/pgBouncer: DDL invalidates prepared plans on pooled backends.
+    from app.db.session import reset_db_pool
+    await reset_db_pool()
+
     logger.info("Step 4: Enrolling mentor@zenk.in as CircleMember in their assigned circle...")
     async with SessionLocal() as db:
         from sqlalchemy import select

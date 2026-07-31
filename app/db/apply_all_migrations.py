@@ -90,3 +90,10 @@ async def apply_all_migrations() -> None:
             logger.info("[Migrations] %s applied.", label)
         except Exception as exc:
             logger.warning("[Migrations] %s skipped or failed: %s", label, exc)
+        # DDL invalidates Neon/pgBouncer prepared plans — always drop connections.
+        try:
+            from app.db.session import reset_db_pool
+
+            await reset_db_pool()
+        except Exception:
+            pass

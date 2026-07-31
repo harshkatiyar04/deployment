@@ -10,8 +10,13 @@ from sqlalchemy.pool import NullPool
 from app.db.config import db_settings
 
 
-def _use_null_pool() -> bool:
-    url = (db_settings.database_url_override or db_settings.database_url or "").lower()
+def _is_neon_or_railway() -> bool:
+    url = (
+        db_settings.database_url_override
+        or getattr(db_settings, "database_url", "")
+        or os.getenv("DATABASE_URL")
+        or ""
+    ).lower()
     return bool(
         os.getenv("RAILWAY_ENVIRONMENT")
         or os.getenv("RAILWAY_PROJECT_ID")
@@ -19,20 +24,24 @@ def _use_null_pool() -> bool:
     )
 
 
-# Neon pooler + schema changes break asyncpg prepared statements.
-# Unique names + cache size 0 is the supported Neon/SQLAlchemy pattern.
-_CONNECT_ARGS = {
-    "statement_cache_size": 0,
-    "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4().hex}__",
-}
+def _connect_args() -> dict:
+    """
+    Neon pooler (PgBouncer) + DDL/migrations invalidate prepared statements.
+    Always disable asyncpg statement cache; unique names avoid cross-connection clashes.
+    """
+    return {
+        "statement_cache_size": 0,
+        "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4().hex}__",
+    }
+
 
 _engine_kwargs: dict = {
     "pool_pre_ping": True,
-    "connect_args": _CONNECT_ARGS,
+    "connect_args": _connect_args(),
 }
 
-if _use_null_pool():
-    # No long-lived pooled prepared plans across Neon restores.
+# Prefer NullPool on Railway/Neon so connections never reuse stale server plans.
+if _is_neon_or_railway():
     _engine_kwargs["poolclass"] = NullPool
 else:
     _engine_kwargs.update(
@@ -52,7 +61,7 @@ SessionLocal = async_sessionmaker(
 
 
 async def reset_db_pool() -> None:
-    """Drop pooled connections (no-op-ish with NullPool; safe after migrations)."""
+    """Dispose engine connections after DDL / migrations."""
     await engine.dispose()
 
 

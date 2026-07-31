@@ -123,7 +123,14 @@ async def _keepalive_loop():
 
 @app.on_event("startup")
 async def _startup() -> None:
+    from app.db.session import reset_db_pool
+
     await init_db()
+    # create_all / schema DDL invalidates Neon prepared plans — drop before migrations.
+    try:
+        await reset_db_pool()
+    except Exception as exc:
+        logger.warning("[Startup] DB pool reset after init_db skipped: %s", exc)
     try:
         from app.db.apply_all_migrations import apply_all_migrations
 
@@ -131,8 +138,6 @@ async def _startup() -> None:
     except Exception as exc:
         logger.warning("[Startup] School migrations skipped: %s", exc)
     try:
-        from app.db.session import reset_db_pool
-
         await reset_db_pool()
     except Exception as exc:
         logger.warning("[Startup] DB pool reset skipped: %s", exc)
