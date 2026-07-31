@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.db.config import db_settings
+
+logger = logging.getLogger(__name__)
 
 
 def _is_neon_or_railway() -> bool:
@@ -35,6 +39,16 @@ def _connect_args() -> dict:
     }
 
 
+def is_stale_prepared_plan_error(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    name = type(exc).__name__.lower()
+    return (
+        "invalidcachedstatementerror" in name
+        or "invalidcachedstatementerror" in msg
+        or "cached statement plan is invalid" in msg
+    )
+
+
 _engine_kwargs: dict = {
     "pool_pre_ping": True,
     "connect_args": _connect_args(),
@@ -53,9 +67,27 @@ else:
 
 engine: AsyncEngine = create_async_engine(db_settings.database_url, **_engine_kwargs)
 
+
+class RetryingAsyncSession(AsyncSession):
+    """
+    Neon/pgBouncer can raise InvalidCachedStatementError mid-request even with
+    statement_cache_size=0. SQLAlchemy invalidates its caches after that error —
+    one retry is enough for the same session.
+    """
+
+    async def execute(self, statement: Any, *args: Any, **kwargs: Any):
+        try:
+            return await super().execute(statement, *args, **kwargs)
+        except Exception as exc:
+            if not is_stale_prepared_plan_error(exc):
+                raise
+            logger.warning("[DB] Stale prepared plan on execute — retrying once")
+            return await super().execute(statement, *args, **kwargs)
+
+
 SessionLocal = async_sessionmaker(
     bind=engine,
-    class_=AsyncSession,
+    class_=RetryingAsyncSession,
     expire_on_commit=False,
 )
 
