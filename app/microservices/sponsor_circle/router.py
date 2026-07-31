@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -163,10 +163,19 @@ async def get_summary(
 
 
 async def _budget_payload_for_circle(db: AsyncSession, circle: SponsorCircle, role: str) -> dict:
+    from app.banking.services.circle_balance import build_live_money_snapshot
+
     rows = await fetch_circle_orders(db, circle)
-    spent = sum(int(round(float(o.total_amount or 0))) for o, _ in rows)
+    money = await build_live_money_snapshot(db, circle)
     txns = orders_to_budget_transactions(rows)
-    return build_budget_payload(circle, role, spent=spent, transactions=txns)
+    data = build_budget_payload(circle, role, spent=int(money["spent"]), transactions=txns)
+    data["available_balance"] = int(money["available"])
+    data["balance_to_spend"] = int(money["available"])
+    data["van_credited"] = int(money["van_credited"])
+    data["reserved_in_flight"] = int(money["reserved_in_flight"])
+    data["disbursed_paid"] = int(money["disbursed_paid"])
+    data["collected_live"] = True
+    return data
 
 
 @router.get("/budget", response_model=BudgetResponse)
@@ -1097,8 +1106,19 @@ async def get_statement(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    circle, _ = await resolve_user_circle(db, user.id, circle_id)
-    return StatementResponse(**await build_statement(db, circle))
+    try:
+        circle, _ = await resolve_user_circle(db, user.id, circle_id)
+        data = await build_statement(db, circle)
+        return StatementResponse(**data)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Could not build statement. Please try again.",
+        ) from exc
 
 
 @router.get("/vendor-payments", response_model=list[VendorPaymentRow])
@@ -1248,7 +1268,12 @@ async def get_member_contributions(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    circle, _ = await resolve_user_circle(db, user.id, circle_id)
+    circle, role = await resolve_user_circle(db, user.id, circle_id)
+    if not _can_set_budget(role):
+        raise HTTPException(
+            status_code=403,
+            detail="Only circle leaders can view member contribution breakdowns.",
+        )
     data = await build_member_contributions(db, circle)
     return MemberContributionsResponse(
         tracking_available=data["tracking_available"],
@@ -1258,6 +1283,12 @@ async def get_member_contributions(
         funded_pct=data["funded_pct"],
         spent=data["spent"],
         message=data["message"],
+        unmatched_total=int(data.get("unmatched_total") or 0),
+        attributed_total=int(data.get("attributed_total") or 0),
+        credit_count=int(data.get("credit_count") or 0),
+        matched_credit_count=int(data.get("matched_credit_count") or 0),
+        unmatched_credits=data.get("unmatched_credits") or [],
+        source=data.get("source") or "icici_ecollection",
     )
 
 
@@ -1467,6 +1498,7 @@ async def log_zenq_target_achievement(
 
 @router.post("/invite-link", response_model=CircleInviteLinkResponse)
 async def create_invite_link(
+    request: Request,
     circle_id: Optional[str] = None,
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -1481,12 +1513,17 @@ async def create_invite_link(
         "/"
     )
     invite_url = f"{base}/join/circle?invite={row.token}"
+    leader_name = (getattr(user, "full_name", None) or "").strip() or "Circle leader"
+    api_base = str(request.base_url).rstrip("/")
+    share_url = f"{api_base}/public/circle-invite/{row.token}"
     return CircleInviteLinkResponse(
         token=row.token,
         invite_url=invite_url,
         expires_at=row.expires_at,
         circle_id=circle.id,
         circle_name=circle.name,
+        leader_name=leader_name,
+        share_url=share_url,
     )
 
 

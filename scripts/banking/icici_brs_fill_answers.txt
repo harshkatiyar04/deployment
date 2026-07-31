@@ -1,0 +1,58 @@
+ICICI eCollection MH7 — BRS fill answers (ZenK)
+================================================
+Fill these into APIGEE_eCollection MH7_Client BRS and return to ICICI.
+Replace bracketed values after Client Code / UAT host are ready.
+
+1) Customer Information
+- Customer Name: [ZenK Impact legal entity name]
+- Customer Credit A/C Number: [ICICI current account for collections]
+- Zone: [as RM advises]
+- Client Code: [bank-assigned 6-char code]
+- Deemed Action: Reject
+
+2) Web service checklist
+- Types of Web Service: REST JSON
+- Type of communication Protocol in LIVE: HTTPS
+- UAT Domain ID: uat-api.zenkimpact.com
+- UAT IP: [Railway/static IP once known]
+- UAT Port: 443
+- Client UAT Endpoint URL:
+  1. Validation URL: https://uat-api.zenkimpact.com/webhooks/icici/ecollection/validate
+  2. Credit Confirmation URL: https://uat-api.zenkimpact.com/webhooks/icici/ecollection/credit-confirm
+- Live Domain Id: api.zenkimpact.com   (or current Railway custom domain)
+- Live Public IP: [prod IP]
+- Live Port: 443
+- Client LIVE Endpoint URL:
+  1. Validation URL: https://api.zenkimpact.com/webhooks/icici/ecollection/validate
+  2. Credit Confirmation URL: https://api.zenkimpact.com/webhooks/icici/ecollection/credit-confirm
+- Whitelist ICICI IPs (from BRS) on our firewall port 443
+- Encryption for: Entire Payload
+- Encryption Type: AES/CBC/PKCS7Padding 128 + RSA session key (confirm with ICICI sample)
+- Basic Authentication: Y
+  UAT Username/Password/Secret: [generate and share securely]
+  Prod Username/Password/Secret: [separate from UAT]
+
+3) Payment mode mapping (Client Value)
+- NEFT = N
+- RTGS = R
+- IMPS = I
+- Fund Transfer = FT
+- UPI = U
+
+4) Date & amount
+- Transaction Date: DD-MM-YYYY
+- Transaction Amount: 100.00
+- CONFIRMATION_DATETIME: DD-MM-YYYY HH:MM:SS (confirm with sample)
+
+5) Ask ICICI to send after BRS return
+- MH7 sample Validation request/response JSON
+- MH7 sample Credit Confirmation request/response JSON
+- UAT Basic Auth credentials (if bank issues them)
+- Client Code confirmation
+- Encryption keys / certificates exchange process
+
+6) ZenK parallel engineering (started in codebase)
+- Webhooks + idempotency (UTR+amount) implemented
+- VAN registry + transaction/event tables (migration 045)
+- Local simulator: scripts/banking/icici_ecollection_simulator.py
+- Code lives under app/banking/ (models, services, routers)

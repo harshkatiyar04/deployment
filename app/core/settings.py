@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     # Local dev only: allow admin routes without password/key (never enable in production)
     admin_allow_open_dev: bool = Field(default=False, validation_alias="ZENK_ADMIN_ALLOW_OPEN_DEV")
 
-    # ICICI corporate disbursement gateway (production URL from bank onboarding)
+    # ICICI corporate disbursement gateway (Composite Payout — money OUT)
     icici_gateway_base_url: Optional[str] = Field(
         default=None,
         validation_alias="ICICI_GATEWAY_BASE_URL",
@@ -75,6 +75,40 @@ class Settings(BaseSettings):
     icici_merchant_id: Optional[str] = Field(
         default=None,
         validation_alias="ICICI_MERCHANT_ID",
+    )
+
+    # ICICI eCollection MH7 (money IN via Virtual Account — bank calls ZenK)
+    icici_ecollection_client_code: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_ECOLLECTION_CLIENT_CODE",
+    )
+    icici_ecollection_basic_user: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_ECOLLECTION_BASIC_USER",
+    )
+    icici_ecollection_basic_password: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_ECOLLECTION_BASIC_PASSWORD",
+    )
+    # Comma-separated bank IPs from BRS; empty = skip IP check (local sim)
+    icici_ecollection_allowed_ips: Optional[str] = Field(
+        default=None,
+        validation_alias="ICICI_ECOLLECTION_ALLOWED_IPS",
+    )
+    # True until ICICI sample encryption packets + keys are wired
+    icici_ecollection_plaintext: bool = Field(
+        default=True,
+        validation_alias="ICICI_ECOLLECTION_PLAINTEXT",
+    )
+    # UAT only: accept credits for unregistered VANs (never enable in prod)
+    icici_ecollection_accept_unknown_van: bool = Field(
+        default=False,
+        validation_alias="ICICI_ECOLLECTION_ACCEPT_UNKNOWN_VAN",
+    )
+    # Explicit True/False; None = auto (off on Railway, on when plaintext local)
+    icici_ecollection_simulate_enabled: Optional[bool] = Field(
+        default=None,
+        validation_alias="ICICI_ECOLLECTION_SIMULATE_ENABLED",
     )
 
 

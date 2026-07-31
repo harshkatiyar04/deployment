@@ -61,6 +61,7 @@ from app.chat.access_control import (
     require_circle_member,
 )
 from app.chat.display_name import (
+    channel_display_label,
     chat_display_name,
     is_leader_member_role,
 )
@@ -780,25 +781,36 @@ async def list_channels(
 
     await require_circle_member(db, circle_id=circle_id, user=user)
 
+    viewer_persona = await _get_or_create_persona(user, db)
+
     result = await db.execute(
         select(ChatChannel).where(ChatChannel.circle_id == circle_id)
     )
     channels = result.scalars().all()
-    return [
-        ChannelOut(
-            id=c.id,
-            circle_id=c.circle_id,
-            name=c.name,
-            channel_type=(
-                c.channel_type.value
-                if hasattr(c.channel_type, "value")
-                else c.channel_type
-            ),
+    out: list[ChannelOut] = []
+    for c in channels:
+        label = await channel_display_label(
+            db,
+            channel_name=c.name,
             dm_for=getattr(c, "dm_for", None),
-            created_at=c.created_at,
+            viewer_persona_id=viewer_persona.id,
         )
-        for c in channels
-    ]
+        out.append(
+            ChannelOut(
+                id=c.id,
+                circle_id=c.circle_id,
+                name=c.name,
+                channel_type=(
+                    c.channel_type.value
+                    if hasattr(c.channel_type, "value")
+                    else c.channel_type
+                ),
+                dm_for=getattr(c, "dm_for", None),
+                created_at=c.created_at,
+                display_name=label,
+            )
+        )
+    return out
 
 
 
@@ -843,6 +855,7 @@ async def create_channel(
             else channel.channel_type
         ),
         created_at=channel.created_at,
+        display_name=channel.name,
     )
 
 
@@ -1089,6 +1102,12 @@ async def get_or_create_dm_channel(
     else:
         logger.info(f"Reusing DM channel {channel.id} for pair {pair}")
 
+    label = await channel_display_label(
+        db,
+        channel_name=channel.name,
+        dm_for=channel.dm_for,
+        viewer_persona_id=my_persona.id,
+    )
     return ChannelOut(
         id=channel.id,
         circle_id=channel.circle_id,
@@ -1100,5 +1119,6 @@ async def get_or_create_dm_channel(
         ),
         dm_for=channel.dm_for,
         created_at=channel.created_at,
+        display_name=label,
     )
 

@@ -10,6 +10,10 @@ from urllib.parse import urlencode
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.banking.services.circle_balance import (
+    build_live_money_snapshot,
+    format_insufficient_balance,
+)
 from app.chat.models import SponsorCircle
 from app.core.settings import settings
 from app.models.circle_ops import (
@@ -163,12 +167,13 @@ def _build_icici_redirect_url(
         return f"{base}?{urlencode(params)}"
 
     # Dev / staging: internal checkout hands off to return URL after leader confirms
-    return f"{frontend}/payments/icici/checkout?{urlencode({
-        'session': session_id,
-        'disbursement': disbursement_id,
-        'amount': amount_inr,
-        'circle': circle_id,
-    })}"
+    checkout_params = {
+        "session": session_id,
+        "disbursement": disbursement_id,
+        "amount": amount_inr,
+        "circle": circle_id,
+    }
+    return f"{frontend}/payments/icici/checkout?{urlencode(checkout_params)}"
 
 
 async def initiate_disbursement(
@@ -185,6 +190,11 @@ async def initiate_disbursement(
         raise ValueError("Amount must be at least ₹1")
     if amount_inr > 5_000_000:
         raise ValueError("Amount exceeds per-transaction limit")
+
+    money = await build_live_money_snapshot(db, circle)
+    available = int(money["available"])
+    if amount_inr > available:
+        raise ValueError(format_insufficient_balance(available, amount_inr))
 
     p_res = await db.execute(
         select(CirclePayee).where(
@@ -262,6 +272,11 @@ async def complete_disbursement(
         disbursement.status = DISBURSEMENT_PAID
         disbursement.paid_at = now
         disbursement.gateway_ref = (gateway_ref or "").strip() or f"ICICI-{session_id[:12].upper()}"
+        # Keep circle.budget_spent in sync for admin/Kia aggregates
+        cres = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+        circle = cres.scalar_one_or_none()
+        if circle:
+            circle.budget_spent = int(circle.budget_spent or 0) + int(disbursement.amount_inr or 0)
     else:
         disbursement.status = DISBURSEMENT_PENDING
 

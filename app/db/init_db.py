@@ -14,6 +14,7 @@ import app.models.mentor  # noqa: F401
 import app.models.refresh_token  # noqa: F401
 import app.models.landing_contact  # noqa: F401
 import app.models.landing_feedback  # noqa: F401
+import app.banking.models.icici_ecollection  # noqa: F401
 # student_family / student_portal tables: migration 019–020 only (avoids school_students FK drift)
 # circle_ops tables are created via migration_014 (not create_all — avoids FK/PK drift)
 

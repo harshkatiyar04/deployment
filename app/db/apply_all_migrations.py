@@ -44,6 +44,7 @@ async def apply_all_migrations() -> None:
     from app.db.migrations.migration_042_landing_contact_inquiries import run_migration as m042
     from app.db.migrations.migration_043_landing_feedback import run_migration as m043
     from app.db.migrations.migration_044_landing_feedback_algorithm import run_migration as m044
+    from app.db.migrations.migration_045_icici_ecollection import run_migration as m045
 
     for label, fn in (
         ("008", m008),
@@ -82,6 +83,7 @@ async def apply_all_migrations() -> None:
         ("042", m042),
         ("043", m043),
         ("044", m044),
+        ("045", m045),
     ):
         try:
             await fn()

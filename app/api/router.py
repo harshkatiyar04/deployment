@@ -22,8 +22,11 @@ from app.api.routers import (
     consent,
     admin_audit,
     news,
+    public_circle_invite,
 )
 from app.chat import router_client, router_admin
+from app.banking.routers.icici_ecollection_webhooks import router as icici_ecollection_router
+from app.banking.routers.circle_ecollection import router as sponsor_ecollection_router
 from app.microservices.sponsor_circle.router import router as sponsor_circle_router
 from app.microservices.vendor.router import router as vendor_router
 from app.microservices.corporate.router import router as corporate_router
@@ -38,6 +41,8 @@ api_router.include_router(auth.router)
 api_router.include_router(legal.router)
 api_router.include_router(signup.router)
 api_router.include_router(contact.router)
+api_router.include_router(public_circle_invite.router)
+api_router.include_router(icici_ecollection_router)
 api_router.include_router(admin_kyc.router)
 api_router.include_router(admin_circle_ops.router)
 api_router.include_router(admin_other_requests.router)
@@ -57,6 +62,7 @@ api_router.include_router(consent.router)
 api_router.include_router(router_admin.router)
 api_router.include_router(admin_audit.router)
 api_router.include_router(sponsor_circle_router)
+api_router.include_router(sponsor_ecollection_router)
 api_router.include_router(news.router)
 api_router.include_router(vendor_router)
 api_router.include_router(corporate_router)

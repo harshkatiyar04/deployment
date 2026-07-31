@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional
 from datetime import datetime
+import re
 
 
 class SummaryResponse(BaseModel):
@@ -37,6 +38,11 @@ class BudgetResponse(BaseModel):
     budget_set_at: Optional[datetime] = None
     transactions: List[Transaction]
     budget_configured: bool = False
+    # Live banking fields (ICICI VAN + disbursement reservations)
+    van_credited: int = 0
+    reserved_in_flight: int = 0
+    disbursed_paid: int = 0
+    collected_live: bool = True
 
 
 class SetCircleBudgetRequest(BaseModel):
@@ -318,6 +324,11 @@ class StatementResponse(BaseModel):
     circle_name: Optional[str] = None
     rows: List[StatementRow]
     has_data: bool = False
+    closing_balance: Optional[int] = None
+    credit_total: Optional[int] = None
+    debit_total: Optional[int] = None
+    ledger_ok: bool = True
+    warning: Optional[str] = None
 
 
 class VendorPaymentRow(BaseModel):
@@ -350,11 +361,55 @@ class CirclePayeeCreateRequest(BaseModel):
     beneficiary_name: str = Field(..., min_length=2, max_length=200)
     category: str = Field(default="other", pattern="^(school_fees|supplies|books|uniform|other)$")
     bank_name: Optional[str] = Field(None, max_length=120)
-    account_number: str = Field(..., min_length=8, max_length=32)
-    ifsc: str = Field(..., min_length=11, max_length=16)
+    account_number: str = Field(...)
+    ifsc: str = Field(...)
     upi_id: Optional[str] = Field(None, max_length=64)
     notes: Optional[str] = Field(None, max_length=500)
     circle_id: Optional[str] = None
+
+    @field_validator("display_name", "beneficiary_name")
+    @classmethod
+    def _strip_names(cls, v: str) -> str:
+        cleaned = (v or "").strip()
+        if len(cleaned) < 2:
+            raise ValueError("Must be at least 2 characters")
+        return cleaned
+
+    @field_validator("bank_name")
+    @classmethod
+    def _strip_bank(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        return cleaned or None
+
+    @field_validator("account_number")
+    @classmethod
+    def _normalize_account(cls, v: str) -> str:
+        digits = re.sub(r"\D", "", v or "")
+        if not re.fullmatch(r"\d{8,18}", digits):
+            raise ValueError("Account number must be 8–18 digits")
+        return digits
+
+    @field_validator("ifsc")
+    @classmethod
+    def _normalize_ifsc(cls, v: str) -> str:
+        code = re.sub(r"\s+", "", (v or "")).upper()
+        if not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", code):
+            raise ValueError("IFSC must be 11 characters like ICIC0001234")
+        return code
+
+    @field_validator("upi_id")
+    @classmethod
+    def _normalize_upi(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        upi = v.strip()
+        if not upi:
+            return None
+        if not re.fullmatch(r"[\w.\-]{2,256}@[\w.\-]{2,64}", upi, flags=re.IGNORECASE):
+            raise ValueError("UPI ID must look like name@bank (e.g. school@icici)")
+        return upi
 
 
 class DisbursementHistoryRow(BaseModel):
@@ -425,6 +480,16 @@ class MemberContributionRow(BaseModel):
     pct: Optional[int] = None
     badge: str = ""
     zenq: Optional[float] = None
+    role_label: Optional[str] = None
+    kyc_name: Optional[str] = None
+
+
+class UnmatchedCreditRow(BaseModel):
+    remitter_name: str
+    amount: int
+    utr: Optional[str] = None
+    payment_mode: Optional[str] = None
+    credited_at: Optional[str] = None
 
 
 class MemberContributionsResponse(BaseModel):
@@ -435,6 +500,12 @@ class MemberContributionsResponse(BaseModel):
     funded_pct: Optional[int] = None
     spent: int = 0
     message: str
+    unmatched_total: int = 0
+    attributed_total: int = 0
+    credit_count: int = 0
+    matched_credit_count: int = 0
+    unmatched_credits: List[UnmatchedCreditRow] = []
+    source: str = "icici_ecollection"
 
 
 class PulseItem(BaseModel):
@@ -601,6 +672,8 @@ class CircleInviteLinkResponse(BaseModel):
     expires_at: datetime
     circle_id: str
     circle_name: str
+    leader_name: str = ""
+    share_url: str = ""
 
 
 class InviteResolveResponse(BaseModel):

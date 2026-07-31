@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
 from sqlalchemy import select
@@ -10,6 +11,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.models import GamifiedPersona
 from app.models.enums import Persona
 from app.models.signup import SignupRequest
+
+
+def _sponsor_nickname_base(user: SignupRequest) -> str:
+    full = (user.full_name or "").strip()
+    if full:
+        first = full.split()[0]
+        cleaned = re.sub(r"[^A-Za-z0-9]", "", first)[:14]
+        if cleaned:
+            return cleaned
+    email_prefix = (user.email or "member").split("@")[0][:8]
+    cleaned = re.sub(r"[^A-Za-z0-9]", "", email_prefix)
+    return cleaned or "member"
 
 
 async def get_or_create_persona(user: SignupRequest, db: AsyncSession) -> GamifiedPersona:
@@ -22,8 +35,7 @@ async def get_or_create_persona(user: SignupRequest, db: AsyncSession) -> Gamifi
         if user.persona == Persona.student:
             nickname = f"student_{str(uuid.uuid4())[:6]}"
         else:
-            prefix = user.email.split("@")[0][:8]
-            nickname = f"{prefix}_{str(uuid.uuid4())[:4]}"
+            nickname = f"{_sponsor_nickname_base(user)}_{str(uuid.uuid4())[:4]}"
         avatar_key = f"avatar_{str(uuid.uuid4())[:8]}"
         persona = GamifiedPersona(
             user_id=user.id,
