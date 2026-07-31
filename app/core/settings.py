@@ -105,7 +105,7 @@ class Settings(BaseSettings):
         default=False,
         validation_alias="ICICI_ECOLLECTION_ACCEPT_UNKNOWN_VAN",
     )
-    # Explicit True/False; None = auto (off on Railway, on when plaintext local)
+    # Explicit True/False; None = follow plaintext mock mode (on for local + demo deploys)
     icici_ecollection_simulate_enabled: Optional[bool] = Field(
         default=None,
         validation_alias="ICICI_ECOLLECTION_SIMULATE_ENABLED",

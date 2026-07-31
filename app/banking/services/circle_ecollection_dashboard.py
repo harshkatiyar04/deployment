@@ -41,17 +41,15 @@ def _circle_suffix(circle_id: str) -> str:
 
 def simulate_enabled() -> bool:
     """
-    Mock bank credit is OFF in production-like hosts unless explicitly enabled.
-    Local / explicit UAT can turn it on.
+    Mock bank credit (UAT simulate) — same Validation → Confirm path as ICICI.
+
+    - ICICI_ECOLLECTION_SIMULATE_ENABLED=true  → always on
+    - ICICI_ECOLLECTION_SIMULATE_ENABLED=false → always off (live bank only)
+    - unset → on when ICICI_ECOLLECTION_PLAINTEXT is true (local + demo deploys)
     """
     if settings.icici_ecollection_simulate_enabled is True:
         return True
     if settings.icici_ecollection_simulate_enabled is False:
-        return False
-    # Auto: allow only when plaintext mock mode is on and not on Railway
-    import os
-
-    if os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("RAILWAY_PROJECT_ID"):
         return False
     return bool(settings.icici_ecollection_plaintext)
 
