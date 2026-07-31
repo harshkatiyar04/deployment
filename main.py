@@ -110,6 +110,9 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def _keepalive_loop():
     """Ping the DB every 4 minutes to prevent Neon.tech free-tier sleep."""
     from sqlalchemy import text
+    from app.db.resilience import is_stale_plan_error
+    from app.db.session import reset_db_pool
+
     while True:
         await asyncio.sleep(4 * 60)
         try:
@@ -118,6 +121,12 @@ async def _keepalive_loop():
             logger.info("[Keepalive] DB ping successful.")
         except Exception as e:
             logger.warning(f"[Keepalive] DB ping failed: {e}")
+            if is_stale_plan_error(e):
+                try:
+                    await reset_db_pool()
+                    logger.info("[Keepalive] DB pool reset after stale plan.")
+                except Exception as reset_exc:
+                    logger.warning("[Keepalive] DB pool reset failed: %s", reset_exc)
 
 
 @app.on_event("startup")
@@ -129,6 +138,14 @@ async def _startup() -> None:
         await apply_all_migrations()
     except Exception as exc:
         logger.warning("[Startup] School migrations skipped: %s", exc)
+    # Neon sync / migrations invalidate asyncpg prepared plans — drop pooled conns.
+    try:
+        from app.db.session import reset_db_pool
+
+        await reset_db_pool()
+        logger.info("[Startup] DB connection pool reset after migrations.")
+    except Exception as exc:
+        logger.warning("[Startup] DB pool reset skipped: %s", exc)
     asyncio.create_task(_keepalive_loop())
     if settings.zenq_live_events:
         asyncio.create_task(zenq_maintenance_loop())

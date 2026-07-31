@@ -15,8 +15,22 @@ T = TypeVar("T")
 SAFE_UNAVAILABLE_DETAIL = "Service temporarily unavailable. Please try again shortly."
 
 
+def is_stale_plan_error(exc: BaseException) -> bool:
+    """True after Neon/pg schema changes invalidate asyncpg prepared statements."""
+    name = type(exc).__name__.lower()
+    if "invalidcachedstatement" in name:
+        return True
+    msg = str(exc).lower()
+    return (
+        "cached statement plan is invalid" in msg
+        or "invalidcachedstatement" in msg
+    )
+
+
 def is_transient_db_error(exc: BaseException) -> bool:
     """True when the failure is likely a dropped remote Postgres connection."""
+    if is_stale_plan_error(exc):
+        return True
     if isinstance(exc, (OperationalError, DBAPIError)):
         return True
     msg = str(exc).lower()
@@ -80,6 +94,13 @@ async def with_db_retry(
                     attempt + 1,
                     type(exc).__name__,
                 )
+                if is_stale_plan_error(exc):
+                    try:
+                        from app.db.session import reset_db_pool
+
+                        await reset_db_pool()
+                    except Exception:
+                        logger.exception("db_pool_reset_failed")
                 await asyncio.sleep(delay_seconds)
                 continue
             raise

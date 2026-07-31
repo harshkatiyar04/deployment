@@ -21,8 +21,11 @@ SessionLocal = async_sessionmaker(
 )
 
 
+async def reset_db_pool() -> None:
+    """Drop pooled connections (needed after Neon schema restores / migrations)."""
+    await engine.dispose()
+
+
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with SessionLocal() as session:
         yield session
-
-
