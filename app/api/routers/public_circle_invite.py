@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.settings import settings
+from app.core.request_meta import public_api_base_url
 from app.db.session import get_db
 from app.models.circle_ops import CircleInviteToken
 from app.models.signup import SignupRequest
@@ -180,13 +181,15 @@ async def public_circle_invite_landing(
             "Open the link to sign up and complete Zenk ID verification."
         )
 
+    page_url = f"{public_api_base_url(request)}/public/circle-invite/{raw}"
+
     if not _is_link_preview_bot(request.headers.get("user-agent", "")):
         return RedirectResponse(url=join, status_code=302)
 
     body = _og_html(
         title=title,
         description=description,
-        page_url=str(request.url),
+        page_url=page_url,
         image_url=_og_image_url(),
         redirect_url=join,
     )

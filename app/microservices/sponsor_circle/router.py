@@ -1514,7 +1514,9 @@ async def create_invite_link(
     )
     invite_url = f"{base}/join/circle?invite={row.token}"
     leader_name = (getattr(user, "full_name", None) or "").strip() or "Circle leader"
-    api_base = str(request.base_url).rstrip("/")
+    from app.core.request_meta import public_api_base_url
+
+    api_base = public_api_base_url(request)
     share_url = f"{api_base}/public/circle-invite/{row.token}"
     return CircleInviteLinkResponse(
         token=row.token,
