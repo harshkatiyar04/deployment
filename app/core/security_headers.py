@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import logging
 import os
 
-from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import Response
 
 _SWAGGER_CDN = "https://cdn.jsdelivr.net"
-logger = logging.getLogger(__name__)
 
 
 def _is_api_docs_path(path: str) -> bool:
@@ -43,64 +40,23 @@ def _csp_value(*, allow_swagger_cdn: bool = False) -> str:
     )
 
 
-def _apply_security_headers(request: Request, response: Response) -> Response:
-    response.headers.setdefault("X-Content-Type-Options", "nosniff")
-    response.headers.setdefault("X-Frame-Options", "DENY")
-    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-    response.headers.setdefault(
-        "Permissions-Policy",
-        "camera=(), microphone=(), geolocation=(), payment=()",
-    )
-    response.headers.setdefault(
-        "Content-Security-Policy",
-        _csp_value(allow_swagger_cdn=_is_api_docs_path(request.url.path)),
-    )
-    if request.url.scheme == "https":
-        response.headers.setdefault(
-            "Strict-Transport-Security",
-            "max-age=31536000; includeSubDomains",
-        )
-    return response
-
-
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
-        try:
-            response = await call_next(request)
-        except StarletteHTTPException:
-            # Let FastAPI/Starlette convert these; do not swallow into 500/503.
-            raise
-        except Exception as exc:
-            from app.db.resilience import is_stale_plan_error, safe_service_unavailable_detail
-
-            if is_stale_plan_error(exc):
-                try:
-                    from app.db.session import reset_db_pool
-
-                    await reset_db_pool()
-                    # One transparent retry after pool reset (avoids sticky 503 loops).
-                    try:
-                        response = await call_next(request)
-                        return _apply_security_headers(request, response)
-                    except StarletteHTTPException:
-                        raise
-                    except Exception as retry_exc:
-                        logger.warning(
-                            "Retry after stale-plan pool reset failed: %s",
-                            type(retry_exc).__name__,
-                        )
-                except StarletteHTTPException:
-                    raise
-                except Exception:
-                    logger.exception("Failed to reset DB pool after stale plan error")
-                response = JSONResponse(
-                    {"detail": safe_service_unavailable_detail()},
-                    status_code=503,
-                )
-            else:
-                logger.exception("Unhandled error in request path")
-                response = JSONResponse(
-                    {"detail": "Internal server error"},
-                    status_code=500,
-                )
-        return _apply_security_headers(request, response)
+        response = await call_next(request)
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        response.headers.setdefault(
+            "Permissions-Policy",
+            "camera=(), microphone=(), geolocation=(), payment=()",
+        )
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            _csp_value(allow_swagger_cdn=_is_api_docs_path(request.url.path)),
+        )
+        if request.url.scheme == "https":
+            response.headers.setdefault(
+                "Strict-Transport-Security",
+                "max-age=31536000; includeSubDomains",
+            )
+        return response
