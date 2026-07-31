@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -66,9 +67,10 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         try:
             response = await call_next(request)
+        except StarletteHTTPException:
+            # Let FastAPI/Starlette convert these; do not swallow into 500/503.
+            raise
         except Exception as exc:
-            # BaseHTTPMiddleware + re-raise drops CORS headers in the browser.
-            # Convert to a Response so CORSMiddleware can still attach ACAO.
             from app.db.resilience import is_stale_plan_error, safe_service_unavailable_detail
 
             if is_stale_plan_error(exc):
@@ -76,12 +78,21 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     from app.db.session import reset_db_pool
 
                     await reset_db_pool()
+                    # One transparent retry after pool reset (avoids sticky 503 loops).
+                    try:
+                        response = await call_next(request)
+                        return _apply_security_headers(request, response)
+                    except StarletteHTTPException:
+                        raise
+                    except Exception as retry_exc:
+                        logger.warning(
+                            "Retry after stale-plan pool reset failed: %s",
+                            type(retry_exc).__name__,
+                        )
+                except StarletteHTTPException:
+                    raise
                 except Exception:
                     logger.exception("Failed to reset DB pool after stale plan error")
-                logger.warning(
-                    "Stale DB plan after schema change; pool reset. detail=%s",
-                    type(exc).__name__,
-                )
                 response = JSONResponse(
                     {"detail": safe_service_unavailable_detail()},
                     status_code=503,

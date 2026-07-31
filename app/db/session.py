@@ -4,6 +4,9 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.db.config import db_settings
 
+# Neon + pgBouncer / schema restores invalidate asyncpg prepared plans.
+# Disable statement cache so InvalidCachedStatementError cannot loop 503s after sync.
+_CONNECT_ARGS = {"statement_cache_size": 0}
 
 engine: AsyncEngine = create_async_engine(
     db_settings.database_url,
@@ -12,6 +15,7 @@ engine: AsyncEngine = create_async_engine(
     max_overflow=db_settings.db_max_overflow,
     pool_recycle=db_settings.db_pool_recycle_seconds,
     pool_timeout=db_settings.db_pool_timeout_seconds,
+    connect_args=_CONNECT_ARGS,
 )
 
 SessionLocal = async_sessionmaker(
