@@ -3,21 +3,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ZenK Platform - Target Architecture Components</title>
+    <title>ZenK Platform - Architecture Components</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             padding: 20px;
             min-height: 100vh;
         }
-        
         .container {
             max-width: 1600px;
             margin: 0 auto;
@@ -26,32 +20,30 @@
             box-shadow: 0 20px 60px rgba(0,0,0,0.3);
             padding: 40px;
         }
-        
         .header {
             text-align: center;
             margin-bottom: 40px;
             padding-bottom: 20px;
             border-bottom: 3px solid #667eea;
         }
-        
-        .header h1 {
-            color: #2d3748;
-            font-size: 42px;
-            margin-bottom: 10px;
+        .header h1 { color: #2d3748; font-size: 42px; margin-bottom: 10px; }
+        .header p { color: #718096; font-size: 18px; }
+        .note {
+            background: #ebf8ff;
+            border-left: 4px solid #3182ce;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 28px;
+            color: #2c5282;
+            font-size: 14px;
+            line-height: 1.6;
         }
-        
-        .header p {
-            color: #718096;
-            font-size: 18px;
-        }
-        
         .service-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
             gap: 25px;
             margin-bottom: 30px;
         }
-        
         .service-block {
             background: linear-gradient(135deg, #f7fafc 0%, #edf2f7 100%);
             border-radius: 15px;
@@ -60,12 +52,10 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
             transition: transform 0.3s, box-shadow 0.3s;
         }
-        
         .service-block:hover {
             transform: translateY(-5px);
             box-shadow: 0 8px 12px rgba(0,0,0,0.15);
         }
-        
         .service-header {
             display: flex;
             align-items: center;
@@ -73,7 +63,6 @@
             padding-bottom: 15px;
             border-bottom: 2px solid #cbd5e0;
         }
-        
         .service-icon {
             width: 60px;
             height: 60px;
@@ -86,30 +75,11 @@
             color: white;
             font-weight: bold;
         }
-        
-        .service-title {
-            flex: 1;
-        }
-        
-        .service-title h2 {
-            color: #2d3748;
-            font-size: 24px;
-            margin-bottom: 5px;
-        }
-        
-        .service-title p {
-            color: #718096;
-            font-size: 14px;
-        }
-        
-        .service-details {
-            margin-top: 15px;
-        }
-        
-        .detail-section {
-            margin-bottom: 15px;
-        }
-        
+        .service-title { flex: 1; }
+        .service-title h2 { color: #2d3748; font-size: 24px; margin-bottom: 5px; }
+        .service-title p { color: #718096; font-size: 14px; }
+        .service-details { margin-top: 15px; }
+        .detail-section { margin-bottom: 15px; }
         .detail-section h3 {
             color: #4a5568;
             font-size: 16px;
@@ -117,25 +87,18 @@
             display: flex;
             align-items: center;
         }
-        
         .detail-section h3::before {
             content: '▸';
             margin-right: 8px;
             color: #667eea;
         }
-        
-        .detail-list {
-            list-style: none;
-            padding-left: 20px;
-        }
-        
+        .detail-list { list-style: none; padding-left: 20px; }
         .detail-list li {
             color: #4a5568;
             margin-bottom: 5px;
             padding-left: 15px;
             position: relative;
         }
-        
         .detail-list li::before {
             content: '•';
             position: absolute;
@@ -143,7 +106,6 @@
             color: #667eea;
             font-weight: bold;
         }
-        
         .tech-badge {
             display: inline-block;
             background: #667eea;
@@ -154,445 +116,469 @@
             margin: 3px;
             font-weight: 600;
         }
-        
+        .path {
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+            font-size: 12px;
+            color: #718096;
+            margin-top: 4px;
+        }
         .icon-user { background: linear-gradient(135deg, #4299e1, #3182ce); }
         .icon-circle { background: linear-gradient(135deg, #48bb78, #38a169); }
         .icon-market { background: linear-gradient(135deg, #ed8936, #dd6b20); }
-        .icon-payment { background: linear-gradient(135deg, #9f7aea, #805ad5); }
-        .icon-escrow { background: linear-gradient(135deg, #f56565, #e53e3e); }
-        .icon-game { background: linear-gradient(135deg, #38b2ac, #319795); }
-        .icon-notify { background: linear-gradient(135deg, #ed64a6, #d53f8c); }
-        .icon-report { background: linear-gradient(135deg, #667eea, #764ba2); }
-        .icon-integration { background: linear-gradient(135deg, #f6ad55, #ed8936); }
+        .icon-school { background: linear-gradient(135deg, #9f7aea, #805ad5); }
+        .icon-student { background: linear-gradient(135deg, #f56565, #e53e3e); }
+        .icon-mentor { background: linear-gradient(135deg, #38b2ac, #319795); }
+        .icon-corp { background: linear-gradient(135deg, #ed64a6, #d53f8c); }
+        .icon-chat { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .icon-admin { background: linear-gradient(135deg, #f6ad55, #ed8936); }
         .icon-ai { background: linear-gradient(135deg, #fc8181, #f56565); }
-        
+        .icon-pay { background: linear-gradient(135deg, #68d391, #38a169); }
+        .icon-notify { background: linear-gradient(135deg, #63b3ed, #3182ce); }
         @media print {
-            body {
-                background: white;
-            }
-            .container {
-                box-shadow: none;
-            }
-            .service-block {
-                page-break-inside: avoid;
-            }
+            body { background: white; }
+            .container { box-shadow: none; }
+            .service-block { page-break-inside: avoid; }
+        }
+        @media (max-width: 600px) {
+            .service-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>Target Architecture Components</h1>
-            <p>Detailed Service Blocks & Responsibilities</p>
+            <h1>Architecture Components</h1>
+            <p>Service blocks as implemented in this repository</p>
         </div>
-        
+
+        <div class="note">
+            Previously titled “Target Architecture.” Content below maps to real routers and services under
+            <code>app/microservices/</code>, <code>app/api/routers/</code>, <code>app/chat/</code>, and <code>app/services/</code>.
+        </div>
+
         <div class="service-grid">
-            <!-- User Service -->
             <div class="service-block">
                 <div class="service-header">
                     <div class="service-icon icon-user">👤</div>
                     <div class="service-title">
-                        <h2>User Service</h2>
-                        <p>User Management & Authentication</p>
+                        <h2>Auth, Signup &amp; KYC</h2>
+                        <p>Identity, personas, approvals</p>
+                        <div class="path">app/api/routers/auth.py · signup.py · admin_kyc.py</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>User registration & authentication</li>
-                            <li>Profile management (Students, Sponsors, Vendors, Admins)</li>
-                            <li>Age verification workflow</li>
-                            <li>Persona-based access control</li>
-                            <li>Role & permission management</li>
+                            <li>Multi-persona registration (sponsor, member, student, school, vendor, mentor, corporate, parent)</li>
+                            <li>JWT access/refresh + HttpOnly cookie sessions</li>
+                            <li>KYC document upload (Cloudinary) and admin review</li>
+                            <li>Age-tier / DPDPA consent capture</li>
+                            <li>Admin browser login and optional server admin API key</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Key Features</h3>
                         <ul class="detail-list">
-                            <li>JWT-based authentication</li>
-                            <li>Multi-role support</li>
-                            <li>Secure ID generation for students</li>
-                            <li>Profile data anonymization</li>
+                            <li>Locale-aware signup copy</li>
+                            <li>Approval emails via SMTP templates</li>
+                            <li>Student pseudonym generation for privacy</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
-                        <span class="tech-badge">PostgreSQL</span>
                         <span class="tech-badge">JWT</span>
+                        <span class="tech-badge">bcrypt</span>
+                        <span class="tech-badge">Cloudinary</span>
+                        <span class="tech-badge">PostgreSQL</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Circle Service -->
+
             <div class="service-block">
                 <div class="service-header">
                     <div class="service-icon icon-circle">👥</div>
                     <div class="service-title">
-                        <h2>Circle Service</h2>
-                        <p>Sponsor Circle Management</p>
+                        <h2>Sponsor Circle Service</h2>
+                        <p>Circle dashboard &amp; operations</p>
+                        <div class="path">app/microservices/sponsor_circle/</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>Sponsor circle creation & management</li>
-                            <li>Member management & invitations</li>
-                            <li>Circle-to-student assignment</li>
-                            <li>Group communication channels</li>
-                            <li>Circle activity tracking</li>
+                            <li>Circle overview, budget, members, invites</li>
+                            <li>Pending member applications and decisions</li>
+                            <li>Student enrollments and impact pulse</li>
+                            <li>Marketplace cart spending against circle funds</li>
+                            <li>Gamification / mission progress for sponsors</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Key Features</h3>
                         <ul class="detail-list">
-                            <li>Multi-sponsor collaboration</li>
-                            <li>Group-only access enforcement</li>
-                            <li>Circle member roles</li>
-                            <li>Activity feed & notifications</li>
+                            <li>Leader / member role separation</li>
+                            <li>Circle name uniqueness checks</li>
+                            <li>Kia event briefings on membership and budget events</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
                         <span class="tech-badge">PostgreSQL</span>
-                        <span class="tech-badge">WebSocket</span>
+                        <span class="tech-badge">ZenQ</span>
+                        <span class="tech-badge">Kia</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Marketplace Service -->
+
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-school">🏫</div>
+                    <div class="service-title">
+                        <h2>School Service</h2>
+                        <p>School portal &amp; reporting</p>
+                        <div class="path">app/microservices/school/</div>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>School profile, faculty, student roster</li>
+                            <li>Circle enrollment requests and sync</li>
+                            <li>ZQA / quarterly report CSV &amp; PDF import</li>
+                            <li>School invites and join flows</li>
+                            <li>School Kia message panel</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>Bloom’s taxonomy + SEL oriented report templates</li>
+                            <li>~70+ school routes for full portal coverage</li>
+                            <li>Attendance and academic metric capture</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">ReportLab</span>
+                        <span class="tech-badge">pypdf</span>
+                        <span class="tech-badge">SMTP</span>
+                        <span class="tech-badge">ZQA</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-student">🎓</div>
+                    <div class="service-title">
+                        <h2>Student &amp; Parent Services</h2>
+                        <p>Learner &amp; guardian portals</p>
+                        <div class="path">app/microservices/student/ · parent/</div>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Student onboarding v2 and progress views</li>
+                            <li>Probe / companion chat with Kia (pseudonym-safe)</li>
+                            <li>Parent linkage to sponsored children</li>
+                            <li>Academic transcript / document upload extract</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Key Features</h3>
+                        <ul class="detail-list">
+                            <li>No cross-student data leakage in Kia context</li>
+                            <li>Family circle provisioning hooks</li>
+                            <li>ZQA and attendance surfaced after school confirmation</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">Kia</span>
+                        <span class="tech-badge">pypdf</span>
+                        <span class="tech-badge">PostgreSQL</span>
+                    </div>
+                </div>
+            </div>
+
             <div class="service-block">
                 <div class="service-header">
                     <div class="service-icon icon-market">🛒</div>
                     <div class="service-title">
-                        <h2>Marketplace Service</h2>
-                        <p>Vetted Marketplace Management</p>
+                        <h2>Vendor Marketplace Service</h2>
+                        <p>Catalog, cart, orders</p>
+                        <div class="path">app/microservices/vendor/</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>Vendor catalog management</li>
-                            <li>Product/service listings</li>
-                            <li>Real-time inventory checks</li>
-                            <li>Search & filtering</li>
-                            <li>Commission calculation (fixed %)</li>
+                            <li>Vendor products, promotions, bulk inventory upload</li>
+                            <li>Marketplace product listing for circle buyers</li>
+                            <li>Cart + checkout creating vendor orders</li>
+                            <li>Order status updates and weekly reports</li>
+                            <li>Kia marketplace recommendations</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Key Features</h3>
                         <ul class="detail-list">
-                            <li>Vendor verification workflow</li>
-                            <li>Inventory synchronization</li>
-                            <li>Product categorization</li>
-                            <li>Order management</li>
+                            <li>Closed-loop spend against sponsor circle budgets</li>
+                            <li>Promotion engine applied at list time</li>
+                            <li>Product request workflow for unmet needs</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
                         <span class="tech-badge">PostgreSQL</span>
-                        <span class="tech-badge">Redis</span>
+                        <span class="tech-badge">Cloudinary</span>
+                        <span class="tech-badge">Kia</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Payment Service -->
+
             <div class="service-block">
                 <div class="service-header">
-                    <div class="service-icon icon-payment">💳</div>
+                    <div class="service-icon icon-pay">💳</div>
                     <div class="service-title">
-                        <h2>Payment Service</h2>
-                        <p>Payment Processing & Transactions</p>
+                        <h2>Disbursement Service</h2>
+                        <p>Circle payees &amp; ICICI payouts</p>
+                        <div class="path">app/services/circle_vendor_disbursements.py</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>Razorpay integration</li>
-                            <li>Multi-currency support (USD, GBP, INR)</li>
-                            <li>Payment processing</li>
-                            <li>Refund handling</li>
-                            <li>Transaction history</li>
+                            <li>Circle payee registry (school fees, supplies, books, etc.)</li>
+                            <li>Disbursement lifecycle: pending → processing → paid</li>
+                            <li>Masked account display and category labels</li>
+                            <li>ICICI corporate gateway handoff</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Key Features</h3>
                         <ul class="detail-list">
-                            <li>Webhook handling</li>
-                            <li>Payment status tracking</li>
-                            <li>Currency conversion</li>
-                            <li>Receipt generation</li>
+                            <li>Audit-friendly payee and disbursement models</li>
+                            <li>Production gateway URL / merchant id via env</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
-                        <span class="tech-badge">Razorpay SDK</span>
+                        <span class="tech-badge">ICICI Gateway</span>
                         <span class="tech-badge">PostgreSQL</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Escrow Service -->
+
             <div class="service-block">
                 <div class="service-header">
-                    <div class="service-icon icon-escrow">🔒</div>
+                    <div class="service-icon icon-mentor">🌟</div>
                     <div class="service-title">
-                        <h2>Escrow Service</h2>
-                        <p>Fund Holding & Release Management</p>
+                        <h2>Mentor Service</h2>
+                        <p>Mentoring &amp; InspireIndex</p>
+                        <div class="path">app/microservices/mentor/</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>Fund holding mechanism</li>
-                            <li>Release on purchase approval</li>
-                            <li>Balance management</li>
-                            <li>Transaction tracking</li>
-                            <li>Zero misuse guarantee</li>
+                            <li>Mentor sessions and engagement tracking</li>
+                            <li>InspireIndex contribution to ZenQ family</li>
+                            <li>Mentor-facing Kia chat</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">ZenQ</span>
+                        <span class="tech-badge">Kia</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-corp">🏢</div>
+                    <div class="service-title">
+                        <h2>Corporate CSR Service</h2>
+                        <p>Allocations &amp; impact reports</p>
+                        <div class="path">app/microservices/corporate/</div>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Corporate dashboard and CSR allocations</li>
+                            <li>ZenQ trend views for sponsored impact</li>
+                            <li>PDF report generation for stakeholders</li>
+                            <li>Corporate Kia guidance</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">FastAPI</span>
+                        <span class="tech-badge">ReportLab</span>
+                        <span class="tech-badge">ZenQ</span>
+                        <span class="tech-badge">Kia</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-chat">💬</div>
+                    <div class="service-title">
+                        <h2>Chat &amp; Channels</h2>
+                        <p>Circle communication</p>
+                        <div class="path">app/chat/</div>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>Circle chat channels and messages</li>
+                            <li>Client + admin chat routers</li>
+                            <li>Gamified personas in chat (Kia system persona)</li>
+                            <li>Access control and display-name rules</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Key Features</h3>
                         <ul class="detail-list">
-                            <li>Closed-loop spending</li>
-                            <li>End-to-end tracking</li>
-                            <li>Automatic fund release</li>
-                            <li>Audit trail</li>
+                            <li>Group-only student interaction model</li>
+                            <li>Shield moderation hooks</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
                         <span class="tech-badge">PostgreSQL</span>
-                        <span class="tech-badge">Redis</span>
+                        <span class="tech-badge">Shield</span>
+                        <span class="tech-badge">Kia</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Gamification Service -->
+
             <div class="service-block">
                 <div class="service-header">
-                    <div class="service-icon icon-game">🏆</div>
+                    <div class="service-icon icon-admin">⚙️</div>
                     <div class="service-title">
-                        <h2>Gamification Service</h2>
-                        <p>Impact Scoring & Leaderboards</p>
+                        <h2>Admin Operations</h2>
+                        <p>Platform control plane</p>
+                        <div class="path">app/api/routers/admin_*.py</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Responsibilities</h3>
                         <ul class="detail-list">
-                            <li>Impact score calculation (daily batch)</li>
-                            <li>Leaderboard management (real-time)</li>
-                            <li>Impact missions tracking</li>
-                            <li>Badges & achievements</li>
-                            <li>Circle rankings</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Key Features</h3>
-                        <ul class="detail-list">
-                            <li>Hybrid/AI-based scoring</li>
-                            <li>Time spent tracking</li>
-                            <li>Money donated tracking</li>
-                            <li>Impact League competition</li>
+                            <li>KYC, users, suppliers, circle ops reviews</li>
+                            <li>Admin Kia, support chat, legal document management</li>
+                            <li>Platform overview / finance snapshots</li>
+                            <li>Audit logging and other requests queue</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
                         <span class="tech-badge">FastAPI</span>
-                        <span class="tech-badge">Celery</span>
-                        <span class="tech-badge">Redis</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Notification Service -->
-            <div class="service-block">
-                <div class="service-header">
-                    <div class="service-icon icon-notify">📧</div>
-                    <div class="service-title">
-                        <h2>Notification Service</h2>
-                        <p>Multi-Channel Notifications</p>
-                    </div>
-                </div>
-                <div class="service-details">
-                    <div class="detail-section">
-                        <h3>Responsibilities</h3>
-                        <ul class="detail-list">
-                            <li>Email notifications (SendGrid)</li>
-                            <li>WhatsApp messages (Twilio)</li>
-                            <li>In-app notifications</li>
-                            <li>Push notifications (FCM)</li>
-                            <li>Preference management</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Key Features</h3>
-                        <ul class="detail-list">
-                            <li>Real-time delivery</li>
-                            <li>Template management</li>
-                            <li>User preference settings</li>
-                            <li>Delivery tracking</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
-                        <span class="tech-badge">Celery</span>
-                        <span class="tech-badge">SendGrid</span>
-                        <span class="tech-badge">Twilio</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Reporting Service -->
-            <div class="service-block">
-                <div class="service-header">
-                    <div class="service-icon icon-report">📊</div>
-                    <div class="service-title">
-                        <h2>Reporting Service</h2>
-                        <p>Analytics & Reporting</p>
-                    </div>
-                </div>
-                <div class="service-details">
-                    <div class="detail-section">
-                        <h3>Responsibilities</h3>
-                        <ul class="detail-list">
-                            <li>Real-time analytics</li>
-                            <li>Dashboard data aggregation</li>
-                            <li>Export functionality</li>
-                            <li>API for corporate sponsors</li>
-                            <li>Historical reporting</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Key Features</h3>
-                        <ul class="detail-list">
-                            <li>Impact metrics</li>
-                            <li>Financial reports</li>
-                            <li>Usage analytics</li>
-                            <li>Custom report generation</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
-                        <span class="tech-badge">BigQuery</span>
+                        <span class="tech-badge">Admin Session</span>
                         <span class="tech-badge">PostgreSQL</span>
-                        <span class="tech-badge">FastAPI</span>
                     </div>
                 </div>
             </div>
-            
-            <!-- Integration Service -->
-            <div class="service-block">
-                <div class="service-header">
-                    <div class="service-icon icon-integration">🔌</div>
-                    <div class="service-title">
-                        <h2>Integration Service</h2>
-                        <p>Third-Party Integrations</p>
-                    </div>
-                </div>
-                <div class="service-details">
-                    <div class="detail-section">
-                        <h3>Responsibilities</h3>
-                        <ul class="detail-list">
-                            <li>External LMS integration</li>
-                            <li>Webhook management</li>
-                            <li>API gateway for third parties</li>
-                            <li>Data synchronization</li>
-                            <li>Student information systems</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Key Features</h3>
-                        <ul class="detail-list">
-                            <li>REST API clients</li>
-                            <li>Webhook retry mechanism</li>
-                            <li>Data transformation</li>
-                            <li>API key management</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Technology</h3>
-                        <span class="tech-badge">Python</span>
-                        <span class="tech-badge">FastAPI</span>
-                        <span class="tech-badge">Celery</span>
-                        <span class="tech-badge">REST APIs</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- AI/ML Services -->
+
             <div class="service-block">
                 <div class="service-header">
                     <div class="service-icon icon-ai">🤖</div>
                     <div class="service-title">
-                        <h2>AI/ML Services</h2>
-                        <p>Intelligence & Optimization</p>
+                        <h2>Kia AI + Scoring Engines</h2>
+                        <p>Operating intelligence</p>
+                        <div class="path">app/services/kia*.py · app/algorithms/zenq/</div>
                     </div>
                 </div>
                 <div class="service-details">
                     <div class="detail-section">
                         <h3>Components</h3>
                         <ul class="detail-list">
-                            <li>Impact Scoring Engine (Hybrid/AI)</li>
-                            <li>Learning Trajectory Analyzer</li>
-                            <li>Content Review Engine (Hybrid)</li>
-                            <li>Recommendation Engine</li>
-                            <li>Predictive Analytics</li>
-                        </ul>
-                    </div>
-                    <div class="detail-section">
-                        <h3>Key Features</h3>
-                        <ul class="detail-list">
-                            <li>File upload processing</li>
-                            <li>API data ingestion</li>
-                            <li>Model training & inference</li>
-                            <li>Anonymized data insights</li>
+                            <li>Kia constitution + five personas (Kia, Aryan, Zen, Nova, Priya)</li>
+                            <li>Persona-specific services (circle, school, student, mentor, corporate, admin)</li>
+                            <li>Priority engine and event briefings</li>
+                            <li>ZenQ: ZEQ / ZCQ / ZIQ + InspireIndex</li>
+                            <li>ZQA composite with band classification and recalibration helpers</li>
+                            <li>Shield content moderation (patterns + LLM)</li>
                         </ul>
                     </div>
                     <div class="detail-section">
                         <h3>Technology</h3>
+                        <span class="tech-badge">Gemini</span>
+                        <span class="tech-badge">Groq</span>
+                        <span class="tech-badge">spaCy</span>
+                        <span class="tech-badge">NumPy</span>
                         <span class="tech-badge">Python</span>
-                        <span class="tech-badge">TensorFlow</span>
-                        <span class="tech-badge">PyTorch</span>
-                        <span class="tech-badge">scikit-learn</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="service-block">
+                <div class="service-header">
+                    <div class="service-icon icon-notify">📧</div>
+                    <div class="service-title">
+                        <h2>Notifications, Legal &amp; News</h2>
+                        <p>Comms &amp; compliance</p>
+                        <div class="path">notifications · legal · consent · news</div>
+                    </div>
+                </div>
+                <div class="service-details">
+                    <div class="detail-section">
+                        <h3>Responsibilities</h3>
+                        <ul class="detail-list">
+                            <li>In-app notification records per persona</li>
+                            <li>SMTP transactional email (invites, signup, approvals)</li>
+                            <li>Legal document serving and consent endpoints</li>
+                            <li>Impact briefing / news RSS ingestion</li>
+                        </ul>
+                    </div>
+                    <div class="detail-section">
+                        <h3>Technology</h3>
+                        <span class="tech-badge">SMTP</span>
+                        <span class="tech-badge">Jinja2 templates</span>
+                        <span class="tech-badge">RSS</span>
+                        <span class="tech-badge">Static PDFs</span>
                     </div>
                 </div>
             </div>
         </div>
-        
+
         <div style="margin-top: 40px; padding: 25px; background: #edf2f7; border-radius: 15px;">
-            <h3 style="color: #2d3748; margin-bottom: 15px; font-size: 24px;">Service Communication Pattern</h3>
+            <h3 style="color: #2d3748; margin-bottom: 15px; font-size: 24px;">Communication Pattern</h3>
             <p style="color: #4a5568; line-height: 1.8; margin-bottom: 15px;">
-                All services communicate through the API Gateway using REST APIs. 
-                Asynchronous tasks are handled via Celery with Redis as the message broker. 
-                Real-time updates use WebSocket connections through the API Gateway.
+                All modules are mounted on a single FastAPI <code>api_router</code> (<code>app/api/router.py</code>).
+                Callers authenticate via JWT bearer or HttpOnly cookies. Background work is handled with
+                asyncio / request-scoped service calls (no Celery/Redis queue in this repo).
             </p>
             <ul style="color: #4a5568; line-height: 1.8; list-style-position: inside;">
-                <li><strong>Synchronous:</strong> REST API calls for immediate responses</li>
-                <li><strong>Asynchronous:</strong> Celery tasks for background processing</li>
-                <li><strong>Real-time:</strong> WebSocket for live updates (leaderboards, notifications)</li>
-                <li><strong>Event-driven:</strong> Webhooks for external integrations</li>
+                <li><strong>Synchronous REST:</strong> Dashboards, KYC, marketplace, admin ops</li>
+                <li><strong>Async I/O:</strong> SQLAlchemy async sessions, httpx to LLM providers</li>
+                <li><strong>Event briefings:</strong> Kia messages written into school panels / chat on domain events</li>
+                <li><strong>External handoffs:</strong> ICICI disbursement redirects, SMTP send, Cloudinary uploads</li>
             </ul>
         </div>
     </div>
 </body>
 </html>
-
