@@ -569,19 +569,7 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
     return "\n".join(lines)
 
 
-# ═══════════════════════════════════════════════════════════════════════
-# 6. LLM PROVIDER ABSTRACTION
-# ═══════════════════════════════════════════════════════════════════════
-#
-# The business logic (context building, persona selection, privacy walls)
-# is model-agnostic. Only this section changes when migrating from
-# Groq/Llama to Claude/Anthropic.
-#
-# Migration path:
-#   Phase 1 (current): Llama 3.3 70B via Groq
-#   Phase 2 (target):  Claude Sonnet/Opus via Anthropic API
-#   Phase 3 (scale):   Hybrid — Claude for complex, lighter model for simple
-#
+
 
 _groq_client = None
 
@@ -614,7 +602,7 @@ async def _call_llm(
     """
     Send a request to the LLM provider.
 
-    Currently: Groq (Llama 3.3 70B)
+    Currently: Groq (qwen/qwen3.6-27b, override GROQ_KIA_MODEL)
     Future:    Anthropic (Claude) — swap this function only.
 
     Args:
@@ -650,7 +638,7 @@ async def _call_llm(
 
     # ── Retry logic for rate limiting ────────────────────────────────
     max_retries = 3
-    model_name = "llama-3.3-70b-versatile"
+    model_name = (settings.groq_kia_model or "qwen/qwen3.6-27b").strip()
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -660,6 +648,12 @@ async def _call_llm(
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
+            if model_name.startswith("openai/gpt-oss"):
+                # Keep chat snappy; high reasoning can empty `content` into thinking tokens.
+                kwargs["reasoning_effort"] = "low"
+            elif model_name.startswith("qwen/"):
+                # Non-thinking mode: warmer, faster dialogue (Groq Qwen 3.6).
+                kwargs["reasoning_effort"] = "none"
             if response_format:
                 kwargs["response_format"] = response_format
 

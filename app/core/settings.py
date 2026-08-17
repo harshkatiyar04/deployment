@@ -43,6 +43,15 @@ class Settings(BaseSettings):
     # Content Moderation API
     gemini_api_key: Optional[str] = Field(default=None)
     groq_api_key: Optional[str] = Field(default=None)
+    # Groq model IDs (Llama 3.3 70B / 3.1 8B Instant shut down 2026-08-16)
+    groq_kia_model: str = Field(
+        default="qwen/qwen3.6-27b",
+        validation_alias="GROQ_KIA_MODEL",
+    )
+    groq_ras_model: str = Field(
+        default="openai/gpt-oss-20b",
+        validation_alias="GROQ_RAS_MODEL",
+    )
 
     # The Guardian Open Platform (use "test" for dev tier; set a real key in production)
     guardian_api_key: Optional[str] = Field(default=None, validation_alias="GUARDIAN_API_KEY")

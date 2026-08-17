@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 AI_BLEND_WEIGHT = 0.62
 HEURISTIC_BLEND_WEIGHT = 0.38
 _AI_TIMEOUT_SEC = 4.0
-_GROQ_RAS_MODEL = "llama-3.1-8b-instant"
+# llama-3.1-8b-instant shut down 2026-08-16 — Groq replacement is gpt-oss-20b
+_DEFAULT_GROQ_RAS_MODEL = "openai/gpt-oss-20b"
 
 _RAS_SYSTEM_PROMPT = """You rate youth mentorship chat messages for ZENK Impact.
 
@@ -82,23 +83,31 @@ def _get_groq_client():
         return None
 
 
+def _groq_ras_model() -> str:
+    return (settings.groq_ras_model or _DEFAULT_GROQ_RAS_MODEL).strip()
+
+
 def _groq_ras_sync(snippet: str) -> Optional[str]:
     client = _get_groq_client()
     if not client:
         return None
-    response = client.chat.completions.create(
-        model=_GROQ_RAS_MODEL,
-        messages=[
+    model = _groq_ras_model()
+    kwargs = {
+        "model": model,
+        "messages": [
             {"role": "system", "content": _RAS_SYSTEM_PROMPT},
             {
                 "role": "user",
                 "content": f'Rate this mentorship message:\n"""{snippet}"""',
             },
         ],
-        temperature=0.1,
-        max_tokens=220,
-        response_format={"type": "json_object"},
-    )
+        "temperature": 0.1,
+        "max_tokens": 220,
+        "response_format": {"type": "json_object"},
+    }
+    if model.startswith("openai/gpt-oss"):
+        kwargs["reasoning_effort"] = "low"
+    response = client.chat.completions.create(**kwargs)
     if response.choices and response.choices[0].message.content:
         return response.choices[0].message.content.strip()
     return None
@@ -131,7 +140,7 @@ async def analyze_message_ras_ai(text: Optional[str]) -> Optional[dict[str, Any]
             "effort_band": str(parsed.get("effort_band") or "moderate"),
             "summary": str(parsed.get("summary") or "")[:120],
             "source": "groq",
-            "model": _GROQ_RAS_MODEL,
+            "model": _groq_ras_model(),
         }
     except Exception as exc:
         logger.debug("[ZenQ RAS Groq] skipped: %s", exc)
