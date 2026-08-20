@@ -224,6 +224,20 @@ async def initiate_disbursement(
     )
     db.add(row)
     await db.flush()
+    try:
+        from app.services.kia_event_briefings import emit_circle_disbursement_initiated
+
+        await emit_circle_disbursement_initiated(
+            db,
+            circle_id=circle.id,
+            disbursement_id=row.id,
+            amount_inr=int(row.amount_inr or 0),
+            payee_name=payee.display_name,
+            due_date=due_date.isoformat() if due_date else None,
+        )
+    except Exception:
+        # Non-blocking for payment initiation path.
+        pass
 
     redirect_url = _build_icici_redirect_url(
         session_id=session_id,
@@ -281,6 +295,32 @@ async def complete_disbursement(
         disbursement.status = DISBURSEMENT_PENDING
 
     await db.flush()
+    try:
+        from app.services.kia_event_briefings import (
+            emit_circle_disbursement_failed,
+            emit_circle_disbursement_paid,
+        )
+
+        if success:
+            await emit_circle_disbursement_paid(
+                db,
+                circle_id=circle_id,
+                disbursement_id=disbursement.id,
+                amount_inr=int(disbursement.amount_inr or 0),
+                payee_name=payee.display_name if payee else None,
+                gateway_ref=disbursement.gateway_ref,
+            )
+        else:
+            await emit_circle_disbursement_failed(
+                db,
+                circle_id=circle_id,
+                disbursement_id=disbursement.id,
+                amount_inr=int(disbursement.amount_inr or 0),
+                payee_name=payee.display_name if payee else None,
+            )
+    except Exception:
+        # Non-blocking for payment completion path.
+        pass
     return disbursement_to_dict(disbursement, payee=payee)
 
 

@@ -157,6 +157,32 @@ class CircleDisbursement(Base):
     )
 
 
+class CircleFinanceEvent(Base):
+    __tablename__ = "circle_finance_events"
+    __table_args__ = {"schema": "ZENK"}
+
+    id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), primary_key=True, default=lambda: str(uuid.uuid4())
+    )
+    circle_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False, index=True)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    source: Mapped[str] = mapped_column(String(30), nullable=False, default="banking")
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    amount_inr: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    amount_paise: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    remitter_name: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    payment_mode: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    utr: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    disbursement_id: Mapped[Optional[str]] = mapped_column(UUID(as_uuid=False), nullable=True)
+    payee_name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    gateway_ref: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(180), nullable=False, unique=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=datetime.utcnow
+    )
+
+
 class CircleSchoolPartnerMessage(Base):
     __tablename__ = "circle_school_partner_messages"
     __table_args__ = {"schema": "ZENK"}

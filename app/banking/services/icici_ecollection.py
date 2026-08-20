@@ -373,6 +373,7 @@ async def handle_credit_confirm(
         )
         return resp, 200
 
+    was_credited = txn.status == TXN_CREDITED
     txn.status = TXN_CREDITED
     txn.credited_at = datetime.now(timezone.utc)
     txn.updated_at = datetime.now(timezone.utc)
@@ -401,6 +402,20 @@ async def handle_credit_confirm(
         utr=data["utr"],
         transaction_id=txn.id,
     )
+    if txn.circle_id and not was_credited:
+        try:
+            from app.services.kia_event_briefings import emit_circle_credit_confirmed
+
+            await emit_circle_credit_confirmed(
+                db,
+                circle_id=txn.circle_id,
+                amount_paise=int(txn.amount_paise or 0),
+                payment_mode=txn.payment_mode,
+                remitter_name=txn.remitter_name,
+                utr=txn.utr,
+            )
+        except Exception:
+            logger.exception("Kia credit event emit failed utr=%s", txn.utr)
     return resp, 200
 
 

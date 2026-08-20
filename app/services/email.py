@@ -38,7 +38,7 @@ def _send_via_resend(
     if html_body:
         payload["html"] = html_body
 
-    with httpx.Client(timeout=20.0) as client:
+    with httpx.Client(timeout=12.0) as client:
         response = client.post(
             RESEND_API_URL,
             headers={

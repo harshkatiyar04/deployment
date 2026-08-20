@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from sqlalchemy import select
@@ -20,6 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.chat.gamified_persona import get_or_create_persona
 from app.chat.models import ChatChannel, ChatMessage, CircleMember, GamifiedPersona, SponsorCircle
 from app.models.notification import Notification
+from app.models.circle_ops import CircleFinanceEvent
 from app.models.school import SchoolKiaMessage, SchoolProfile, SchoolStudent
 from app.models.signup import SignupRequest
 
@@ -545,6 +546,209 @@ def _format_inr(amount: Optional[int]) -> str:
         return f"₹{int(amount or 0):,}"
     except (TypeError, ValueError):
         return "₹0"
+
+
+def _clean_mode(mode: Optional[str]) -> str:
+    return (mode or "").strip().upper() or "NEFT"
+
+
+def _short_utr(utr: Optional[str]) -> str:
+    val = (utr or "").strip()
+    return val[:16] if val else ""
+
+
+async def _persist_finance_event(
+    db: AsyncSession,
+    *,
+    idempotency_key: str,
+    circle_id: str,
+    event_type: str,
+    status: str,
+    source: str,
+    text: str,
+    amount_inr: Optional[int] = None,
+    amount_paise: Optional[int] = None,
+    remitter_name: Optional[str] = None,
+    payment_mode: Optional[str] = None,
+    utr: Optional[str] = None,
+    disbursement_id: Optional[str] = None,
+    payee_name: Optional[str] = None,
+    gateway_ref: Optional[str] = None,
+) -> bool:
+    existing = await db.execute(
+        select(CircleFinanceEvent.id).where(CircleFinanceEvent.idempotency_key == idempotency_key)
+    )
+    if existing.scalar_one_or_none():
+        return False
+    db.add(
+        CircleFinanceEvent(
+            id=str(uuid.uuid4()),
+            idempotency_key=idempotency_key,
+            circle_id=circle_id,
+            event_type=event_type,
+            status=status,
+            source=source,
+            text=text,
+            amount_inr=amount_inr,
+            amount_paise=amount_paise,
+            remitter_name=(remitter_name or "").strip()[:120] or None,
+            payment_mode=(payment_mode or "").strip()[:20] or None,
+            utr=(utr or "").strip()[:80] or None,
+            disbursement_id=disbursement_id,
+            payee_name=(payee_name or "").strip()[:200] or None,
+            gateway_ref=(gateway_ref or "").strip()[:120] or None,
+            created_at=datetime.now(timezone.utc),
+        )
+    )
+    return True
+
+
+async def emit_circle_credit_confirmed(
+    db: AsyncSession,
+    *,
+    circle_id: str,
+    amount_paise: int,
+    payment_mode: Optional[str],
+    remitter_name: Optional[str],
+    utr: Optional[str],
+) -> bool:
+    amount_paise = max(0, int(amount_paise or 0))
+    amount_inr = amount_paise // 100
+    mode = _clean_mode(payment_mode)
+    remitter = (remitter_name or "").strip() or "Remitter"
+    short_utr = _short_utr(utr)
+    text = f"Funds credited — {_format_inr(amount_inr)} via {mode} from {remitter}"
+    if short_utr:
+        text += f" · UTR {short_utr}"
+    idem = f"credit:{circle_id}:{(utr or '').strip()}:{amount_paise}"
+    try:
+        created = await _persist_finance_event(
+            db,
+            idempotency_key=idem,
+            circle_id=circle_id,
+            event_type="credit_confirmed",
+            status="credited",
+            source="Banking",
+            text=text,
+            amount_inr=amount_inr,
+            amount_paise=amount_paise,
+            remitter_name=remitter_name,
+            payment_mode=mode,
+            utr=utr,
+        )
+        if not created:
+            return False
+        await post_circle_kia_briefing(db, circle_id, text)
+        return True
+    except Exception:
+        logger.exception("Kia credit_confirmed briefing failed")
+        return False
+
+
+async def emit_circle_disbursement_initiated(
+    db: AsyncSession,
+    *,
+    circle_id: str,
+    disbursement_id: str,
+    amount_inr: int,
+    payee_name: Optional[str],
+    due_date: Optional[str] = None,
+) -> bool:
+    payee = (payee_name or "").strip() or "Payee"
+    text = f"Disbursement initiated — {_format_inr(amount_inr)} to {payee} (pending bank confirmation)"
+    if due_date:
+        text += f" · due {due_date}"
+    idem = f"disb:{disbursement_id}:initiated"
+    try:
+        created = await _persist_finance_event(
+            db,
+            idempotency_key=idem,
+            circle_id=circle_id,
+            event_type="disbursement",
+            status="pending",
+            source="Disbursement",
+            text=text,
+            amount_inr=int(amount_inr or 0),
+            disbursement_id=disbursement_id,
+            payee_name=payee_name,
+        )
+        if not created:
+            return False
+        await post_circle_kia_briefing(db, circle_id, text)
+        return True
+    except Exception:
+        logger.exception("Kia disbursement_initiated briefing failed")
+        return False
+
+
+async def emit_circle_disbursement_paid(
+    db: AsyncSession,
+    *,
+    circle_id: str,
+    disbursement_id: str,
+    amount_inr: int,
+    payee_name: Optional[str],
+    gateway_ref: Optional[str] = None,
+) -> bool:
+    payee = (payee_name or "").strip() or "Payee"
+    text = f"Disbursement paid — {_format_inr(amount_inr)} to {payee}"
+    if gateway_ref:
+        text += f" · Ref {(gateway_ref or '').strip()[:18]}"
+    idem = f"disb:{disbursement_id}:paid"
+    try:
+        created = await _persist_finance_event(
+            db,
+            idempotency_key=idem,
+            circle_id=circle_id,
+            event_type="disbursement",
+            status="paid",
+            source="Disbursement",
+            text=text,
+            amount_inr=int(amount_inr or 0),
+            disbursement_id=disbursement_id,
+            payee_name=payee_name,
+            gateway_ref=gateway_ref,
+        )
+        if not created:
+            return False
+        await post_circle_kia_briefing(db, circle_id, text)
+        return True
+    except Exception:
+        logger.exception("Kia disbursement_paid briefing failed")
+        return False
+
+
+async def emit_circle_disbursement_failed(
+    db: AsyncSession,
+    *,
+    circle_id: str,
+    disbursement_id: str,
+    amount_inr: int,
+    payee_name: Optional[str],
+) -> bool:
+    payee = (payee_name or "").strip() or "Payee"
+    text = f"Disbursement pending/failed — {_format_inr(amount_inr)} to {payee}. Please retry payment."
+    idem = f"disb:{disbursement_id}:failed"
+    try:
+        created = await _persist_finance_event(
+            db,
+            idempotency_key=idem,
+            circle_id=circle_id,
+            event_type="disbursement",
+            status="failed",
+            source="Disbursement",
+            text=text,
+            amount_inr=int(amount_inr or 0),
+            disbursement_id=disbursement_id,
+            payee_name=payee_name,
+        )
+        if not created:
+            return False
+        await post_circle_kia_briefing(db, circle_id, text)
+        return True
+    except Exception:
+        logger.exception("Kia disbursement_failed briefing failed")
+        return False
 
 
 def _friendly_student_label(raw: Optional[str], index: int = 0) -> str:

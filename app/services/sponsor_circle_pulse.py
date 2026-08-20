@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.chat.models import CircleMember, SponsorCircle
+from app.models.circle_ops import CircleFinanceEvent
 from app.models.enums import Persona
 from app.models.school import SchoolStudent, SchoolStudentEnrollmentRequest
 from app.models.signup import SignupRequest
@@ -146,6 +147,23 @@ async def build_profile_pulse(db: AsyncSession, circle: SponsorCircle, user: Sig
                 "text": f"Order: {pname or 'item'} — ₹{amt:,} ({order.order_type})",
                 "source": "Marketplace",
                 "time": _iso(order.created_at),
+            }
+        )
+
+    finance_res = await db.execute(
+        select(CircleFinanceEvent)
+        .where(CircleFinanceEvent.circle_id == circle.id)
+        .order_by(CircleFinanceEvent.created_at.desc())
+        .limit(10)
+    )
+    for ev in finance_res.scalars().all():
+        items.append(
+            {
+                "id": f"finance-{ev.id}",
+                "type": "CIRCLE",
+                "text": ev.text,
+                "source": ev.source or "Banking",
+                "time": _iso(ev.created_at),
             }
         )
 

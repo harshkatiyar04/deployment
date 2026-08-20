@@ -3,6 +3,8 @@ import cloudinary.uploader
 import cloudinary.utils
 from fastapi import UploadFile
 from typing import Optional
+from functools import partial
+import anyio
 from app.db.config import cloudinary_settings
 import logging
 import re
@@ -23,20 +25,31 @@ if cloudinary_settings.cloud_name:
         secure=True
     )
 
+
+async def _upload_bytes(content: bytes, **upload_kwargs) -> Optional[str]:
+    """Run sync Cloudinary uploader off the event loop."""
+    try:
+        result = await anyio.to_thread.run_sync(
+            partial(cloudinary.uploader.upload, content, **upload_kwargs)
+        )
+        return result.get("secure_url")
+    except Exception as e:
+        logger.error(f"Cloudinary upload error: {e}")
+        return None
+
+
 async def upload_image(file: UploadFile, folder: str = "zenk/chat") -> Optional[str]:
     """
     Upload an image file to Cloudinary.
     Returns the secure URL of the uploaded image.
     """
     try:
-        # We read the content and upload
         content = await file.read()
-        result = cloudinary.uploader.upload(
+        return await _upload_bytes(
             content,
             folder=folder,
-            resource_type="image"
+            resource_type="image",
         )
-        return result.get("secure_url")
     except Exception as e:
         logger.error(f"Cloudinary upload error: {e}")
         return None
@@ -47,12 +60,11 @@ async def upload_video(file: UploadFile, folder: str = "zenk/support") -> Option
     """Upload a video file to Cloudinary."""
     try:
         content = await file.read()
-        result = cloudinary.uploader.upload(
+        return await _upload_bytes(
             content,
             folder=folder,
             resource_type="video",
         )
-        return result.get("secure_url")
     except Exception as e:
         logger.error(f"Cloudinary video upload error: {e}")
         return None
@@ -71,8 +83,7 @@ async def upload_raw(file: UploadFile, folder: str = "zenk/docs") -> Optional[st
         upload_kwargs: dict = {"folder": folder, "resource_type": "raw"}
         if name.endswith(".pdf"):
             upload_kwargs["format"] = "pdf"
-        result = cloudinary.uploader.upload(content, **upload_kwargs)
-        return result.get("secure_url")
+        return await _upload_bytes(content, **upload_kwargs)
     except Exception as e:
         logger.error(f"Cloudinary raw upload error: {e}")
         return None

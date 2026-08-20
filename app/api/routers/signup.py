@@ -1,10 +1,11 @@
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional
+import asyncio
 import logging
 import re
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -213,9 +214,13 @@ async def _process_signup_common(
     existing_docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     existing_docs = {d.original_filename: d for d in existing_docs_res.scalars().all()}
 
-    for f in kyc_docs:
+    # Upload KYC docs in parallel — sequential Cloudinary calls were a major signup delay.
+    upload_results = await asyncio.gather(
+        *[save_kyc_file(signup_id=signup.id, file=f) for f in kyc_docs]
+    )
+
+    for f, (stored_filename, stored_path, content_type) in zip(kyc_docs, upload_results):
         original_filename = f.filename or "kyc_document"
-        stored_filename, stored_path, content_type = await save_kyc_file(signup_id=signup.id, file=f)
 
         old = existing_docs.get(original_filename)
         if old:
@@ -245,8 +250,58 @@ async def _process_signup_common(
     return signup
 
 
-async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: AsyncSession) -> None:
-    """Send admin notification email for new registrations."""
+async def _email_admin_notification_background(
+    *,
+    persona_label: str,
+    signup_id: str,
+    full_name: str,
+    email: str,
+    mobile_display: str,
+    kyc_status: str,
+    school_line: str = "",
+) -> None:
+    """Send admin email off the request path (do not await on signup response)."""
+    subject = f"New {persona_label} Registration Pending KYC Approval"
+    text_body = (
+        f"Hello Admin,\n\n"
+        f"A new {persona_label} has registered on Zenk and is awaiting KYC review.\n\n"
+        f"- Signup ID: {signup_id}\n"
+        f"- Name: {full_name}\n"
+        f"- Email: {email}\n"
+        f"- Mobile: {mobile_display}\n"
+        f"{school_line}"
+        f"- Current Status: {kyc_status}\n\n"
+        f"Please login to Zenk ({settings.website_url}) to review the KYC documents and approve.\n\n"
+        "Regards,\n"
+        "Zenk Admin\n"
+    )
+    html_body = render_admin_notification_html(
+        persona_label=persona_label,
+        signup_id=signup_id,
+        full_name=full_name,
+        email=email,
+        mobile=mobile_display,
+        kyc_status=kyc_status,
+        website_url=settings.website_url,
+    )
+    try:
+        await send_email(
+            subject=subject,
+            to_email=settings.admin_notification_to,
+            text_body=text_body,
+            html_body=html_body,
+        )
+    except Exception:
+        logger.exception("Failed to send admin notification email for signup_id=%s", signup_id)
+
+
+async def _send_admin_notification(
+    persona: Persona,
+    signup: SignupRequest,
+    db: AsyncSession,
+    background_tasks: Optional[BackgroundTasks] = None,
+) -> None:
+    """In-app notify immediately; email in background so signup isn't blocked ~10–20s."""
     if signup.kyc_status != KycStatus.pending:
         return
 
@@ -265,40 +320,8 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
         school_line = f"- School: {signup.school_name}\n- Affiliation: {signup.school_affiliation or '—'}\n"
 
     mobile_display = format_mobile_display(signup.mobile, signup.country)
-    subject = f"New {label} Registration Pending KYC Approval"
-    text_body = (
-        f"Hello Admin,\n\n"
-        f"A new {label} has registered on Zenk and is awaiting KYC review.\n\n"
-        f"- Signup ID: {signup.id}\n"
-        f"- Name: {signup.full_name}\n"
-        f"- Email: {signup.email}\n"
-        f"- Mobile: {mobile_display}\n"
-        f"{school_line}"
-        f"- Current Status: {signup.kyc_status.value}\n\n"
-        f"Please login to Zenk ({settings.website_url}) to review the KYC documents and approve.\n\n"
-        "Regards,\n"
-        "Zenk Admin\n"
-    )
-    html_body = render_admin_notification_html(
-        persona_label=label,
-        signup_id=signup.id,
-        full_name=signup.full_name,
-        email=signup.email,
-        mobile=mobile_display,
-        kyc_status=signup.kyc_status.value,
-        website_url=settings.website_url,
-    )
-    try:
-        await send_email(
-            subject=subject,
-            to_email=settings.admin_notification_to,
-            text_body=text_body,
-            html_body=html_body,
-        )
-    except Exception:
-        logger.exception("Failed to send admin notification email for signup_id=%s", signup.id)
-    
-    # Create in-app notification for admin
+
+    # Create in-app notification for admin (fast, must use open DB session)
     try:
         await notify_admin_new_signup(
             signup_id=signup.id,
@@ -310,6 +333,21 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
     except Exception:
         logger.exception("Failed to create admin notification for signup_id=%s", signup.id)
 
+    email_kwargs = dict(
+        persona_label=label,
+        signup_id=signup.id,
+        full_name=signup.full_name,
+        email=signup.email,
+        mobile_display=mobile_display,
+        kyc_status=signup.kyc_status.value,
+        school_line=school_line,
+    )
+    if background_tasks is not None:
+        background_tasks.add_task(_email_admin_notification_background, **email_kwargs)
+    else:
+        # Fallback for callers without BackgroundTasks — still don't block the request.
+        asyncio.create_task(_email_admin_notification_background(**email_kwargs))
+
 
 @router.post(
     "/sponsor",
@@ -318,6 +356,7 @@ async def _send_admin_notification(persona: Persona, signup: SignupRequest, db: 
 )
 async def signup_sponsor(
     request: Request,
+    background_tasks: BackgroundTasks,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -411,7 +450,7 @@ async def signup_sponsor(
     await db.commit()
     await db.refresh(signup)
 
-    await _send_admin_notification(Persona.sponsor, signup, db)
+    await _send_admin_notification(Persona.sponsor, signup, db, background_tasks)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
@@ -442,6 +481,7 @@ async def signup_sponsor(
 )
 async def signup_sponsor_leader(
     request: Request,
+    background_tasks: BackgroundTasks,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -535,7 +575,7 @@ async def signup_sponsor_leader(
     await db.commit()
     await db.refresh(signup)
 
-    await _send_admin_notification(Persona.sponsor_leader, signup, db)
+    await _send_admin_notification(Persona.sponsor_leader, signup, db, background_tasks)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
@@ -566,6 +606,7 @@ async def signup_sponsor_leader(
 )
 async def signup_sponsor_member(
     request: Request,
+    background_tasks: BackgroundTasks,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -692,7 +733,7 @@ async def signup_sponsor_member(
             )
             await db.commit()
 
-    await _send_admin_notification(Persona.sponsor_member, signup, db)
+    await _send_admin_notification(Persona.sponsor_member, signup, db, background_tasks)
     if invite_circle_id:
         try:
             label = f"{signup.full_name} (parent guardian)" if is_parent_guardian else signup.full_name
@@ -739,6 +780,7 @@ async def signup_sponsor_member(
 )
 async def signup_vendor(
     request: Request,
+    background_tasks: BackgroundTasks,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -820,7 +862,7 @@ async def signup_vendor(
     await db.commit()
     await db.refresh(signup)
 
-    await _send_admin_notification(Persona.vendor, signup, db)
+    await _send_admin_notification(Persona.vendor, signup, db, background_tasks)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
@@ -851,6 +893,7 @@ async def signup_vendor(
 )
 async def signup_mentor(
     request: Request,
+    background_tasks: BackgroundTasks,
     # Common fields (same shape as vendor for now)
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -928,7 +971,7 @@ async def signup_mentor(
     await db.commit()
     await db.refresh(signup)
 
-    await _send_admin_notification(Persona.mentor, signup, db)
+    await _send_admin_notification(Persona.mentor, signup, db, background_tasks)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
@@ -977,6 +1020,7 @@ async def resolve_school_referral(token: str, db: AsyncSession = Depends(get_db)
 )
 async def signup_school(
     request: Request,
+    background_tasks: BackgroundTasks,
     full_name: str = Form(...),
     mobile: str = Form(...),
     email: str = Form(...),
@@ -1065,7 +1109,7 @@ async def signup_school(
         )
         await db.commit()
 
-    await _send_admin_notification(Persona.school, signup, db)
+    await _send_admin_notification(Persona.school, signup, db, background_tasks)
 
     docs_res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup.id))
     docs = docs_res.scalars().all()
@@ -1096,6 +1140,7 @@ async def signup_school(
 )
 async def signup_student(
     request: Request,
+    background_tasks: BackgroundTasks,
     # Common fields
     full_name: str = Form(...),
     mobile: str = Form(...),
@@ -1302,8 +1347,8 @@ async def signup_student(
     await db.refresh(parent_signup)
     await db.refresh(family_link)
 
-    await _send_admin_notification(Persona.student, signup, db)
-    await _send_admin_notification(Persona.sponsor_member, parent_signup, db)
+    await _send_admin_notification(Persona.student, signup, db, background_tasks)
+    await _send_admin_notification(Persona.sponsor_member, parent_signup, db, background_tasks)
 
     # Parent joins circle only after student is school-enrolled and circle-approved (see family_circle_provision).
 
