@@ -15,8 +15,9 @@ class Settings(BaseSettings):
     # Where uploaded KYC docs are stored on disk (local storage for now)
     storage_dir: str = Field(default="app/storage")
 
-    # Public site / invite links (set to production URL on deploy)
-    website_url: str = Field(default="http://localhost:5173", validation_alias="WEBSITE_URL")
+    # Public site for transactional email CTAs (production URL — not localhost)
+    website_url: str = Field(default="https://in.zenkimpact.com", validation_alias="WEBSITE_URL")
+    # Local/dev frontend for invite redirects; keep separate from email CTAs
     frontend_base_url: str = Field(
         default="http://localhost:5173",
         validation_alias="FRONTEND_BASE_URL",
@@ -34,10 +35,21 @@ class Settings(BaseSettings):
     resend_api_key: Optional[str] = Field(default=None, validation_alias="RESEND_API_KEY")
 
     # Email identities / routing
-    email_from: str = Field(default="leninstark@gmail.com")
-    admin_notification_to: str = Field(default="leninstark@gmail.com")
+    email_from: str = Field(
+        default="harsh@zenkimpact.com",
+        validation_alias="EMAIL_FROM",
+    )
+    # Optional public logo URL (usually leave unset — we CID-attach app/assets/email/zenk-logo.png).
+    email_logo_url: Optional[str] = Field(default=None, validation_alias="EMAIL_LOGO_URL")
+    # Optional absolute path override for the embedded PNG.
+    email_logo_path: Optional[str] = Field(default=None, validation_alias="EMAIL_LOGO_PATH")
+    # Comma-separated list OK — signup/SOS admin alerts go to every address.
+    admin_notification_to: str = Field(
+        default="harsh@zenkimpact.com,vinayak@zenkimpact.com",
+        validation_alias="ADMIN_NOTIFICATION_TO",
+    )
     landing_contact_to: str = Field(
-        default="info@zenkimpact.com",
+        default="harsh@zenkimpact.com,vinayak@zenkimpact.com",
         validation_alias="LANDING_CONTACT_TO",
     )
     # Content Moderation API

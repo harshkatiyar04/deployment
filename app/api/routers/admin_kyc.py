@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.core.admin_deps import require_admin_api_key
-from app.core.settings import settings
 from app.core.signup_locales import build_contact_display
 from app.db.session import get_db
 from app.models.enums import KycStatus, MemberKind
@@ -27,8 +26,6 @@ from app.schemas.signup import (
     LinkedSignupSummary,
     SignupContactDisplay,
 )
-from app.services.email import send_email
-from app.services.email_templates import render_user_approval_html
 from app.services.kyc_review import extract_kyc_review_note
 from app.services.notifications import (
     notify_user_kyc_approved,
@@ -37,6 +34,7 @@ from app.services.notifications import (
 )
 from app.services.school_provision import ensure_school_profile
 from app.services.cloudinary_service import fetch_cloudinary_bytes
+from app.services.user_lifecycle_email import send_kyc_decision_emails
 
 
 router = APIRouter(
@@ -570,36 +568,14 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
 
     # Notify user via email and in-app notification
     label = PERSONA_LABELS.get(signup.persona, "User")
-    
+    review_note = extract_kyc_review_note(signup.admin_note)
+
+    if signup.persona == Persona.sponsor_member and signup.member_kind == MemberKind.parent_guardian.value:
+        label = "Parent / guardian"
+
+    await send_kyc_decision_emails(db=db, signup=signup, review_note=review_note)
+
     if signup.kyc_status == KycStatus.approved:
-        if signup.persona == Persona.sponsor_member and signup.member_kind == MemberKind.parent_guardian.value:
-            label = "Parent / guardian"
-        # Email notification
-        subject = f"Your Zenk {label} KYC is Approved"
-        text_body = (
-            f"Hello {signup.full_name},\n\n"
-            f"Your {label} registration on Zenk has been approved.\n\n"
-            f"Please login to Zenk ({settings.website_url}) with your password.\n\n"
-            "Regards,\n"
-            "Zenk Team\n"
-        )
-        html_body = render_user_approval_html(
-            full_name=signup.full_name,
-            persona_label=label,
-            website_url=settings.website_url,
-        )
-        try:
-            await send_email(
-                subject=subject,
-                to_email=signup.email,
-                text_body=text_body,
-                html_body=html_body,
-            )
-        except Exception:
-            # Don't fail admin decision if email sending fails
-            logger.exception("Failed to send approval email for signup_id=%s", signup.id)
-        
-        # In-app notification
         try:
             await notify_user_kyc_approved(
                 signup_id=signup.id,
@@ -609,14 +585,14 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
             )
         except Exception:
             logger.exception("Failed to create approval notification for signup_id=%s", signup.id)
-    
+
     elif signup.kyc_status == KycStatus.rejected:
         try:
             await notify_user_kyc_rejected(
                 signup_id=signup.id,
                 full_name=signup.full_name,
                 persona=label.lower(),
-                admin_note=extract_kyc_review_note(signup.admin_note),
+                admin_note=review_note,
                 db=db,
             )
         except Exception:
@@ -628,7 +604,7 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
                 signup_id=signup.id,
                 full_name=signup.full_name,
                 persona=label.lower(),
-                admin_note=extract_kyc_review_note(signup.admin_note),
+                admin_note=review_note,
                 db=db,
             )
         except Exception:
@@ -641,7 +617,7 @@ async def decide(signup_id: str, body: AdminDecisionRequest, db: AsyncSession = 
         "id": signup.id,
         "kyc_status": signup.kyc_status,
         "note": signup.admin_note,
-        "review_note": extract_kyc_review_note(signup.admin_note),
+        "review_note": review_note,
     }
 
 

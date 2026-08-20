@@ -61,20 +61,24 @@ logger = logging.getLogger(__name__)
 async def check_signup_availability(
     email: Optional[str] = None,
     pan: Optional[str] = None,
+    circle_name: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
     """
     Pre-submit check — if email or PAN is already registered, the client should
     prompt the user to sign in instead of creating a duplicate account.
+    Circle name is checked for sponsor leaders before they finish the form.
     """
     out: dict = {
         "email_available": True,
         "pan_available": True,
+        "circle_name_available": True,
         "email_registered": False,
         "pan_registered": False,
         "email_resubmit_allowed": False,
         "pan_resubmit_allowed": False,
         "message": None,
+        "circle_name_message": None,
     }
 
     if email and email.strip():
@@ -110,6 +114,22 @@ async def check_signup_availability(
             out["pan_resubmit_allowed"] = flags["resubmit_allowed"]
             if flags["message"] and not out["message"]:
                 out["message"] = flags["message"].replace("email", "PAN")
+
+    if circle_name and circle_name.strip():
+        from app.services.circle_name_validation import (
+            circle_name_taken,
+            normalize_circle_name,
+        )
+
+        cleaned = normalize_circle_name(circle_name)
+        if len(cleaned) < 2:
+            out["circle_name_available"] = False
+            out["circle_name_message"] = "Circle name must be at least 2 characters."
+        elif await circle_name_taken(db, cleaned):
+            out["circle_name_available"] = False
+            out["circle_name_message"] = (
+                "This circle name is already in use. Choose a different name."
+            )
 
     return out
 
@@ -283,13 +303,21 @@ async def _email_admin_notification_background(
         mobile=mobile_display,
         kyc_status=kyc_status,
         website_url=settings.website_url,
+        logo_url=settings.email_logo_url,
+    )
+    recipients = settings.admin_notification_to
+    logger.info(
+        "Queueing admin KYC email signup_id=%s to=%s",
+        signup_id,
+        recipients,
     )
     try:
         await send_email(
             subject=subject,
-            to_email=settings.admin_notification_to,
+            to_email=recipients,
             text_body=text_body,
             html_body=html_body,
+            send_individually=True,
         )
     except Exception:
         logger.exception("Failed to send admin notification email for signup_id=%s", signup_id)
@@ -533,6 +561,19 @@ async def signup_sponsor_leader(
     email = validate_email_format(email)
     signup = await find_signup_by_persona_email(db, persona=Persona.sponsor_leader, email=email)
 
+    # Validate circle name BEFORE creating the signup / uploading KYC. Previously this ran
+    # after _process_signup_common (which commits), so a taken name still left a pending app.
+    from app.services.circle_name_validation import assert_circle_name_available
+
+    try:
+        cleaned_circle = await assert_circle_name_available(
+            db,
+            circle_name,
+            exclude_signup_id=signup.id if signup else None,
+        )
+    except ValueError as exc:
+        _require(False, str(exc))
+
     signup = await _process_signup_common(
         persona=Persona.sponsor_leader,
         signup=signup,
@@ -548,6 +589,7 @@ async def signup_sponsor_leader(
         country=country,
         kyc_docs=all_files,
         db=db,
+        commit=False,
     )
 
     signup.sponsor_type = sponsor_type
@@ -557,12 +599,7 @@ async def signup_sponsor_leader(
     signup.gst_number = gst_number
     signup.authorized_signatory_name = authorized_signatory_name
     signup.authorized_signatory_designation = authorized_signatory_designation
-    from app.services.circle_name_validation import assert_circle_name_available
-
-    try:
-        signup.requested_circle_name = await assert_circle_name_available(db, circle_name)
-    except ValueError as exc:
-        _require(False, str(exc))
+    signup.requested_circle_name = cleaned_circle
     await enforce_signup_legal_bundle(
         db,
         request,

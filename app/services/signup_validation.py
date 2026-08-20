@@ -65,8 +65,19 @@ async def email_exists_globally(db: AsyncSession, email: str) -> bool:
 _RESUBMIT_KYC = frozenset({KycStatus.rejected, KycStatus.info_required})
 
 
+def signup_incomplete_leader_application(signup: SignupRequest) -> bool:
+    """True when a leader row was saved before circle-name validation could finish."""
+    return (
+        signup.persona == Persona.sponsor_leader
+        and signup.kyc_status == KycStatus.pending
+        and not (signup.requested_circle_name or "").strip()
+    )
+
+
 def signup_resubmit_allowed(signup: SignupRequest) -> bool:
-    return signup.kyc_status in _RESUBMIT_KYC
+    if signup.kyc_status in _RESUBMIT_KYC:
+        return True
+    return signup_incomplete_leader_application(signup)
 
 
 def availability_flags_for_signup(signup: Optional[SignupRequest]) -> dict:
@@ -79,11 +90,16 @@ def availability_flags_for_signup(signup: Optional[SignupRequest]) -> dict:
             "message": None,
         }
     if signup_resubmit_allowed(signup):
+        message = (
+            "Your previous attempt was incomplete. Complete the form to finish your application."
+            if signup_incomplete_leader_application(signup)
+            else "We will update your existing application when you submit."
+        )
         return {
             "available": True,
             "registered": False,
             "resubmit_allowed": True,
-            "message": "We will update your existing application when you submit.",
+            "message": message,
         }
     return {
         "available": False,
@@ -115,19 +131,19 @@ async def assert_email_available_for_new_signup(
 
 
 def assert_signup_resubmit_allowed(signup: SignupRequest) -> None:
-    """Rejected and info_required applicants may resubmit via public signup."""
+    """Rejected, info_required, and incomplete leader apps may resubmit via public signup."""
     if signup.kyc_status == KycStatus.approved:
         raise HTTPException(
             status_code=409,
             detail="Signup already approved; changes are not allowed",
         )
+    if signup_resubmit_allowed(signup):
+        return
     if signup.kyc_status == KycStatus.pending:
         raise HTTPException(
             status_code=409,
             detail="Your application is already under review. Sign in to check status.",
         )
-    if signup_resubmit_allowed(signup):
-        return
     raise HTTPException(
         status_code=409,
         detail="This email is already registered. Sign in instead.",

@@ -21,7 +21,7 @@ async def notify_landing_contact_inquiry(
     Deliver a website contact submission to the configured landing inbox.
     Returns True when email was sent; False when SMTP is off or send failed.
     """
-    to_email = (settings.landing_contact_to or "info@zenkimpact.com").strip()
+    to_email = (settings.landing_contact_to or "harsh@zenkimpact.com,vinayak@zenkimpact.com").strip()
     subject = f"[ZENK Website] {interest} — {name}"
     body = (message or "").strip() or "(No message provided.)"
     text_body = (

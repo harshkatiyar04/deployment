@@ -201,6 +201,7 @@ from app.services.circle_member_invite import (
     parse_invite_note,
 )
 from app.services.notifications import notify_user_leader_circle_decision
+from app.services.user_lifecycle_email import send_member_leader_decision_email
 
 
 def _invite_note_filter(circle_id: str):
@@ -406,6 +407,12 @@ async def decide_member_application(
         )
     except Exception:
         pass
+
+    await send_member_leader_decision_email(
+        applicant=applicant,
+        circle_name=circle.name,
+        approved=(decision == LEADER_APPROVED),
+    )
 
     return {
         "signup_id": applicant.id,
