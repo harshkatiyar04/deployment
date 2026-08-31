@@ -38,6 +38,16 @@ def _email_enabled() -> bool:
     return bool(settings.smtp_enabled or settings.resend_api_key)
 
 
+def email_delivery_ready() -> bool:
+    """True when outbound email can actually be attempted."""
+    if settings.resend_api_key:
+        return True
+    return bool(settings.smtp_enabled and settings.smtp_host)
+
+
+EmailAttachment = tuple[str, bytes, str]  # filename, content, mime (e.g. application/pdf)
+
+
 def parse_email_recipients(to_email: RecipientInput) -> list[str]:
     """Normalize one address, comma/semicolon list, or sequence into unique recipients."""
     if isinstance(to_email, (list, tuple, set)):
@@ -132,6 +142,7 @@ def _send_via_resend(
     recipients: list[str],
     text_body: str,
     html_body: Optional[str] = None,
+    file_attachments: Optional[Sequence[EmailAttachment]] = None,
 ) -> None:
     """Send via Resend HTTPS API (Railway-safe — port 443)."""
     api_key = (settings.resend_api_key or "").strip()
@@ -147,11 +158,11 @@ def _send_via_resend(
     if html_body:
         payload["html"] = html_body
 
+    attachments: list[dict] = []
     logo_path = resolve_email_logo_path()
     wm_path = resolve_email_watermark_path()
     if html_body and (logo_path is not None or wm_path is not None):
         try:
-            attachments = []
             if logo_path is not None:
                 attachments.append(
                     {
@@ -168,11 +179,21 @@ def _send_via_resend(
                         "content_id": EMAIL_WATERMARK_CID,
                     }
                 )
-            payload["attachments"] = attachments
         except OSError:
             logger.exception("Failed attaching inline images for Resend email")
 
-    with httpx.Client(timeout=12.0) as client:
+    for filename, content, mime in file_attachments or ():
+        attachments.append(
+            {
+                "filename": filename,
+                "content": base64.b64encode(content).decode("ascii"),
+            }
+        )
+
+    if attachments:
+        payload["attachments"] = attachments
+
+    with httpx.Client(timeout=30.0) as client:
         response = client.post(
             RESEND_API_URL,
             headers={
@@ -195,6 +216,7 @@ def _send_one_smtp(
     recipient: str,
     text_body: str,
     html_body: Optional[str] = None,
+    file_attachments: Optional[Sequence[EmailAttachment]] = None,
 ) -> None:
     if not settings.smtp_host:
         raise RuntimeError("SMTP is enabled but smtp_host is not configured")
@@ -209,8 +231,19 @@ def _send_one_smtp(
         msg.add_alternative(html_body, subtype="html")
         _attach_inline_logo(msg)
 
+    for filename, content, mime in file_attachments or ():
+        maintype, _, subtype = (mime or "application/octet-stream").partition("/")
+        if not subtype:
+            maintype, subtype = "application", "octet-stream"
+        msg.add_attachment(
+            content,
+            maintype=maintype,
+            subtype=subtype,
+            filename=filename,
+        )
+
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=20) as smtp:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port, timeout=30) as smtp:
             if settings.smtp_use_starttls:
                 smtp.starttls()
             if settings.smtp_username and settings.smtp_password:
@@ -233,6 +266,7 @@ def _send_email_sync(
     text_body: str,
     html_body: Optional[str] = None,
     send_individually: bool = False,
+    attachments: Optional[Sequence[EmailAttachment]] = None,
 ) -> None:
     """
     Synchronous send. Prefer Resend HTTPS on Railway; fall back to SMTP locally.
@@ -254,10 +288,11 @@ def _send_email_sync(
         return
 
     logger.info(
-        "Sending email subject=%s recipients=%s individually=%s",
+        "Sending email subject=%s recipients=%s individually=%s attachments=%s",
         subject,
         recipients,
         send_individually,
+        len(attachments or ()),
     )
 
     if settings.resend_api_key:
@@ -270,6 +305,7 @@ def _send_email_sync(
                         recipients=[recipient],
                         text_body=text_body,
                         html_body=html_body,
+                        file_attachments=attachments,
                     )
                 except Exception as exc:
                     logger.exception("Resend failed for %s subject=%s", recipient, subject)
@@ -282,6 +318,7 @@ def _send_email_sync(
             recipients=recipients,
             text_body=text_body,
             html_body=html_body,
+            file_attachments=attachments,
         )
         return
 
@@ -296,6 +333,7 @@ def _send_email_sync(
                 recipient=recipient,
                 text_body=text_body,
                 html_body=html_body,
+                file_attachments=attachments,
             )
         except Exception as exc:
             logger.exception("SMTP failed for %s subject=%s", recipient, subject)
@@ -311,8 +349,9 @@ async def send_email(
     text_body: str,
     html_body: Optional[str] = None,
     send_individually: bool = False,
+    attachments: Optional[Sequence[EmailAttachment]] = None,
 ) -> None:
-    """Send email with optional HTML body. `to_email` may be one address or a comma-separated list."""
+    """Send email with optional HTML body and file attachments."""
     await anyio.to_thread.run_sync(
         partial(
             _send_email_sync,
@@ -321,5 +360,6 @@ async def send_email(
             text_body=text_body,
             html_body=html_body,
             send_individually=send_individually,
+            attachments=attachments,
         )
     )

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime, time, timezone
 from pathlib import Path
 import logging
 
@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from sqlalchemy import func, select
+from sqlalchemy import String, cast, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -293,6 +293,53 @@ def _parse_status_filter(status: Optional[str]) -> Optional[KycStatus]:
         ) from exc
 
 
+def _parse_date_bound(value: date, *, end: bool = False) -> datetime:
+    if end:
+        return datetime.combine(value, time(23, 59, 59, 999999), tzinfo=timezone.utc)
+    return datetime.combine(value, time.min, tzinfo=timezone.utc)
+
+
+def _apply_signup_list_filters(
+    q,
+    *,
+    search: Optional[str] = None,
+    date_field: str = "submitted",
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    has_documents: Optional[bool] = None,
+):
+    needle = (search or "").strip()
+    if needle:
+        pattern = f"%{needle}%"
+        q = q.where(
+            or_(
+                SignupRequest.full_name.ilike(pattern),
+                SignupRequest.email.ilike(pattern),
+                SignupRequest.mobile.ilike(pattern),
+                cast(SignupRequest.id, String).ilike(pattern),
+                SignupRequest.school_name.ilike(pattern),
+                SignupRequest.company_name.ilike(pattern),
+                SignupRequest.business_name.ilike(pattern),
+                SignupRequest.requested_circle_name.ilike(pattern),
+            )
+        )
+
+    date_col = SignupRequest.updated_at if date_field == "updated" else SignupRequest.created_at
+    if date_from is not None:
+        q = q.where(date_col >= _parse_date_bound(date_from))
+    if date_to is not None:
+        q = q.where(date_col <= _parse_date_bound(date_to, end=True))
+
+    if has_documents is True:
+        doc_exists = exists().where(KycDocument.signup_id == SignupRequest.id)
+        q = q.where(doc_exists)
+    elif has_documents is False:
+        doc_exists = exists().where(KycDocument.signup_id == SignupRequest.id)
+        q = q.where(~doc_exists)
+
+    return q
+
+
 @router.get("/summary")
 async def signup_summary(db: AsyncSession = Depends(get_db)):
     """Counts per persona and KYC status for admin queue badges."""
@@ -340,9 +387,28 @@ async def list_requests(
         None,
         description="parent_guardian | circle_member — narrows sponsor_member queue",
     ),
+    search: Optional[str] = Query(None, max_length=200),
+    date_field: str = Query(
+        "submitted",
+        description="submitted (created_at) | updated (updated_at)",
+    ),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    sort: str = Query("newest", description="newest | oldest by submission date"),
+    has_documents: Optional[bool] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """All signup requests for admin review, filterable by persona and KYC status."""
+    if date_field not in ("submitted", "updated"):
+        raise HTTPException(
+            status_code=400,
+            detail="date_field must be submitted or updated",
+        )
+    if sort not in ("newest", "oldest"):
+        raise HTTPException(status_code=400, detail="sort must be newest or oldest")
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=400, detail="date_from must be on or before date_to")
+
     kyc_filter = _parse_status_filter(status)
     q = select(SignupRequest).options(selectinload(SignupRequest.documents))
     if persona:
@@ -361,7 +427,18 @@ async def list_requests(
         q = q.where(SignupRequest.persona.not_in(PRIMARY_SIGNUP_PERSONAS))
     if kyc_filter is not None:
         q = q.where(SignupRequest.kyc_status == kyc_filter)
-    q = q.order_by(SignupRequest.created_at.desc())
+    q = _apply_signup_list_filters(
+        q,
+        search=search,
+        date_field=date_field,
+        date_from=date_from,
+        date_to=date_to,
+        has_documents=has_documents,
+    )
+    if sort == "oldest":
+        q = q.order_by(SignupRequest.created_at.asc())
+    else:
+        q = q.order_by(SignupRequest.created_at.desc())
     res = await db.execute(q)
     return [_signup_list_item(r) for r in res.scalars().all()]
 
@@ -369,41 +446,6 @@ async def list_requests(
 @router.get("/pending", response_model=list[AdminSignupListItem])
 async def list_pending(db: AsyncSession = Depends(get_db)):
     return await list_requests(status="pending", persona=None, persona_group=None, db=db)
-
-
-@router.get("/{signup_id}", response_model=FullSignupDetails)
-async def get_signup_detail(signup_id: str, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(
-        select(SignupRequest)
-        .options(selectinload(SignupRequest.documents))
-        .where(SignupRequest.id == signup_id)
-    )
-    signup = res.scalar_one_or_none()
-    if not signup:
-        raise HTTPException(status_code=404, detail="Signup not found")
-    details = _signup_full_details(signup)
-    guardian, student = await _family_links_for_signup(db, signup)
-    return details.model_copy(
-        update={
-            "linked_guardian": _linked_summary(guardian) if guardian else None,
-            "linked_student": _linked_summary(student) if student else None,
-        }
-    )
-
-
-@router.get("/{signup_id}/documents", response_model=list[KycDocumentOut])
-async def list_documents(signup_id: str, db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup_id))
-    docs = res.scalars().all()
-    return [
-        KycDocumentOut(
-            id=d.id,
-            original_filename=d.original_filename,
-            stored_filename=d.stored_filename,
-            created_at=d.created_at.isoformat() if d.created_at else None,
-        )
-        for d in docs
-    ]
 
 
 @router.get("/documents/{doc_id}")
@@ -415,6 +457,8 @@ async def preview_document(
     """
     Stream KYC document with correct MIME headers.
     Proxies Cloudinary raw/PDF assets so browsers open valid PDFs (admin auth required).
+
+    Registered before /{signup_id} so paths like /documents/{id} are never captured as a signup id.
     """
     res = await db.execute(select(KycDocument).where(KycDocument.id == doc_id))
     doc = res.scalar_one_or_none()
@@ -449,7 +493,13 @@ async def preview_document(
         }
         return Response(content=file_content, media_type=media_type, headers=headers)
 
+    if not stored:
+        raise HTTPException(status_code=404, detail="KYC document has no stored path")
+
     path = Path(stored)
+    if not path.is_absolute():
+        # Relative paths from older local uploads — resolve from backend cwd
+        path = Path.cwd() / path
     if not path.exists():
         raise HTTPException(status_code=404, detail="KYC document missing on disk")
 
@@ -475,10 +525,49 @@ async def view_document_base64(doc_id: str, db: AsyncSession = Depends(get_db)):
     stored = _normalize_stored_path(doc.stored_path)
     if not _is_remote_storage(stored):
         path = Path(stored)
+        if not path.is_absolute():
+            path = Path.cwd() / path
         if not path.exists():
             raise HTTPException(status_code=404, detail="KYC document missing on disk")
 
     return _doc_view(doc)
+
+
+@router.get("/{signup_id}", response_model=FullSignupDetails)
+async def get_signup_detail(signup_id: str, db: AsyncSession = Depends(get_db)):
+    if signup_id in {"documents", "summary", "requests", "pending"}:
+        raise HTTPException(status_code=404, detail="Not found")
+    res = await db.execute(
+        select(SignupRequest)
+        .options(selectinload(SignupRequest.documents))
+        .where(SignupRequest.id == signup_id)
+    )
+    signup = res.scalar_one_or_none()
+    if not signup:
+        raise HTTPException(status_code=404, detail="Signup not found")
+    details = _signup_full_details(signup)
+    guardian, student = await _family_links_for_signup(db, signup)
+    return details.model_copy(
+        update={
+            "linked_guardian": _linked_summary(guardian) if guardian else None,
+            "linked_student": _linked_summary(student) if student else None,
+        }
+    )
+
+
+@router.get("/{signup_id}/documents", response_model=list[KycDocumentOut])
+async def list_documents(signup_id: str, db: AsyncSession = Depends(get_db)):
+    res = await db.execute(select(KycDocument).where(KycDocument.signup_id == signup_id))
+    docs = res.scalars().all()
+    return [
+        KycDocumentOut(
+            id=d.id,
+            original_filename=d.original_filename,
+            stored_filename=d.stored_filename,
+            created_at=d.created_at.isoformat() if d.created_at else None,
+        )
+        for d in docs
+    ]
 
 
 @router.get("/{signup_id}/documents/view", response_model=list[KycDocumentView])
@@ -508,8 +597,10 @@ async def view_all_documents_base64(signup_id: str, db: AsyncSession = Depends(g
             result.append(_doc_view(doc))
             continue
         path = Path(stored)
+        if not path.is_absolute():
+            path = Path.cwd() / path
         if not path.exists():
-            logger.warning("KYC file missing on disk (not a remote URL): %s", stored)
+            logger.warning("KYC file missing on disk (not a remote URL): %s", stored[:80] if stored else "")
             continue
         result.append(_doc_view(doc))
 

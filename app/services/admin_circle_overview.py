@@ -7,7 +7,8 @@ from typing import Any, Optional
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.models import CircleMember, SponsorCircle
+from app.banking.services.circle_balance import build_live_money_snapshot
+from app.chat.models import ChatBan, CircleMember, SponsorCircle
 from app.models.circle_ops import (
     CircleAdminRequest,
     REQUEST_MEMBER_REMOVAL,
@@ -16,6 +17,12 @@ from app.models.circle_ops import (
 )
 from app.models.signup import SignupRequest
 from app.services.circle_membership_ops import circle_member_limit
+from app.services.circle_vendor_disbursements import build_vendor_payments_dashboard
+from app.services.sponsor_circle_finance import (
+    budget_numbers,
+    build_member_contributions,
+    build_statement,
+)
 from app.services.student_circle_privacy import BENEFICIARY_ROLE
 from app.services.sponsor_circle_time_impact import (
     _allocate_percentages,
@@ -27,6 +34,46 @@ from app.services.sponsor_circle_time_impact import (
 )
 
 LEADER_ROLES = frozenset({"lead", "sponsor_leader", "coordinator"})
+CIRCLE_STATUS_ALLOWED = frozenset({"active", "suspended"})
+STATEMENT_ROW_LIMIT = 40
+
+
+async def _admin_money_pack(db: AsyncSession, circle: SponsorCircle) -> dict[str, Any]:
+    """Light live money snapshot for circle detail + finance overview."""
+    snap = await build_live_money_snapshot(db, circle)
+    van = int(snap.get("van_credited") or 0)
+    ledger_collected = int(snap.get("collected") or 0)
+    collected = van if van > 0 else ledger_collected
+    spent = int(snap.get("spent") or 0)
+    nums = budget_numbers(circle, spent, collected_override=collected)
+    total = int(nums["total_budget"] or 0)
+    funded_pct = round((collected / total) * 100) if total > 0 else None
+    return {
+        "annual_budget": total,
+        "collected": collected,
+        "van_credited": van,
+        "spent": spent,
+        "order_spent": int(snap.get("order_spent") or 0),
+        "disbursed_paid": int(snap.get("disbursed_paid") or 0),
+        "reserved_in_flight": int(snap.get("reserved_in_flight") or 0),
+        "available": int(snap.get("available") or 0),
+        "funded_pct": funded_pct,
+        "fy_label": snap.get("fy_label") or circle.fy_label,
+        "live": True,
+    }
+
+
+async def _active_bans_for_circle(db: AsyncSession, circle_id: str) -> dict[str, str]:
+    """user_id -> most recent ChatBan id for this circle."""
+    res = await db.execute(
+        select(ChatBan)
+        .where(ChatBan.circle_id == circle_id)
+        .order_by(ChatBan.created_at.desc())
+    )
+    out: dict[str, str] = {}
+    for ban in res.scalars().all():
+        out.setdefault(str(ban.user_id), str(ban.id))
+    return out
 
 
 def _iso(dt) -> Optional[str]:
@@ -185,12 +232,19 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
     )
     pending_removal_ids = {uid for (uid,) in pending_removals.all() if uid}
 
+    bans_by_user = await _active_bans_for_circle(db, circle.id)
+
     for i, m in enumerate(members_out):
         m["pending_removal"] = m["user_id"] in pending_removal_ids
         m["participation_pct"] = pcts[i] if i < len(pcts) else 0
+        ban_id = bans_by_user.get(str(m["user_id"]))
+        m["is_banned"] = ban_id is not None
+        m["ban_id"] = ban_id
 
     members_out.sort(key=lambda x: x["minutes_this_month"], reverse=True)
     seat_count = sum(1 for cm, _ in member_rows if not _is_beneficiary(cm.role))
+
+    money = await _admin_money_pack(db, circle)
 
     return {
         "id": circle.id,
@@ -206,8 +260,68 @@ async def get_admin_circle_detail(db: AsyncSession, circle_id: str) -> Optional[
         "pending_ops_count": await _pending_ops_count(db, circle.id),
         "annual_budget": circle.annual_budget,
         "budget_spent": circle.budget_spent,
+        "money": money,
         "members": members_out,
     }
+
+
+async def get_admin_circle_finance(
+    db: AsyncSession, circle_id: str
+) -> Optional[dict[str, Any]]:
+    """Heavy finance dossier for Circle Ops modal."""
+    res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+    circle = res.scalar_one_or_none()
+    if not circle:
+        return None
+
+    money = await _admin_money_pack(db, circle)
+    contributions = await build_member_contributions(db, circle)
+    disbursements = await build_vendor_payments_dashboard(db, circle)
+    statement = await build_statement(db, circle)
+    rows = list(statement.get("rows") or [])
+    statement_out = {
+        **statement,
+        "rows": rows[-STATEMENT_ROW_LIMIT:],
+        "row_count_total": len(rows),
+        "row_count_returned": min(len(rows), STATEMENT_ROW_LIMIT),
+    }
+
+    return {
+        "circle_id": circle.id,
+        "circle_name": circle.name,
+        "money": money,
+        "contributions": contributions,
+        "disbursements": {
+            "total_disbursed": disbursements.get("total_disbursed", 0),
+            "total_pending": disbursements.get("total_pending", 0),
+            "vendors_served": disbursements.get("vendors_served", 0),
+            "payment_history": disbursements.get("payment_history") or [],
+            "next_deposit_request": disbursements.get("next_deposit_request"),
+            "gateway_provider": disbursements.get("gateway_provider"),
+        },
+        "statement": statement_out,
+    }
+
+
+async def set_admin_circle_status(
+    db: AsyncSession,
+    circle_id: str,
+    *,
+    status: str,
+) -> Optional[dict[str, Any]]:
+    """Set SponsorCircle.status to active or suspended; return refreshed detail."""
+    normalized = (status or "").strip().lower()
+    if normalized not in CIRCLE_STATUS_ALLOWED:
+        raise ValueError("status must be 'active' or 'suspended'")
+
+    res = await db.execute(select(SponsorCircle).where(SponsorCircle.id == circle_id))
+    circle = res.scalar_one_or_none()
+    if not circle:
+        return None
+
+    circle.status = normalized
+    await db.flush()
+    return await get_admin_circle_detail(db, circle_id)
 
 
 async def admin_circles_summary_light(db: AsyncSession) -> dict[str, Any]:

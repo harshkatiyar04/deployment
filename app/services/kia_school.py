@@ -213,6 +213,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                     f"Open Submit report and enter attendance, scores, Bloom's, SEL, and narrative."
                 ),
                 "student_name": s.full_name,
+                "student_id": str(s.id),
+                "action_tab": "submit_report",
                 "action_required": True,
             })
 
@@ -228,6 +230,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                     f"Recommend contacting parent/guardian and alerting the Sponsor Leader."
                 ),
                 "student_name": s.full_name,
+                "student_id": str(s.id),
+                "action_tab": "attendance",
                 "action_required": True,
             })
 
@@ -236,14 +240,17 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
             student_map.get(r.student_id, "Unknown") for r in pending_reports[:3]
         )
         quarters = list({r.quarter for r in pending_reports})
+        first = pending_reports[0]
         priorities.append({
             "type": "report_due",
-            "title": f"{pending_reports[0].quarter} reports pending — {len(pending_reports)}",
+            "title": f"{first.quarter} reports pending — {len(pending_reports)}",
             "detail": (
                 f"{names}: {', '.join(quarters)} report(s) not finalized. "
                 f"Use Submit report on the school dashboard to enter live data."
             ),
-            "student_name": None,
+            "student_name": student_map.get(first.student_id),
+            "student_id": str(first.student_id) if first.student_id else None,
+            "action_tab": "submit_report",
             "action_required": True,
         })
 
@@ -256,6 +263,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                 "Open Import PDF, review fields, and approve to publish live dashboard data."
             ),
             "student_name": None,
+            "student_id": None,
+            "action_tab": "submit_report",
             "action_required": True,
         })
 
@@ -265,10 +274,13 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
             "title": "No students enrolled",
             "detail": "Add a student record, then submit the quarterly report form.",
             "student_name": None,
+            "student_id": None,
+            "action_tab": "students",
             "action_required": True,
         })
 
     # Deterministic intervention priorities (highest score first).
+    name_to_id = {s.full_name: str(s.id) for s in students}
     for signal in sorted(student_signals, key=lambda x: x.score, reverse=True)[:5]:
         if signal.score < 30:
             continue
@@ -277,6 +289,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
             "title": f"{signal.urgency.title()} priority — {signal.student_name}",
             "detail": signal.detail,
             "student_name": signal.student_name,
+            "student_id": name_to_id.get(signal.student_name),
+            "action_tab": "students",
             "action_required": signal.action_required,
             "priority_score": signal.score,
             "urgency": signal.urgency,
@@ -294,6 +308,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                     f"(ZenK-calculated from attendance, academics, and circle data)."
                 ),
                 "student_name": s.full_name,
+                "student_id": str(s.id),
+                "action_tab": "students",
                 "action_required": False,
                 "priority_score": 0,
                 "urgency": "watch",
@@ -308,6 +324,8 @@ async def generate_school_priorities(school_id: str, db: AsyncSession) -> list[d
                 "title": f"Tutor recommendation — {s.full_name}",
                 "detail": s.tutor_recommendation,
                 "student_name": s.full_name,
+                "student_id": str(s.id),
+                "action_tab": "students",
                 "action_required": True,
                 "priority_score": 55,
                 "urgency": "high",

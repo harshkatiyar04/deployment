@@ -230,6 +230,9 @@ class SchoolKiaPriorityItem(BaseModel):
     title: str
     detail: str
     student_name: Optional[str] = None
+    student_id: Optional[str] = None
+    # FE tab deep-link: submit_report | students | attendance | academic_reports | kia_partners
+    action_tab: Optional[str] = None
     action_required: bool = False
     priority_score: Optional[int] = None
     urgency: Optional[str] = None

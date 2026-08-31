@@ -1,8 +1,8 @@
-"""Admin circle management: registry, activity, and membership ops queue."""
+"""Admin circle management: registry, activity, finance, bans context, membership ops."""
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -11,18 +11,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.admin_deps import require_admin_api_key
 from app.db.session import get_db
 from app.microservices.sponsor_circle.schemas import CircleAdminRequestOut
+from app.models.circle_ops import REQUEST_TYPES_MEMBERSHIP
 from app.services.admin_circle_overview import (
     admin_circle_ops_page_bundle,
     admin_circles_summary,
     get_admin_circle_detail,
+    get_admin_circle_finance,
     list_admin_circles,
+    set_admin_circle_status,
 )
 from app.services.circle_membership_ops import (
     admin_review_request,
     list_pending_membership_ops_queue,
     request_to_dict,
 )
-from app.models.circle_ops import REQUEST_TYPES_MEMBERSHIP
 
 router = APIRouter(
     prefix="/admin/circle-ops",
@@ -33,6 +35,11 @@ router = APIRouter(
 
 class AdminCircleOpsDecision(BaseModel):
     decision: str = Field(..., description="approved or rejected")
+    admin_comment: str = Field(..., min_length=5, max_length=2000)
+
+
+class AdminCircleStatusBody(BaseModel):
+    status: str = Field(..., description="active or suspended")
     admin_comment: str = Field(..., min_length=5, max_length=2000)
 
 
@@ -49,6 +56,22 @@ class AdminCircleMemberRow(BaseModel):
     enrollment_reviews_count: int = 0
     participation_pct: int = 0
     pending_removal: bool = False
+    is_banned: bool = False
+    ban_id: Optional[str] = None
+
+
+class AdminCircleMoneyOut(BaseModel):
+    annual_budget: int = 0
+    collected: int = 0
+    van_credited: int = 0
+    spent: int = 0
+    order_spent: int = 0
+    disbursed_paid: int = 0
+    reserved_in_flight: int = 0
+    available: int = 0
+    funded_pct: Optional[int] = None
+    fy_label: Optional[str] = None
+    live: bool = True
 
 
 class AdminCircleListItem(BaseModel):
@@ -68,7 +91,17 @@ class AdminCircleDetailOut(AdminCircleListItem):
     description: Optional[str] = None
     annual_budget: Optional[int] = None
     budget_spent: Optional[int] = None
+    money: Optional[AdminCircleMoneyOut] = None
     members: list[AdminCircleMemberRow] = Field(default_factory=list)
+
+
+class AdminCircleFinanceOut(BaseModel):
+    circle_id: str
+    circle_name: str
+    money: AdminCircleMoneyOut
+    contributions: dict[str, Any] = Field(default_factory=dict)
+    disbursements: dict[str, Any] = Field(default_factory=dict)
+    statement: dict[str, Any] = Field(default_factory=dict)
 
 
 class AdminCirclesSummaryOut(BaseModel):
@@ -113,6 +146,34 @@ async def get_circle_detail(circle_id: str, db: AsyncSession = Depends(get_db)):
     return AdminCircleDetailOut(**row)
 
 
+@router.get("/circles/{circle_id}/finance", response_model=AdminCircleFinanceOut)
+async def get_circle_finance(circle_id: str, db: AsyncSession = Depends(get_db)):
+    row = await get_admin_circle_finance(db, circle_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Circle not found.")
+    return AdminCircleFinanceOut(**row)
+
+
+@router.patch("/circles/{circle_id}/status", response_model=AdminCircleDetailOut)
+async def patch_circle_status(
+    circle_id: str,
+    body: AdminCircleStatusBody,
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        row = await set_admin_circle_status(
+            db,
+            circle_id,
+            status=body.status,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if not row:
+        raise HTTPException(status_code=404, detail="Circle not found.")
+    await db.commit()
+    return AdminCircleDetailOut(**row)
+
+
 @router.get("/pending", response_model=list[CircleAdminRequestOut])
 async def list_pending_circle_ops(db: AsyncSession = Depends(get_db)):
     rows = await list_pending_membership_ops_queue(db)
@@ -152,9 +213,6 @@ async def review_circle_ops_request(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    from app.chat.models import SponsorCircle
-    from sqlalchemy import select
-
     name_res = await db.execute(
         select(SponsorCircle.name).where(SponsorCircle.id == req.circle_id)
     )
@@ -162,6 +220,7 @@ async def review_circle_ops_request(
 
     try:
         from app.services.kia_event_briefings import (
+            emit_admin_circle_ops_reviewed,
             emit_member_limit_approved,
             emit_member_removal_processed,
         )
@@ -171,7 +230,6 @@ async def review_circle_ops_request(
                 await emit_member_removal_processed(db, req=req, circle_name=circle_name)
             elif req.request_type == "member_limit_increase":
                 await emit_member_limit_approved(db, req=req, circle_name=circle_name)
-        from app.services.kia_event_briefings import emit_admin_circle_ops_reviewed
 
         await emit_admin_circle_ops_reviewed(
             db, req=req, circle_name=circle_name, decision=body.decision

@@ -8,7 +8,8 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.chat.models import CircleMember, SponsorCircle
+from app.banking.models.icici_ecollection import TXN_CREDITED, EcollectionTransaction
+from app.chat.models import SponsorCircle
 from app.microservices.vendor.models import OrderStatus, VendorOrder, VendorProduct
 from app.models.circle_ops import DISBURSEMENT_PAID, DISBURSEMENT_PENDING, CircleDisbursement
 from app.models.signup import SignupRequest
@@ -138,24 +139,65 @@ async def build_admin_financial_overview(
 
     transactions: list[dict[str, Any]] = []
 
-    # ── Circle contribution aggregates (budget_collected) ─────────────────
-    circles_res = await db.execute(select(SponsorCircle).order_by(SponsorCircle.name))
-    for circle in circles_res.scalars().all():
-        if not _is_student_circle(circle):
+    # ── Circle inbound credits (eCollection / mock UAT) — one row per UTR ──
+    # Prefer live bank credits so Simulate credit shows immediately on this page.
+    circles_res = await db.execute(select(SponsorCircle))
+    circles_by_id = {c.id: c for c in circles_res.scalars().all() if _is_student_circle(c)}
+
+    credit_sums: dict[str, int] = {cid: 0 for cid in circles_by_id}
+    credits_res = await db.execute(
+        select(EcollectionTransaction)
+        .where(
+            EcollectionTransaction.status == TXN_CREDITED,
+            EcollectionTransaction.circle_id.isnot(None),
+        )
+        .order_by(EcollectionTransaction.credited_at.desc().nullslast())
+    )
+    for txn in credits_res.scalars().all():
+        circle = circles_by_id.get(txn.circle_id or "")
+        if not circle:
             continue
+        amount = round(float(txn.amount_paise or 0) / 100.0, 2)
+        if amount <= 0:
+            continue
+        credit_sums[circle.id] = credit_sums.get(circle.id, 0) + int(round(amount))
+        mode = (txn.payment_mode or "").strip().upper() or "BANK"
+        event_at = txn.credited_at or txn.created_at
+        utr = (txn.utr or "").strip()
+        transactions.append(
+            {
+                "id": f"eco-{txn.id}",
+                "type": "contribution",
+                "type_label": f"Contribution ({mode})",
+                "amount": amount,
+                "commission": _commission(amount, earned=True),
+                "from_label": (txn.remitter_name or "").strip() or "Remitter",
+                "to_label": f"{circle.name}" + (f" · {utr[:20]}" if utr else ""),
+                "status": "completed",
+                "date": event_at.date().isoformat() if event_at else None,
+                "occurred_at": event_at.isoformat() if event_at else None,
+                "utr": utr or None,
+                "payment_mode": mode,
+            }
+        )
+
+    # Legacy residual: budget_collected with no (or fewer) eCollection rows
+    for circle in circles_by_id.values():
         collected = int(circle.budget_collected or 0)
-        if collected <= 0:
+        credited = int(credit_sums.get(circle.id, 0))
+        residual = collected - credited
+        if residual <= 0:
             continue
         leader = await resolve_circle_leader_signup(db, circle.id)
         leader_name = (leader.full_name or leader.email or "Circle leader") if leader else "Circle leader"
         event_at = circle.budget_set_at or circle.created_at
         transactions.append(
             {
-                "id": f"contrib-{circle.id}",
+                "id": f"contrib-legacy-{circle.id}",
                 "type": "contribution",
-                "type_label": "Contribution",
-                "amount": float(collected),
-                "commission": _commission(collected, earned=True),
+                "type_label": "Contribution (ledger)",
+                "amount": float(residual),
+                "commission": _commission(residual, earned=True),
                 "from_label": leader_name,
                 "to_label": circle.name,
                 "status": "completed",

@@ -11,6 +11,7 @@ from app.api.routers import (
     admin_circle_ops,
     admin_other_requests,
     admin_overview,
+    admin_search,
     admin_legal,
     admin_zenq,
     admin_landing_contact,
@@ -53,6 +54,7 @@ api_router.include_router(admin_suppliers.router)
 api_router.include_router(admin_support.router)
 api_router.include_router(user_support.router)
 api_router.include_router(admin_overview.router)
+api_router.include_router(admin_search.router)
 api_router.include_router(admin_legal.router)
 api_router.include_router(admin_zenq.router)
 api_router.include_router(admin_landing_contact.router)
