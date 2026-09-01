@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import asyncio
@@ -8,8 +9,9 @@ import logging
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.core.rate_limit import limiter
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.rate_limit import limiter
 from app.core.docs_auth import DocsAuthMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.settings import api_docs_enabled, settings
@@ -98,10 +100,20 @@ if _DOCS_ENABLED:
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*vercel\.app",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept", "X-Zenk-Admin-Key"],
 )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Return JSON 500 so CORSMiddleware can attach Access-Control-Allow-Origin."""
+    if isinstance(exc, StarletteHTTPException):
+        raise exc
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 os.makedirs("static/uploads", exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
