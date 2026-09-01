@@ -115,7 +115,6 @@ async def create_parent_guardian_signup(
     student_signup: SignupRequest,
     guardian_name: str,
     guardian_mobile: str,
-    guardian_portal_password: str,
     circle_id: str = "",
     parent_pan_number: Optional[str] = None,
     parent_kyc_docs: Optional[list[UploadFile]] = None,
@@ -208,6 +207,17 @@ async def set_guardian_hat_password(
             status_code=409,
             detail="Parent access password is already set. Use it to switch to parent view.",
         )
+
+    student_res = await db.execute(
+        select(SignupRequest).where(SignupRequest.id == link.student_signup_id)
+    )
+    student = student_res.scalar_one_or_none()
+    if student and verify_password(password, student.password_hash):
+        raise HTTPException(
+            status_code=400,
+            detail="Parent access password must be different from the student sign-in password",
+        )
+
     link.guardian_hat_password_hash = hash_guardian_hat_password(password)
     link.updated_at = datetime.now(timezone.utc)
 

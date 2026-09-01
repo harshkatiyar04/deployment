@@ -438,7 +438,12 @@ async def check_circle_name(
             "available": False,
             "message": "Circle name must be at least 2 characters.",
         }
-    taken = await circle_name_taken(db, cleaned, exclude_circle_id=circle_id)
+    taken = await circle_name_taken(
+        db,
+        cleaned,
+        exclude_circle_id=circle_id,
+        exclude_signup_id=user.id,
+    )
     return {
         "available": not taken,
         "message": "This circle name is already in use. Choose a different name." if taken else None,

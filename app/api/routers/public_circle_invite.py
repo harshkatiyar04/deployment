@@ -53,8 +53,8 @@ def _join_url(token: str) -> str:
 
 
 def _og_image_url() -> str:
-    # Prefer a large square asset for WhatsApp summary cards
-    return f"{_frontend_base()}/assets/zenk-favicon-512.png"
+    # Full logo for WhatsApp / LinkedIn link preview cards.
+    return f"{_frontend_base()}/assets/zenk-logo.png"
 
 
 async def _leader_name_for_token(db: AsyncSession, token: str) -> Optional[str]:
@@ -75,6 +75,8 @@ def _og_html(
     page_url: str,
     image_url: str,
     redirect_url: str,
+    circle_name: str = "",
+    leader_name: str = "",
 ) -> str:
     t = html.escape(title)
     d = html.escape(description)
@@ -82,6 +84,8 @@ def _og_html(
     img = html.escape(image_url)
     dest = html.escape(redirect_url)
     dest_js = json.dumps(redirect_url)
+    circle = html.escape(circle_name or "your circle")
+    leader = html.escape(leader_name or "Your circle leader")
     favicon = html.escape(_frontend_base() + "/favicon.ico")
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -96,7 +100,10 @@ def _og_html(
   <meta property="og:description" content="{d}" />
   <meta property="og:url" content="{u}" />
   <meta property="og:image" content="{img}" />
-  <meta property="og:image:alt" content="ZenK Impact" />
+  <meta property="og:image:secure_url" content="{img}" />
+  <meta property="og:image:width" content="512" />
+  <meta property="og:image:height" content="512" />
+  <meta property="og:image:alt" content="ZenK Impact — sponsor circle invite" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="{t}" />
   <meta name="twitter:description" content="{d}" />
@@ -104,34 +111,122 @@ def _og_html(
   <link rel="icon" href="{favicon}" />
   <meta http-equiv="refresh" content="0;url={dest}" />
   <style>
+    * {{ box-sizing: border-box; }}
     body {{
       margin: 0;
       min-height: 100vh;
       display: flex;
       align-items: center;
       justify-content: center;
+      padding: 24px 16px;
       font-family: Manrope, system-ui, sans-serif;
-      background: #f4f3eb;
+      background:
+        radial-gradient(ellipse 80% 60% at 50% 0%, rgba(72, 183, 255, 0.18), transparent 60%),
+        #f4f3eb;
       color: #191c1d;
     }}
     .card {{
-      max-width: 420px;
-      padding: 28px 24px;
+      width: min(100%, 420px);
+      overflow: hidden;
       text-align: center;
       background: #fff;
-      border-radius: 16px;
-      border: 1px solid #e5e7eb;
+      border-radius: 20px;
+      border: 1px solid rgba(189, 201, 193, 0.45);
+      box-shadow: 0 24px 48px rgba(15, 23, 42, 0.1);
     }}
-    img {{ width: 72px; height: 72px; object-fit: contain; margin-bottom: 12px; }}
-    a {{ color: #1a85d6; font-weight: 700; }}
+    .hero {{
+      padding: 28px 24px 22px;
+      background: linear-gradient(118deg, #0f5f9c 0%, #1a85d6 38%, #48b7ff 100%);
+      color: #fff;
+    }}
+    .hero img {{
+      width: 88px;
+      height: auto;
+      object-fit: contain;
+      margin: 0 auto 14px;
+      display: block;
+    }}
+    .hero h1 {{
+      font-size: 1.2rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      margin: 0 0 8px;
+      line-height: 1.3;
+    }}
+    .hero p {{
+      margin: 0;
+      font-size: 0.9rem;
+      line-height: 1.55;
+      color: rgba(255, 255, 255, 0.92);
+    }}
+    .body {{
+      padding: 22px 24px 26px;
+    }}
+    .chip {{
+      display: inline-block;
+      margin-bottom: 12px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #1a85d6;
+      background: #edf7ff;
+      border: 1px solid #b8dff8;
+    }}
+    .steps {{
+      margin: 0 0 18px;
+      padding: 0;
+      list-style: none;
+      text-align: left;
+      font-size: 13px;
+      color: #64748b;
+      line-height: 1.5;
+    }}
+    .steps li {{
+      padding: 6px 0 6px 22px;
+      position: relative;
+    }}
+    .steps li::before {{
+      content: '';
+      position: absolute;
+      left: 0;
+      top: 0.72em;
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: #48b7ff;
+    }}
+    .cta {{
+      display: inline-block;
+      padding: 12px 22px;
+      border-radius: 10px;
+      background: #1a85d6;
+      color: #fff !important;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      box-shadow: 0 8px 20px rgba(26, 133, 214, 0.28);
+    }}
   </style>
 </head>
 <body>
   <div class="card">
-    <img src="{img}" alt="ZenK Impact" width="72" height="72" />
-    <h1 style="font-size:1.15rem;margin:0 0 8px;">{t}</h1>
-    <p style="margin:0 0 16px;color:#64748b;line-height:1.45;">{d}</p>
-    <p style="margin:0;"><a href="{dest}">Continue to join</a></p>
+    <div class="hero">
+      <img src="{img}" alt="ZenK Impact" width="88" height="88" />
+      <h1>Join {circle}</h1>
+      <p>{leader} invited you to come together for the students we support — with privacy, care, and real impact.</p>
+    </div>
+    <div class="body">
+      <span class="chip">Circle invite</span>
+      <ul class="steps">
+        <li>Open the link and sign up or sign in</li>
+        <li>Complete Zenk ID verification</li>
+        <li>Wait for your leader to approve you</li>
+      </ul>
+      <p style="margin:0;"><a class="cta" href="{dest}">Continue to join</a></p>
+    </div>
   </div>
   <script>window.location.replace({dest_js});</script>
 </body>
@@ -167,18 +262,16 @@ async def public_circle_invite_landing(
 
     _circle_id, circle_name = resolved
     leader = await _leader_name_for_token(db, raw)
-    title = f"You're invited to join {circle_name} on ZenK Impact"
+    title = f"Join {circle_name} on ZenK Impact"
     if leader:
         description = (
-            f"{leader} invited you to their sponsor circle — "
-            "a private group funding student welfare through ZenK. "
-            "Open the link to sign up and complete Zenk ID verification."
+            f"{leader} invited you to come together for the students {circle_name} supports — "
+            "private, verified, and backed by your circle on ZenK. Tap to join."
         )
     else:
         description = (
-            "You're invited to a ZenK Impact sponsor circle — "
-            "a private group funding student welfare. "
-            "Open the link to sign up and complete Zenk ID verification."
+            f"Join {circle_name} on ZenK — come together for students and their betterment, "
+            "with privacy and care built in. Tap to join."
         )
 
     page_url = f"{public_api_base_url(request)}/public/circle-invite/{raw}"
@@ -192,5 +285,7 @@ async def public_circle_invite_landing(
         page_url=page_url,
         image_url=_og_image_url(),
         redirect_url=join,
+        circle_name=circle_name,
+        leader_name=leader or "",
     )
     return HTMLResponse(content=body, status_code=200)

@@ -47,7 +47,7 @@ async def provision_leader_circle(
     raw = (name or user.requested_circle_name or "").strip()
     if len(raw) < 2:
         raise ValueError("Circle name is required (at least 2 characters).")
-    display = await assert_circle_name_available(db, raw)
+    display = await assert_circle_name_available(db, raw, exclude_signup_id=user.id)
 
     now = datetime.now(timezone.utc)
     circle = SponsorCircle(
