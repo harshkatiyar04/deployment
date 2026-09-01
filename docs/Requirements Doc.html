@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ZenK Platform - Requirements Doc</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 36px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+        .header h1 { color: #2d3748; font-size: 42px; margin-bottom: 10px; }
+        .header p { color: #718096; font-size: 18px; }
+        .note {
+            background: #ebf8ff;
+            border-left: 4px solid #3182ce;
+            padding: 14px 18px;
+            border-radius: 8px;
+            margin-bottom: 28px;
+            color: #2c5282;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .toc {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px 24px;
+            margin-bottom: 32px;
+        }
+        .toc h2 { color: #2d3748; font-size: 20px; margin-bottom: 12px; }
+        .toc ol { margin-left: 22px; color: #4a5568; line-height: 1.9; }
+        .toc a { color: #5a67d8; text-decoration: none; }
+        .toc a:hover { text-decoration: underline; }
+        .section {
+            margin-bottom: 36px;
+            background: #f7fafc;
+            border-radius: 15px;
+            padding: 28px;
+            border: 2px solid #e2e8f0;
+        }
+        .section h2 {
+            color: #2d3748;
+            font-size: 26px;
+            margin-bottom: 8px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #cbd5e0;
+        }
+        .section > .intro {
+            color: #718096;
+            font-size: 14px;
+            margin: 12px 0 18px;
+            line-height: 1.6;
+        }
+        .req {
+            background: white;
+            border-radius: 10px;
+            padding: 16px 18px;
+            margin-bottom: 12px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+        }
+        .req.nfr { border-left-color: #38b2ac; }
+        .req.gap { border-left-color: #ed8936; }
+        .req-id {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 10px;
+            margin-bottom: 8px;
+            letter-spacing: 0.02em;
+        }
+        .req.nfr .req-id { background: #38b2ac; }
+        .req.gap .req-id { background: #ed8936; }
+        .req h3 {
+            color: #2d3748;
+            font-size: 17px;
+            margin-bottom: 6px;
+        }
+        .req p, .req li {
+            color: #4a5568;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .req ul { margin: 8px 0 0 18px; }
+        .req .src {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #a0aec0;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 14px;
+        }
+        .persona-card {
+            background: white;
+            border-radius: 10px;
+            padding: 18px;
+            border: 1px solid #e2e8f0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        }
+        .persona-card h3 {
+            color: #2d3748;
+            font-size: 18px;
+            margin-bottom: 4px;
+        }
+        .persona-card .prefix {
+            display: inline-block;
+            background: #edf2f7;
+            color: #4a5568;
+            font-size: 12px;
+            padding: 2px 8px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        }
+        .persona-card ul {
+            margin-left: 18px;
+            color: #4a5568;
+            font-size: 13px;
+            line-height: 1.7;
+        }
+        .badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            margin: 2px 3px 2px 0;
+        }
+        .table-wrap { overflow-x: auto; margin-top: 10px; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        th {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            text-align: left;
+            padding: 12px 14px;
+            font-size: 13px;
+        }
+        td {
+            padding: 11px 14px;
+            border-bottom: 1px solid #e2e8f0;
+            color: #4a5568;
+            font-size: 13px;
+            vertical-align: top;
+        }
+        tr:hover td { background: #f7fafc; }
+        code {
+            background: #edf2f7;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .footer-box {
+            margin-top: 10px;
+            padding: 22px;
+            background: #edf2f7;
+            border-radius: 12px;
+            color: #4a5568;
+            line-height: 1.7;
+            font-size: 14px;
+        }
+        @media print {
+            body { background: white; }
+            .container { box-shadow: none; }
+            .section { page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>ZenK Platform Requirements Doc</h1>
+            <p>Functional &amp; non-functional requirements derived from the as-built backend</p>
+        </div>
+
+        <div class="note">
+            Sourced from this repository (models, routers, microservices, Kia constitution, ZenQ/ZQA algorithms,
+            security middleware, and env config). Requirements describe <strong>what the system must do as implemented</strong>,
+            not aspirational roadmap items. Gaps that exist in code are called out explicitly at the end.
+        </div>
+
+        <div class="toc">
+            <h2>Contents</h2>
+            <ol>
+                <li><a href="#scope">Document scope &amp; product summary</a></li>
+                <li><a href="#personas">Personas &amp; access model</a></li>
+                <li><a href="#functional">Functional requirements by module</a></li>
+                <li><a href="#kia">Kia AI requirements</a></li>
+                <li><a href="#scoring">ZenQ &amp; ZQA scoring requirements</a></li>
+                <li><a href="#security">Security, privacy &amp; compliance</a></li>
+                <li><a href="#integrations">Integration requirements</a></li>
+                <li><a href="#nfr">Non-functional requirements</a></li>
+                <li><a href="#api">API surface map</a></li>
+                <li><a href="#gaps">Explicit gaps / non-requirements</a></li>
+            </ol>
+        </div>
+
+        <!-- 1. Scope -->
+        <div class="section" id="scope">
+            <h2>1. Document Scope &amp; Product Summary</h2>
+            <p class="intro">
+                ZenK Impact is an education-sponsorship platform: sponsor circles fund underprivileged students through
+                school partners, with vendors for supplies, mentors for uplift, parents/guardians for family linkage,
+                and corporates for CSR. Impact is measured with ZenQ (circle engagement) and ZQA (academic quality).
+                Kia is the platform AI guide. Legal entity referenced in legal terms: Zenk Impact India Private Limited.
+            </p>
+            <div class="req">
+                <span class="req-id">FR-SCOPE-01</span>
+                <h3>System boundary</h3>
+                <p>
+                    This backend (<code>ZENK BE</code>) exposes a FastAPI REST/WebSocket API consumed by Vercel-hosted
+                    frontends. It persists data in Neon PostgreSQL (schema <code>ZENK</code>) and integrates ICICI,
+                    Cloudinary, SMTP, Gemini, and Groq.
+                </p>
+                <div class="src">main.py · app/api/router.py · .env.example</div>
+            </div>
+        </div>
+
+        <!-- 2. Personas -->
+        <div class="section" id="personas">
+            <h2>2. Personas &amp; Access Model</h2>
+            <p class="intro">Canonical persona enum and related access rules.</p>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-01</span>
+                <h3>Platform personas</h3>
+                <p>The system SHALL support the following <code>Persona</code> values:</p>
+                <p style="margin-top:8px;">
+                    <span class="badge">sponsor</span>
+                    <span class="badge">sponsor_leader</span>
+                    <span class="badge">sponsor_member</span>
+                    <span class="badge">vendor</span>
+                    <span class="badge">student</span>
+                    <span class="badge">corporate</span>
+                    <span class="badge">mentor</span>
+                    <span class="badge">school</span>
+                </p>
+                <div class="src">app/models/enums.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-02</span>
+                <h3>Parent / guardian model</h3>
+                <p>
+                    Parent is <strong>not</strong> a separate <code>Persona</code>. Parents SHALL be represented as
+                    <code>sponsor_member</code> with <code>MemberKind.parent_guardian</code>, served by the
+                    <code>/parent</code> microservice and family-hat switching on auth.
+                </p>
+                <div class="src">enums.py · student_family.py · microservices/parent/</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-03</span>
+                <h3>Public signup endpoints</h3>
+                <p>The system SHALL expose public signup for:</p>
+                <ul>
+                    <li><code>POST /signup/sponsor</code></li>
+                    <li><code>POST /signup/sponsor_leader</code></li>
+                    <li><code>POST /signup/sponsor_member</code> (optional parent/guardian flag)</li>
+                    <li><code>POST /signup/vendor</code></li>
+                    <li><code>POST /signup/school</code></li>
+                    <li><code>POST /signup/student</code> (also creates linked parent/guardian member)</li>
+                </ul>
+                <div class="src">app/api/routers/signup.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-04</span>
+                <h3>KYC lifecycle</h3>
+                <p>
+                    Every signup SHALL carry a KYC status of <code>pending</code>, <code>approved</code>,
+                    <code>rejected</code>, or <code>info_required</code>. Admin SHALL decide via
+                    <code>POST /admin/kyc/{signup_id}/decision</code>. Chat token issuance REQUIRES approved KYC.
+                </p>
+                <div class="src">enums.py · admin_kyc.py · auth.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-05</span>
+                <h3>DPDPA-aligned student login tiers</h3>
+                <ul>
+                    <li>Under 15: <code>guardian_only</code></li>
+                    <li>15–17: <code>consent_required</code></li>
+                    <li>18+: <code>independent</code></li>
+                </ul>
+                <div class="src">LoginAccessTier in enums.py · student_family.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-06</span>
+                <h3>Family hats</h3>
+                <p>
+                    Users with multiple linked identities SHALL list hats via <code>GET /auth/family-hats</code>
+                    and switch via <code>POST /auth/switch-hat</code>. Switching to parent SHALL require password re-entry.
+                </p>
+                <div class="src">app/api/routers/auth.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ROLE-07</span>
+                <h3>Platform admin</h3>
+                <p>
+                    Platform admin is separate from <code>Persona</code>. Admin SHALL authenticate via
+                    <code>POST /auth/admin/login</code> (cookie session) and optionally via
+                    <code>ZENK_ADMIN_API_KEY</code> for server-to-server calls.
+                </p>
+                <div class="src">auth.py · admin_deps.py · settings.py</div>
+            </div>
+        </div>
+
+        <!-- 3. Functional by module -->
+        <div class="section" id="functional">
+            <h2>3. Functional Requirements by Module</h2>
+            <p class="intro">Capabilities grouped by persona microservice / cross-cutting module.</p>
+
+            <div class="grid-2">
+                <div class="persona-card">
+                    <h3>Sponsor Circle</h3>
+                    <div class="prefix">/sponsor-circle</div>
+                    <ul>
+                        <li><strong>FR-SC-01</strong> Overview, summary, budget get/put, participation, rankings, statement</li>
+                        <li><strong>FR-SC-02</strong> Provision circle, my-circles, invite links; demo join gated by env</li>
+                        <li><strong>FR-SC-03</strong> Approve/reject pending member applications</li>
+                        <li><strong>FR-SC-04</strong> Admin requests: rename, member removal, member-limit</li>
+                        <li><strong>FR-SC-05</strong> Student enrollments, interests, probe messages</li>
+                        <li><strong>FR-SC-06</strong> Vendor payees + ICICI disbursements</li>
+                        <li><strong>FR-SC-07</strong> Contributions, impact league, school-partner messaging</li>
+                        <li><strong>FR-SC-08</strong> Student-cart submit / pending / decision</li>
+                        <li><strong>FR-SC-09</strong> Kia budget insight</li>
+                        <li><strong>FR-SC-10</strong> Circle chat REST + <code>WS /ws/circle/{circle_id}</code></li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>School</h3>
+                    <div class="prefix">/school · /school/join</div>
+                    <ul>
+                        <li><strong>FR-SCH-01</strong> Profile CRUD, photos, completion, audit log</li>
+                        <li><strong>FR-SCH-02</strong> Portal members/invites; public join preview/accept</li>
+                        <li><strong>FR-SCH-03</strong> Faculty CRUD + circle link sync</li>
+                        <li><strong>FR-SCH-04</strong> Students, admit signups, enrollment &amp; interest decisions</li>
+                        <li><strong>FR-SCH-05</strong> Quarterly reports: CSV/PDF import, finalize, distribute</li>
+                        <li><strong>FR-SCH-06</strong> Attendance; ZQA list/breakdown/recompute</li>
+                        <li><strong>FR-SCH-07</strong> Parent-submission approve/reject</li>
+                        <li><strong>FR-SCH-08</strong> Partner-circle messaging</li>
+                        <li><strong>FR-SCH-09</strong> School Kia priorities, chat, recommendations</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Student</h3>
+                    <div class="prefix">/student</div>
+                    <ul>
+                        <li><strong>FR-ST-01</strong> Onboarding timeline, profile, dashboard, progress</li>
+                        <li><strong>FR-ST-02</strong> Pseudonym check/set (privacy identity)</li>
+                        <li><strong>FR-ST-03</strong> Circle interests, open circles, probe, join request/status</li>
+                        <li><strong>FR-ST-04</strong> Student Kia priorities + chat history</li>
+                        <li><strong>FR-ST-05</strong> Mentoring threads: list/read/send; ensure-default</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Parent</h3>
+                    <div class="prefix">/parent</div>
+                    <ul>
+                        <li><strong>FR-PAR-01</strong> Onboarding timeline, academic profile, my-children</li>
+                        <li><strong>FR-PAR-02</strong> Academic submissions; grade extract from image (Gemini)</li>
+                        <li><strong>FR-PAR-03</strong> Parent-member legal terms at signup</li>
+                        <li><strong>FR-PAR-04</strong> Submissions reviewed by school portal</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Vendor Marketplace</h3>
+                    <div class="prefix">/vendor</div>
+                    <ul>
+                        <li><strong>FR-VEN-01</strong> Stats, dashboard, products CRUD, marketplace list, bulk upload</li>
+                        <li><strong>FR-VEN-02</strong> Promotions, cart, checkout, orders/status, my-orders</li>
+                        <li><strong>FR-VEN-03</strong> Product requests, settings, weekly report, notifications</li>
+                        <li><strong>FR-VEN-04</strong> Kia marketplace recommendation</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Mentor</h3>
+                    <div class="prefix">/mentor</div>
+                    <ul>
+                        <li><strong>FR-MEN-01</strong> Profile; sessions create/list; InspireIndex</li>
+                        <li><strong>FR-MEN-02</strong> Uplift actions create/list; admin verify/delete</li>
+                        <li><strong>FR-MEN-03</strong> Mentor Kia chat; student-mentoring inbox; statement</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Corporate CSR</h3>
+                    <div class="prefix">/corporate</div>
+                    <ul>
+                        <li><strong>FR-COR-01</strong> Profile; ZenQ overview; allocations / reallocate</li>
+                        <li><strong>FR-COR-02</strong> Circles performance (incl. live); impact report</li>
+                        <li><strong>FR-COR-03</strong> Employees engagement; CSR account + disbursements</li>
+                        <li><strong>FR-COR-04</strong> Kia recommendation, strategy brief, chat; peer-benchmark; goals</li>
+                        <li><strong>FR-COR-05</strong> Impact certificate, annual report, BRSR docs/export</li>
+                    </ul>
+                </div>
+
+                <div class="persona-card">
+                    <h3>Admin Control Plane</h3>
+                    <div class="prefix">/admin/*</div>
+                    <ul>
+                        <li><strong>FR-ADM-01</strong> KYC queue, documents, decision</li>
+                        <li><strong>FR-ADM-02</strong> Circle-ops &amp; other-requests review</li>
+                        <li><strong>FR-ADM-03</strong> Users, suppliers, support, overview/financial/analytics</li>
+                        <li><strong>FR-ADM-04</strong> Legal registry; consent record for students</li>
+                        <li><strong>FR-ADM-05</strong> Admin Kia events/history/chat/briefing</li>
+                        <li><strong>FR-ADM-06</strong> Chat moderation: bans, SOS, warned messages</li>
+                        <li><strong>FR-ADM-07</strong> Auth logs under admin chat</li>
+                    </ul>
+                </div>
+            </div>
+
+            <div class="req" style="margin-top:16px;">
+                <span class="req-id">FR-X-01 … FR-X-05</span>
+                <h3>Cross-cutting functional requirements</h3>
+                <ul>
+                    <li><strong>FR-X-01 Auth:</strong> login / me / token / refresh / logout / ws-token; KYC document resubmit</li>
+                    <li><strong>FR-X-02 Legal:</strong> current docs + accept / reacceptance flows</li>
+                    <li><strong>FR-X-03 Notifications:</strong> in-app notification list/mark-read</li>
+                    <li><strong>FR-X-04 Support:</strong> user → ZenK admin support threads</li>
+                    <li><strong>FR-X-05 News:</strong> impact briefing via Google News RSS</li>
+                </ul>
+                <div class="src">auth · legal · notifications · user_support · news</div>
+            </div>
+        </div>
+
+        <!-- 4. Kia -->
+        <div class="section" id="kia">
+            <h2>4. Kia AI Requirements</h2>
+            <p class="intro">From the Kia Constitution embedded in <code>app/services/kia.py</code>.</p>
+
+            <div class="req">
+                <span class="req-id">FR-KIA-01</span>
+                <h3>Single engine, five voices</h3>
+                <p>
+                    Kia SHALL run one knowledge base and privacy rule set across personas:
+                    <span class="badge">Kia</span><span class="badge">Aryan</span><span class="badge">Zen</span><span class="badge">Nova</span><span class="badge">Priya</span>
+                    — only personality and tone change.
+                </p>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-KIA-02</span>
+                <h3>Mission &amp; response style</h3>
+                <ul>
+                    <li>Guide users toward measured, transparent sponsorship impact</li>
+                    <li>Encourage and empathize; keep answers concise</li>
+                    <li>Ground advice in supplied context data; never invent students or metrics</li>
+                    <li>Put suggestions on a new line: <code>{persona} suggests: …</code></li>
+                    <li>Refuse legal / medical / financial advice; stay firm if user is disrespectful</li>
+                    <li>Plain text only (no markdown / bullet formatting in model output)</li>
+                </ul>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-KIA-03</span>
+                <h3>Privacy walls (hard requirements)</h3>
+                <ul>
+                    <li>MAY share circle-level data (ZenQ, budget totals, spend)</li>
+                    <li>Sponsored students: masked/pseudonym names only — never real name, school, address, or family details</li>
+                    <li>NEVER share other members’ individual contributions (except circle leader when leader access is granted)</li>
+                    <li>NEVER disclose ZenQ weights, formula, component breakdowns, or recalibration schedule</li>
+                    <li>NEVER rank individual members against each other</li>
+                    <li>NEVER facilitate direct sponsor↔student contact (route via school/NGO only)</li>
+                </ul>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-KIA-04</span>
+                <h3>Channels &amp; surfaces</h3>
+                <p>
+                    Kia SHALL support <code>CIRCLE_CHAT</code> (short; no individual finance),
+                    <code>DASHBOARD_CHAT</code>, and <code>PROACTIVE_TRIGGER</code> / event briefings.
+                    Persona-specific services cover school, student, mentor, corporate, and admin dashboards.
+                </p>
+                <div class="src">kia.py · kia_*.py · kia_event_briefings.py</div>
+            </div>
+        </div>
+
+        <!-- 5. Scoring -->
+        <div class="section" id="scoring">
+            <h2>5. ZenQ &amp; ZQA Scoring Requirements</h2>
+            <p class="intro">Deterministic algorithms in <code>app/algorithms/zenq/</code>.</p>
+
+            <div class="req">
+                <span class="req-id">FR-ZENQ-01</span>
+                <h3>ZenQ components</h3>
+                <ul>
+                    <li><strong>ZEQ</strong> (effort quality): weighted T (time), A (target), S (streak), Cm (communication), In (inspire), E (equity), C (commitment)</li>
+                    <li><strong>RAS</strong> attenuates components by attention-quality bands</li>
+                    <li><strong>ZCQ</strong> (context/need): need band × attendance factor × group-size factor</li>
+                    <li><strong>SPD</strong> from ZQA baseline → current (clamped)</li>
+                    <li><strong>ZIQ</strong> = base impact × ZEQ × ZCQ × SPD (per-member via effective n)</li>
+                    <li>Inactivity decay after 2 months; weight recalibration with max shift per cycle</li>
+                </ul>
+                <div class="src">algorithms/zenq/core.py · constants.py · recalibration.py</div>
+            </div>
+
+            <div class="req">
+                <span class="req-id">FR-ZQA-01</span>
+                <h3>School ZQA composite (holistic)</h3>
+                <ul>
+                    <li>Pillars: Academic 50%, Bloom’s taxonomy 25%, SEL 25%</li>
+                    <li>Academic subjects: English / Maths / Science / History (Social|Hindi); minimum 2 subjects to publish; single-subject cap 60</li>
+                    <li>Bloom’s six levels (0–5); SEL five dimensions (0–5)</li>
+                    <li>Attendance integrity: below 92% reduces score</li>
+                    <li>Bands: Beginning / Emerging / Developing / Insightful</li>
+                    <li>Publish blockers: complete Bloom’s+SEL, ≥2 academics, rank, class size, narrative — schools never enter ZQA manually</li>
+                    <li>School “Estimated ZenQ uplift” is informational and MUST NOT be treated as live circle ZenQ</li>
+                </ul>
+                <div class="src">algorithms/zenq/zqa.py · zqa_policy.py</div>
+            </div>
+        </div>
+
+        <!-- 6. Security -->
+        <div class="section" id="security">
+            <h2>6. Security, Privacy &amp; Compliance</h2>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-01</span>
+                <h3>JWT authentication</h3>
+                <p>
+                    Access tokens default 15 minutes; refresh tokens 7 days (HS256). Server SHALL refuse to start if
+                    <code>SECRET_KEY</code> is missing or an insecure default.
+                </p>
+                <div class="src">jwt_auth.py · main.py</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-02</span>
+                <h3>HttpOnly session cookies</h3>
+                <p>
+                    Cookies <code>zenk_access</code> / <code>zenk_refresh</code>; Secure + SameSite=None when on Railway/HTTPS
+                    so Vercel FE can authenticate cross-origin. Bearer tokens remain accepted.
+                </p>
+                <div class="src">auth_cookies.py</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-03</span>
+                <h3>KYC document handling</h3>
+                <p>KYC docs REQUIRED at signup; stored via Cloudinary; admin review; user resubmit path under <code>/auth</code>.</p>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-04</span>
+                <h3>Legal acceptance</h3>
+                <p>
+                    Platform terms, privacy policy, parent-member terms, and student declaration SHALL be served and
+                    accepted / re-accepted through legal routes.
+                </p>
+                <div class="src">legal.py · terms&amp;conditions/ · static/legal/</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-05</span>
+                <h3>Parental consent</h3>
+                <p>Admin MAY record parental consent for students; chat/WS and student Kia respect DPDPA guardian rules.</p>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-06</span>
+                <h3>Student pseudonyms</h3>
+                <p>
+                    Pseudonyms SHALL be 8–24 characters, exclude real-name tokens and reserved names, and be unique.
+                </p>
+                <div class="src">student_pseudonym.py</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-07</span>
+                <h3>Shield content moderation</h3>
+                <p>
+                    Circle chat SHALL pass Shield layers: (1) regex for PII/toxicity/self-harm/substances/geopolitics/off-platform,
+                    (2) Gemini assist, (3) fallback — before publish.
+                </p>
+                <div class="src">shield.py · chat/router_client.py</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-SEC-08</span>
+                <h3>Security headers</h3>
+                <p>Responses SHALL include CSP, X-Frame-Options DENY, HSTS on HTTPS, and a restrictive Permissions-Policy.</p>
+                <div class="src">security_headers.py</div>
+            </div>
+        </div>
+
+        <!-- 7. Integrations -->
+        <div class="section" id="integrations">
+            <h2>7. Integration Requirements</h2>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Integration</th>
+                            <th>Requirement</th>
+                            <th>Evidence</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><strong>FR-INT-01</strong></td>
+                            <td>ICICI Corporate Gateway</td>
+                            <td>Circle vendor/payee disbursements via configured gateway base URL + merchant id</td>
+                            <td><code>circle_vendor_disbursements.py</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>FR-INT-02</strong></td>
+                            <td>Cloudinary</td>
+                            <td>Store KYC docs, chat uploads, school photos, support media</td>
+                            <td><code>cloudinary_service.py</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>FR-INT-03</strong></td>
+                            <td>SMTP</td>
+                            <td>Optional transactional email (invites, signup/approval); skippable when disabled</td>
+                            <td><code>email.py</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>FR-INT-04</strong></td>
+                            <td>Groq</td>
+                            <td>Primary Kia LLM path (Llama-class models)</td>
+                            <td><code>kia.py</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>FR-INT-05</strong></td>
+                            <td>Google Gemini</td>
+                            <td>Shield moderation assist + parent grade/transcript OCR</td>
+                            <td><code>shield.py</code> · <code>parent_transcript_extract.py</code></td>
+                        </tr>
+                        <tr>
+                            <td><strong>FR-INT-06</strong></td>
+                            <td>Google News RSS</td>
+                            <td>Impact briefing / news endpoints without paid news API requirement</td>
+                            <td><code>impact_briefing.py</code> · <code>news.py</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 8. NFR -->
+        <div class="section" id="nfr">
+            <h2>8. Non-Functional Requirements</h2>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-RL-01</span>
+                <h3>Rate limiting</h3>
+                <ul>
+                    <li>Global SlowAPI default: <strong>200 requests/minute</strong></li>
+                    <li>Login / token: 5/min · Admin login: 10/min · Refresh/logout: 30/min</li>
+                    <li>WS token: 60/min · Switch-hat: 10/min · Admin overview: 30/min</li>
+                </ul>
+                <div class="src">rate_limit.py · auth routers</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-DOCS-01</span>
+                <h3>API documentation exposure</h3>
+                <p>
+                    OpenAPI / Swagger / ReDoc SHALL be disabled by default on Railway or when frontend is HTTPS;
+                    enable only with <code>ENABLE_API_DOCS=true</code>.
+                </p>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-CORS-01</span>
+                <h3>CORS policy</h3>
+                <p>
+                    Allow known Vercel hosts + localhost Vite ports; credentials enabled; methods
+                    GET/POST/PUT/DELETE/PATCH/OPTIONS; headers include Authorization, Content-Type, Accept, X-Zenk-Admin-Key.
+                    Extra origins via <code>CORS_EXTRA_ORIGINS</code>.
+                </p>
+                <div class="src">main.py</div>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-DEP-01</span>
+                <h3>Deployment topology</h3>
+                <p>
+                    API intended for Railway; frontends on Vercel; database on Neon (asyncpg pool + keepalive).
+                    Health check: <code>GET /health</code> → <code>{"status":"ok"}</code>.
+                </p>
+            </div>
+
+            <div class="req nfr">
+                <span class="req-id">NFR-DATA-01</span>
+                <h3>Data store</h3>
+                <p>
+                    System of record is PostgreSQL (Neon) under schema <code>ZENK</code>, accessed via SQLAlchemy 2 async sessions.
+                </p>
+            </div>
+        </div>
+
+        <!-- 9. API map -->
+        <div class="section" id="api">
+            <h2>9. API Surface Map</h2>
+            <p class="intro">Mounted from <code>app/api/router.py</code>.</p>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Prefix</th>
+                            <th>Module</th>
+                            <th>Purpose</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr><td><code>/auth</code></td><td>auth</td><td>Login, tokens, family hats, KYC resubmit</td></tr>
+                        <tr><td><code>/signup</code></td><td>signup</td><td>Public persona registration</td></tr>
+                        <tr><td><code>/legal</code></td><td>legal</td><td>Terms acceptance</td></tr>
+                        <tr><td><code>/notifications</code></td><td>notifications</td><td>In-app alerts</td></tr>
+                        <tr><td><code>/news</code></td><td>news</td><td>Impact briefing RSS</td></tr>
+                        <tr><td><code>/support/zenk-admin</code></td><td>user_support</td><td>User support threads</td></tr>
+                        <tr><td><code>/admin/*</code></td><td>admin_*</td><td>KYC, ops, users, Kia, legal, overview</td></tr>
+                        <tr><td><code>/chat/*</code> · <code>/ws/circle/{id}</code></td><td>chat</td><td>Circle messaging</td></tr>
+                        <tr><td><code>/sponsor-circle</code></td><td>sponsor_circle</td><td>Circle dashboard</td></tr>
+                        <tr><td><code>/school</code> · <code>/school/join</code></td><td>school</td><td>School portal</td></tr>
+                        <tr><td><code>/student</code></td><td>student</td><td>Student dashboard</td></tr>
+                        <tr><td><code>/parent</code></td><td>parent</td><td>Parent portal</td></tr>
+                        <tr><td><code>/vendor</code></td><td>vendor</td><td>Marketplace</td></tr>
+                        <tr><td><code>/mentor</code></td><td>mentor</td><td>Mentor portal</td></tr>
+                        <tr><td><code>/corporate</code></td><td>corporate</td><td>CSR dashboard</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- 10. Gaps -->
+        <div class="section" id="gaps">
+            <h2>10. Explicit Gaps / Non-Requirements</h2>
+            <p class="intro">These are observed in code and MUST NOT be treated as delivered requirements.</p>
+
+            <div class="req gap">
+                <span class="req-id">GAP-01</span>
+                <h3>No public corporate / mentor signup routes</h3>
+                <p>
+                    <code>Persona</code> includes <code>corporate</code> and <code>mentor</code>, and dashboards exist,
+                    but <code>signup.py</code> does not expose <code>/signup/corporate</code> or <code>/signup/mentor</code>.
+                </p>
+            </div>
+
+            <div class="req gap">
+                <span class="req-id">GAP-02</span>
+                <h3>Parent is not a Persona enum value</h3>
+                <p>
+                    Parent capability is delivered via <code>MemberKind.parent_guardian</code> + <code>/parent</code> portal,
+                    not a first-class <code>Persona.parent</code>.
+                </p>
+            </div>
+
+            <div class="req gap">
+                <span class="req-id">GAP-03</span>
+                <h3>Not in this backend</h3>
+                <p>
+                    Razorpay/escrow, Celery/Redis queues, Kong/Envoy, SendGrid/Twilio/FCM, TensorFlow/PyTorch training,
+                    MongoDB/Pinecone/BigQuery — present only in older aspirational docs, not as implemented requirements here.
+                </p>
+            </div>
+        </div>
+
+        <div class="footer-box">
+            <strong>Related docs:</strong>
+            Architecture Overview · Technology Stack · Architecture Components · Flow Diagrams
+            (all under <code>docs/</code>, filled from the same as-built repository).
+            <br>
+            <strong>Primary sources:</strong>
+            <code>app/models/enums.py</code>,
+            <code>app/api/router.py</code>,
+            <code>app/microservices/*</code>,
+            <code>app/services/kia.py</code>,
+            <code>app/algorithms/zenq/</code>,
+            <code>main.py</code>,
+            <code>requirements.txt</code>,
+            <code>.env.example</code>.
+        </div>
+    </div>
+</body>
+</html>
