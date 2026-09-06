@@ -32,3 +32,7 @@ GEMINI.md
 .cursorrules
 .windsurfrules
 
+# Local runtime / TTS cache / DB dumps
+storage/
+backups/
+

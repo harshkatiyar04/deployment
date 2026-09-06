@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
+from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
@@ -25,6 +26,24 @@ class LandingContactInquiry(Base):
     message: Mapped[str] = mapped_column(Text, nullable=False, default="")
     admin_read: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     email_notified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    thank_you_sent: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    source: Mapped[str] = mapped_column(String(40), nullable=False, default="landing_contact")
+
+    session_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    accept_language: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    referrer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    landing_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    utm_source: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    utm_medium: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    utm_campaign: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    timezone: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    screen: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
+    geo_country: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
+    geo_region: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    geo_city: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

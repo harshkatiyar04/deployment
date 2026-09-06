@@ -17,6 +17,7 @@ from app.api.routers import (
     admin_zenq,
     admin_landing_contact,
     contact,
+    landing_kia,
     auth,
     legal,
     notifications,
@@ -25,6 +26,7 @@ from app.api.routers import (
     admin_audit,
     news,
     public_circle_invite,
+    public_launch,
 )
 from app.chat import router_client, router_admin
 from app.banking.routers.icici_ecollection_webhooks import router as icici_ecollection_router
@@ -43,7 +45,9 @@ api_router.include_router(auth.router)
 api_router.include_router(legal.router)
 api_router.include_router(signup.router)
 api_router.include_router(contact.router)
+api_router.include_router(landing_kia.router)
 api_router.include_router(public_circle_invite.router)
+api_router.include_router(public_launch.router)
 api_router.include_router(icici_ecollection_router)
 api_router.include_router(admin_kyc.router)
 api_router.include_router(admin_circle_ops.router)

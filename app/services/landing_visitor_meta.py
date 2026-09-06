@@ -30,7 +30,7 @@ async def _query_ip_api(ip: Optional[str]) -> dict[str, Optional[str]]:
     """Call ip-api. Empty `ip` resolves the caller's own public IP."""
     try:
         target = "" if not ip else ip
-        async with httpx.AsyncClient(timeout=2.5) as client:
+        async with httpx.AsyncClient(timeout=0.9) as client:
             res = await client.get(
                 f"http://ip-api.com/json/{target}",
                 params={"fields": "status,country,regionName,city,query"},
@@ -53,12 +53,11 @@ async def _query_ip_api(ip: Optional[str]) -> dict[str, Optional[str]]:
 async def lookup_geo_from_ip(ip: Optional[str]) -> dict[str, Optional[str]]:
     """Best-effort city/region/country. Never raises; empty on failure.
 
-    When the client IP is private/localhost (local dev, or a proxy that did not
-    forward the real IP), fall back to resolving the server's own public IP so
-    the record still shows an approximate location instead of "unknown".
+    Private/localhost IPs skip the network hop entirely so form submits stay fast
+    in local/dev (Cloudflare country header still applies in production).
     """
     if _is_probably_private(ip):
-        return await _query_ip_api(None)
+        return dict(_EMPTY_GEO)
     return await _query_ip_api(ip)
 
 

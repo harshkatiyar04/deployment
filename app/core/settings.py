@@ -80,6 +80,9 @@ class Settings(BaseSettings):
     # AI-backed RAS for chat messages via Groq (falls back to heuristics if unavailable)
     zenq_ai_ras_enabled: bool = Field(default=True, validation_alias="ZENQ_AI_RAS_ENABLED")
 
+    # Soft launch — Path 1 (default full = current behaviour; waitlist gates public signup later)
+    launch_mode: str = Field(default="full", validation_alias="ZENK_LAUNCH_MODE")
+
     # Platform admin login (HttpOnly cookie — not exposed to frontend JS)
     admin_email: str = Field(default="admin@zenk", validation_alias="ZENK_ADMIN_EMAIL")
     admin_password: Optional[str] = Field(default=None, validation_alias="ZENK_ADMIN_PASSWORD")

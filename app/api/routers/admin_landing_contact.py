@@ -1,4 +1,4 @@
-"""Admin inbox for website contact inquiries + landing feedback."""
+"""Admin inbox for website contact inquiries + landing feedback + waitlist."""
 
 from typing import Optional
 
@@ -27,12 +27,16 @@ router = APIRouter(
     dependencies=[Depends(require_admin_api_key)],
 )
 
+WAITLIST_SOURCE = "waitlist_interest"
+
 
 class WebsiteInquirySummaryOut(BaseModel):
     total: int
     unread: int
     feedback_total: int = 0
     feedback_unread: int = 0
+    waitlist_total: int = 0
+    waitlist_unread: int = 0
 
 
 class WebsiteInquiryOut(BaseModel):
@@ -43,6 +47,22 @@ class WebsiteInquiryOut(BaseModel):
     message: str
     admin_read: bool
     email_notified: bool
+    thank_you_sent: bool = False
+    source: str = "landing_contact"
+    session_id: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    accept_language: Optional[str] = None
+    referrer: Optional[str] = None
+    landing_path: Optional[str] = None
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    timezone: Optional[str] = None
+    screen: Optional[str] = None
+    geo_country: Optional[str] = None
+    geo_region: Optional[str] = None
+    geo_city: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -79,9 +99,63 @@ class WebsiteFeedbackOut(BaseModel):
 
 @router.get("/summary", response_model=WebsiteInquirySummaryOut)
 async def website_inquiries_summary(db: AsyncSession = Depends(get_db)):
-    contact = await landing_contact_summary(db)
+    contact = await landing_contact_summary(db, source="landing_contact")
+    waitlist = await landing_contact_summary(db, source=WAITLIST_SOURCE)
     feedback = await landing_feedback_summary(db)
-    return WebsiteInquirySummaryOut(**contact, **feedback)
+    return WebsiteInquirySummaryOut(
+        total=contact["total"],
+        unread=contact["unread"],
+        feedback_total=feedback.get("feedback_total", 0),
+        feedback_unread=feedback.get("feedback_unread", 0),
+        waitlist_total=waitlist["total"],
+        waitlist_unread=waitlist["unread"],
+    )
+
+
+@router.get("/waitlist/summary")
+async def waitlist_enquiries_summary(db: AsyncSession = Depends(get_db)):
+    data = await landing_contact_summary(db, source=WAITLIST_SOURCE)
+    return {"total": data["total"], "unread": data["unread"]}
+
+
+@router.get("/waitlist", response_model=list[WebsiteInquiryOut])
+async def waitlist_enquiries_list(
+    search: Optional[str] = None,
+    unread_only: bool = False,
+    db: AsyncSession = Depends(get_db),
+):
+    rows = await list_landing_contact_inquiries(
+        db,
+        search=search,
+        unread_only=unread_only,
+        source=WAITLIST_SOURCE,
+    )
+    return [WebsiteInquiryOut(**row) for row in rows]
+
+
+@router.get("/waitlist/{inquiry_id}", response_model=WebsiteInquiryOut)
+async def waitlist_enquiry_detail(
+    inquiry_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    row = await get_landing_contact_inquiry(db, inquiry_id)
+    if not row or row.get("source") != WAITLIST_SOURCE:
+        raise HTTPException(status_code=404, detail="Waitlist enquiry not found")
+    return WebsiteInquiryOut(**row)
+
+
+@router.post("/waitlist/{inquiry_id}/read", response_model=WebsiteInquiryOut)
+async def waitlist_enquiry_mark_read(
+    inquiry_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    existing = await get_landing_contact_inquiry(db, inquiry_id)
+    if not existing or existing.get("source") != WAITLIST_SOURCE:
+        raise HTTPException(status_code=404, detail="Waitlist enquiry not found")
+    row = await mark_landing_contact_inquiry_read(db, inquiry_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Waitlist enquiry not found")
+    return WebsiteInquiryOut(**row)
 
 
 @router.get("/feedback", response_model=list[WebsiteFeedbackOut])
@@ -122,8 +196,12 @@ async def website_inquiries_list(
     unread_only: bool = False,
     db: AsyncSession = Depends(get_db),
 ):
+    """General landing contact form only — waitlist has its own inbox."""
     rows = await list_landing_contact_inquiries(
-        db, search=search, unread_only=unread_only
+        db,
+        search=search,
+        unread_only=unread_only,
+        source="landing_contact",
     )
     return [WebsiteInquiryOut(**row) for row in rows]
 

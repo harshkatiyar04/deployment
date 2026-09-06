@@ -529,7 +529,7 @@ def generate_brsr_docs(profile_data: dict) -> io.BytesIO:
         ("CSR Obligation (2% net profit)", f"₹{total_csr:,}"),
         ("Amount Deployed", f"₹{total_csr:,}"),
         ("Unspent Amount", f"₹{profile_data.get('unallocated', 0):,}"),
-        ("Mode of Implementation", "Through ZenK Impact Platform — registered Section 8 Company"),
+        ("Mode of Implementation", "Through ZenK Impact Platform — ZenK Impact India Private Limited"),
     ], styles))
     story.append(Spacer(1, 12))
 

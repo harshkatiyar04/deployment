@@ -822,3 +822,129 @@ def render_school_report_distributed_html(
   </table>
 </body>
 </html>"""
+
+
+# Public Cloudinary still — graduation / milestone frame for waitlist emails
+WAITLIST_STORY_BANNER_URL = (
+    "https://res.cloudinary.com/dhlmxyh9f/video/upload/"
+    "so_0,w_1200,c_fill,g_auto,h_520,q_auto:best,f_jpg/"
+    "v1787724123/a_f_c_a_b_bc_mp__ejo0kz_1__gwr_video_mvp_c72kzj.jpg"
+)
+
+
+def render_waitlist_interest_thank_you_html(
+    *,
+    name: str,
+    interest: str,
+    website_url: str,
+    logo_url: str | None = None,
+) -> str:
+    """Premium confirmation for waitlist / founding-circle interest registration."""
+    first = _esc((name or "").strip().split(" ")[0] or "there")
+    site = _site_base(website_url)
+    header = _brand_header(logo_url=logo_url)
+    banner = WAITLIST_STORY_BANNER_URL
+    steps = [
+        ("01", "Acknowledgement", "Within 48 hours — we confirm we received you."),
+        ("02", "20-minute call", "A quiet conversation with the ZenK team."),
+        ("03", "Circle formation", "Lead or join — your preference, your pace."),
+        ("04", "Matching", "After the annual budget is committed."),
+        ("05", "Launch", "One student. Visible progress. Lasting impact."),
+    ]
+    steps_html = "".join(
+        f"""
+              <tr>
+                <td style="padding:11px 0;border-bottom:1px solid {ZENK_BORDER};">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                    <tr>
+                      <td width="36" valign="top" style="font-size:12px;font-weight:800;letter-spacing:0.08em;color:{ZENK_BLUE};">{num}</td>
+                      <td valign="top">
+                        <p style="margin:0 0 2px 0;font-size:14px;font-weight:700;color:{ZENK_INK};">{_esc(title)}</p>
+                        <p style="margin:0;font-size:12px;line-height:1.45;color:{ZENK_MUTED};">{_esc(hint)}</p>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+"""
+        for num, title, hint in steps
+    )
+    body = f"""
+          <tr>
+            <td style="padding:0;line-height:0;font-size:0;">
+              <img src="{_esc(banner)}" alt="A milestone moment — a student journey becoming visible"
+                width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;outline:none;">
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:14px 28px 16px 28px;background:linear-gradient(180deg,#0a3d66 0%,#0c4a7a 100%);background-color:#0a3d66;">
+              <p style="margin:0 0 4px 0;font-size:10px;font-weight:700;letter-spacing:0.16em;text-transform:uppercase;color:{ZENK_BLUE};">
+                Impact story
+              </p>
+              <p style="margin:0 0 8px 0;font-size:17px;line-height:1.35;font-weight:700;color:#ffffff;">
+                He almost stopped dreaming. A circle refused to let him.
+              </p>
+              <p style="margin:0;font-size:13px;line-height:1.55;color:rgba(255,255,255,0.82);">
+                In a small Rajasthan town, school felt like a luxury and the future felt closed.
+                People stayed — fees, late-night doubts, quiet belief. He became an engineer.
+                Now every Sunday he returns to lift the next child who still thinks the sky is too far.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td class="zenk-pad" style="padding:28px 40px 8px 40px;">
+              <p style="margin:0 0 8px 0;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:{ZENK_BLUE};">
+                Founding Circles
+              </p>
+              <h1 class="zenk-title" style="margin:0 0 12px 0;font-size:26px;line-height:1.25;font-weight:700;color:{ZENK_INK};">
+                Thank you, {first}.
+              </h1>
+              <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;color:{ZENK_MUTED};">
+                You’re on the founding list. No commitment today — we’ll guide you from
+                interest to a living circle with care.
+              </p>
+              <p style="margin:0 0 18px 0;font-size:13px;line-height:1.55;color:{ZENK_MUTED};">
+                ZenK organizes sponsors, mentors, and partners around <strong style="color:{ZENK_INK};">one student</strong>
+                so progress is visible — not lost in goodwill. Founding Circles help shape
+                that model as we open.
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                style="margin:0 0 22px 0;background-color:{ZENK_PANEL};border:1px solid {ZENK_BORDER};border-radius:10px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{ZENK_SOFT};">
+                      Your interest
+                    </p>
+                    <p style="margin:0;font-size:14px;font-weight:700;color:{ZENK_INK};line-height:1.45;">
+                      {_esc(interest)}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0 0 10px 0;font-size:12px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{ZENK_INK};">
+                What happens next
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0">
+                {steps_html}
+              </table>
+              <p style="margin:18px 0 0 0;font-size:12px;line-height:1.55;color:{ZENK_SOFT};">
+                Watch for mail from the ZenK team. If nothing arrives in 48 hours, reply to
+                this message or write <a href="mailto:info@zenkimpact.com" style="color:{ZENK_BLUE_DEEP};text-decoration:none;">info@zenkimpact.com</a>.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" class="zenk-pad" style="padding:22px 40px 10px 40px;">
+              <a class="zenk-cta" href="{_esc(site)}"
+                 style="display:inline-block;background-color:{ZENK_BLUE};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 22px;border-radius:8px;">
+                Explore ZenK
+              </a>
+            </td>
+          </tr>
+"""
+    return _shell(
+        title="You're on the ZenK founding list",
+        header_inner=header,
+        body_inner=body,
+        footer_note="One circle. One student. Infinite impact.",
+    )

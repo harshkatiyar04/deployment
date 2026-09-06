@@ -3,17 +3,14 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request, status
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.rate_limit import limiter
 from app.db.session import get_db
-from app.services.landing_contact import notify_landing_contact_inquiry
-from app.services.landing_contact_store import (
-    create_landing_contact_inquiry,
-    mark_inquiry_email_notified,
-)
+from app.services.landing_contact import run_inquiry_followups_background
+from app.services.landing_contact_store import create_landing_contact_inquiry
 from app.services.landing_feedback_store import (
     create_landing_feedback,
     create_landing_visit,
@@ -22,18 +19,6 @@ from app.services.landing_visitor_meta import collect_visitor_meta
 
 router = APIRouter(prefix="/contact", tags=["contact"])
 logger = logging.getLogger(__name__)
-
-
-class LandingContactIn(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    email: EmailStr
-    interest: str = Field(min_length=1, max_length=120)
-    message: str = Field(default="", max_length=4000)
-
-
-class LandingContactOut(BaseModel):
-    ok: bool = True
-    message: str = "Thank you — we'll be in touch shortly."
 
 
 class VisitorMetaIn(BaseModel):
@@ -46,6 +31,21 @@ class VisitorMetaIn(BaseModel):
     timezone: Optional[str] = Field(default=None, max_length=80)
     screen: Optional[str] = Field(default=None, max_length=40)
     user_agent: Optional[str] = Field(default=None, max_length=2000)
+
+
+class LandingContactIn(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    email: EmailStr
+    interest: str = Field(min_length=1, max_length=120)
+    message: str = Field(default="", max_length=4000)
+    source: Optional[str] = Field(default=None, max_length=40)
+    visitor: Optional[VisitorMetaIn] = None
+
+
+class LandingContactOut(BaseModel):
+    ok: bool = True
+    message: str = "Thank you — we'll be in touch shortly."
+    thank_you_sent: bool = False
 
 
 class LandingFeedbackIn(BaseModel):
@@ -80,6 +80,7 @@ class LandingVisitOut(BaseModel):
 @limiter.limit("8/hour")
 async def submit_landing_contact(
     request: Request,
+    background_tasks: BackgroundTasks,
     inquiry: LandingContactIn = Body(...),
     db: AsyncSession = Depends(get_db),
 ) -> LandingContactOut:
@@ -87,14 +88,27 @@ async def submit_landing_contact(
     email = str(inquiry.email).strip()
     interest = inquiry.interest.strip()
     message = (inquiry.message or "").strip()
+    visitor_payload = inquiry.visitor.model_dump() if inquiry.visitor else {}
+    raw_source = (inquiry.source or "").strip().lower()
+    if raw_source in ("waitlist_interest", "waitlist", "interest"):
+        source = "waitlist_interest"
+    elif "waitlist interest form" in message.lower() or "/login" in (
+        (visitor_payload.get("landing_path") or "").lower()
+    ):
+        source = "waitlist_interest"
+    else:
+        source = "landing_contact"
 
     try:
+        meta = await collect_visitor_meta(request, client_meta=visitor_payload)
         row = await create_landing_contact_inquiry(
             db,
             name=name,
             email=email,
             interest=interest,
             message=message,
+            visitor_meta=meta,
+            source=source,
         )
     except Exception as exc:
         logger.exception("Landing contact save failed for email=%s", email)
@@ -103,19 +117,26 @@ async def submit_landing_contact(
             detail="We could not save your message right now. Please try again or email info@zenkimpact.com.",
         ) from exc
 
-    notified = await notify_landing_contact_inquiry(
+    # Emails + flag updates run after the client gets success (SMTP was blocking the form).
+    background_tasks.add_task(
+        run_inquiry_followups_background,
+        inquiry_id=row.id,
         name=name,
         email=email,
         interest=interest,
         message=message,
+        visitor_meta=meta,
+        source=source,
     )
-    if notified:
-        try:
-            await mark_inquiry_email_notified(db, row.id)
-        except Exception:
-            logger.exception("Landing contact email_notified flag update failed id=%s", row.id)
 
-    return LandingContactOut()
+    return LandingContactOut(
+        thank_you_sent=source == "waitlist_interest",
+        message=(
+            "You're on the list — a confirmation is on its way to your inbox."
+            if source == "waitlist_interest"
+            else "Thank you — we'll be in touch shortly."
+        ),
+    )
 
 
 @router.post("/feedback", response_model=LandingFeedbackOut, status_code=status.HTTP_200_OK)
