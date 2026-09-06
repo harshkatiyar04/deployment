@@ -138,6 +138,79 @@ async def create_landing_visit(
     return row
 
 
+def visit_to_dict(row: LandingVisit) -> dict:
+    return {
+        "id": row.id,
+        "session_id": row.session_id,
+        "ip_address": row.ip_address,
+        "user_agent": row.user_agent,
+        "accept_language": row.accept_language,
+        "referrer": row.referrer,
+        "landing_path": row.landing_path,
+        "utm_source": row.utm_source,
+        "utm_medium": row.utm_medium,
+        "utm_campaign": row.utm_campaign,
+        "timezone": row.timezone,
+        "screen": row.screen,
+        "geo_country": row.geo_country,
+        "geo_region": row.geo_region,
+        "geo_city": row.geo_city,
+        "created_at": to_utc_iso(row.created_at),
+    }
+
+
+async def landing_visit_summary(db: AsyncSession) -> dict:
+    from datetime import datetime, timedelta, timezone
+
+    total = (await db.execute(select(func.count()).select_from(LandingVisit))).scalar_one()
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    last_24h = (
+        await db.execute(
+            select(func.count())
+            .select_from(LandingVisit)
+            .where(LandingVisit.created_at >= cutoff)
+        )
+    ).scalar_one()
+    return {
+        "visits_total": int(total or 0),
+        "visits_last_24h": int(last_24h or 0),
+    }
+
+
+async def list_landing_visits(
+    db: AsyncSession,
+    *,
+    search: Optional[str] = None,
+    limit: int = 200,
+) -> list[dict]:
+    stmt = select(LandingVisit).order_by(LandingVisit.created_at.desc())
+    if search:
+        q = f"%{search.strip().lower()}%"
+        stmt = stmt.where(
+            or_(
+                func.lower(func.coalesce(LandingVisit.landing_path, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.referrer, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.ip_address, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.geo_city, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.geo_region, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.geo_country, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.utm_source, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.utm_campaign, "")).like(q),
+                func.lower(func.coalesce(LandingVisit.session_id, "")).like(q),
+            )
+        )
+    stmt = stmt.limit(max(1, min(limit, 500)))
+    rows = (await db.execute(stmt)).scalars().all()
+    return [visit_to_dict(row) for row in rows]
+
+
+async def get_landing_visit(db: AsyncSession, visit_id: str) -> Optional[dict]:
+    row = (
+        await db.execute(select(LandingVisit).where(LandingVisit.id == visit_id))
+    ).scalar_one_or_none()
+    return visit_to_dict(row) if row else None
+
+
 async def landing_feedback_summary(db: AsyncSession) -> dict:
     total = (
         await db.execute(select(func.count()).select_from(LandingFeedbackSubmission))

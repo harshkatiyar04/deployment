@@ -179,7 +179,7 @@ async def submit_landing_feedback(
 
 
 @router.post("/visit", response_model=LandingVisitOut, status_code=status.HTTP_200_OK)
-@limiter.limit("30/hour")
+@limiter.limit("120/hour")
 async def record_landing_visit(
     request: Request,
     payload: LandingVisitIn = Body(...),

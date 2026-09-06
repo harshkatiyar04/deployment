@@ -16,8 +16,11 @@ from app.services.landing_contact_store import (
 )
 from app.services.landing_feedback_store import (
     get_landing_feedback,
+    get_landing_visit,
     landing_feedback_summary,
+    landing_visit_summary,
     list_landing_feedback,
+    list_landing_visits,
     mark_landing_feedback_read,
 )
 
@@ -37,6 +40,8 @@ class WebsiteInquirySummaryOut(BaseModel):
     feedback_unread: int = 0
     waitlist_total: int = 0
     waitlist_unread: int = 0
+    visits_total: int = 0
+    visits_last_24h: int = 0
 
 
 class WebsiteInquiryOut(BaseModel):
@@ -97,11 +102,31 @@ class WebsiteFeedbackOut(BaseModel):
     created_at: Optional[str] = None
 
 
+class WebsiteVisitOut(BaseModel):
+    id: str
+    session_id: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    accept_language: Optional[str] = None
+    referrer: Optional[str] = None
+    landing_path: Optional[str] = None
+    utm_source: Optional[str] = None
+    utm_medium: Optional[str] = None
+    utm_campaign: Optional[str] = None
+    timezone: Optional[str] = None
+    screen: Optional[str] = None
+    geo_country: Optional[str] = None
+    geo_region: Optional[str] = None
+    geo_city: Optional[str] = None
+    created_at: Optional[str] = None
+
+
 @router.get("/summary", response_model=WebsiteInquirySummaryOut)
 async def website_inquiries_summary(db: AsyncSession = Depends(get_db)):
     contact = await landing_contact_summary(db, source="landing_contact")
     waitlist = await landing_contact_summary(db, source=WAITLIST_SOURCE)
     feedback = await landing_feedback_summary(db)
+    visits = await landing_visit_summary(db)
     return WebsiteInquirySummaryOut(
         total=contact["total"],
         unread=contact["unread"],
@@ -109,6 +134,8 @@ async def website_inquiries_summary(db: AsyncSession = Depends(get_db)):
         feedback_unread=feedback.get("feedback_unread", 0),
         waitlist_total=waitlist["total"],
         waitlist_unread=waitlist["unread"],
+        visits_total=visits.get("visits_total", 0),
+        visits_last_24h=visits.get("visits_last_24h", 0),
     )
 
 
@@ -188,6 +215,26 @@ async def website_feedback_mark_read(
     if not row:
         raise HTTPException(status_code=404, detail="Feedback not found")
     return WebsiteFeedbackOut(**row)
+
+
+@router.get("/visits", response_model=list[WebsiteVisitOut])
+async def website_visits_list(
+    search: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+):
+    rows = await list_landing_visits(db, search=search)
+    return [WebsiteVisitOut(**row) for row in rows]
+
+
+@router.get("/visits/{visit_id}", response_model=WebsiteVisitOut)
+async def website_visit_detail(
+    visit_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    row = await get_landing_visit(db, visit_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Visit not found")
+    return WebsiteVisitOut(**row)
 
 
 @router.get("", response_model=list[WebsiteInquiryOut])
