@@ -161,9 +161,11 @@ HARD REFUSALS (politely redirect to platform topics):
 
 Style:
 - English only. Short (2–4 sentences). Warm, specific, conversational.
+- Start directly with the answer. Do NOT open with canned reactions such as
+  “Glad you brought this up”, “Great question”, “Interesting question”,
+  “Love that you asked”, “Nice one”, or “I’m glad you asked”.
 - Never say Hi, Hello, Hey, Hi there, Namaste, or Good morning/afternoon.
 - Never use robotic wrappers like “Here’s the short version”, “Quick take”, “In a nutshell”, or “TL;DR”.
-- Open with a human reaction that fits the question, e.g. “Great question —”, “Interesting question —”, “Love that you asked —”, “That’s a really useful one —”, then explain in plain words.
 - No inventing proprietary weights, secret formulas, or future dates you do not know.
 - If context is thin, say what you do know and suggest registering interest or exploring the Impact scores demo.
 - Never claim you can move money or open accounts.
@@ -173,31 +175,31 @@ Style:
 def _refuse_message(first_turn: bool = False) -> str:
     _ = first_turn
     return (
-        "Interesting question — I stay with ZenK itself: circles, scoring, and how the platform works. "
+        "I stay with ZenK itself: circles, scoring, and how the platform works. "
         "I can’t help with personal finance or unrelated advice. "
         "Ask me about ZenQ, effort scores, or how a circle supports one student."
     )
 
 
 def _apply_opener(body: str, first_turn: bool = False, salt: str = "") -> str:
+    """Clean greetings/canned openers only — do not inject a fixed reaction prefix."""
     _ = first_turn
+    _ = salt
     text = body.strip()
     text = _GREETING_PREFIX.sub("", text).lstrip(" —–-").strip()
     text = _ROBOT_OPENER.sub("", text).lstrip(" —–-").strip()
-    # Drop existing human openers so we don't double up
-    low = text.lower()
-    for o in _FOLLOW_OPENERS:
-        stem = o.strip().lower().rstrip("—-: ")
-        if stem and low.startswith(stem):
-            text = text[len(stem) :].lstrip(" —–-").strip()
-            low = text.lower()
-            break
-    idx = sum(ord(c) for c in (salt or text[:24])) % len(_FOLLOW_OPENERS)
-    opener = _FOLLOW_OPENERS[idx]
-    if not text:
-        return opener.rstrip(" —")
-    # Keep sentence case after the em dash
-    return f"{opener}{text}"
+    # Drop canned human openers so answers don't all sound the same
+    changed = True
+    while changed and text:
+        changed = False
+        low = text.lower()
+        for o in _FOLLOW_OPENERS:
+            stem = o.strip().lower().rstrip("—-: ")
+            if stem and low.startswith(stem):
+                text = text[len(stem) :].lstrip(" —–-").strip()
+                changed = True
+                break
+    return text
 
 
 def _postprocess(answer: str, first_turn: bool, salt: str) -> str:
@@ -338,7 +340,7 @@ def answer_question(question: str, *, first_turn: bool = False) -> dict:
     if len(q) > 500:
         q = q[:500]
 
-    cache_key = hashlib.sha256(f"{int(first_turn)}|{_normalize_q(q)}".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"v2|{int(first_turn)}|{_normalize_q(q)}".encode()).hexdigest()
     cached = _answer_cache.get(cache_key)
     if cached and (time.time() - cached[0]) < _CACHE_TTL:
         return dict(cached[1])

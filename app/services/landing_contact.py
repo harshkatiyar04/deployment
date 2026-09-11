@@ -7,7 +7,10 @@ import logging
 from app.core.settings import settings
 from app.db.session import SessionLocal
 from app.services.email import send_email
-from app.services.email_templates import render_waitlist_interest_thank_you_html
+from app.services.email_templates import (
+    render_landing_contact_thank_you_html,
+    render_waitlist_interest_thank_you_html,
+)
 from app.services.landing_contact_store import (
     mark_inquiry_email_notified,
     mark_inquiry_thank_you_sent,
@@ -132,6 +135,53 @@ async def send_waitlist_interest_thank_you(
         return False
 
 
+async def send_landing_contact_thank_you(
+    *,
+    name: str,
+    email: str,
+    interest: str,
+) -> bool:
+    """Confirmation email for the homepage Get started form."""
+    if not (settings.smtp_enabled or settings.resend_api_key):
+        logger.warning(
+            "Contact thank-you skipped (email disabled): email=%s",
+            email,
+        )
+        return False
+
+    first = (name or "").strip().split()[0] if (name or "").strip() else "there"
+    subject = "We received your message — ZenK Impact"
+    text_body = (
+        f"Hi {first},\n\n"
+        "Thank you for writing to ZenK Impact. We have received your message and "
+        "a member of the team will reply shortly.\n\n"
+        f"Your interest: {interest}\n\n"
+        "If you need us sooner, write info@zenkimpact.com.\n\n"
+        "— The ZenK Impact team\n"
+        "https://in.zenkimpact.com\n"
+    )
+    website = getattr(settings, "website_url", None) or getattr(
+        settings, "frontend_base_url", None
+    ) or "https://in.zenkimpact.com"
+
+    try:
+        html_body = render_landing_contact_thank_you_html(
+            name=name,
+            interest=interest,
+            website_url=str(website),
+        )
+        await send_email(
+            subject=subject,
+            to_email=email,
+            text_body=text_body,
+            html_body=html_body,
+        )
+        return True
+    except Exception:
+        logger.exception("Contact thank-you email failed for email=%s", email)
+        return False
+
+
 async def run_inquiry_followups_background(
     *,
     inquiry_id: str,
@@ -157,15 +207,19 @@ async def run_inquiry_followups_background(
     except Exception:
         logger.exception("Background team notify failed inquiry_id=%s", inquiry_id)
 
-    if source != "waitlist_interest":
-        return
-
     try:
-        thank_you_sent = await send_waitlist_interest_thank_you(
-            name=name,
-            email=email,
-            interest=interest,
-        )
+        if source == "waitlist_interest":
+            thank_you_sent = await send_waitlist_interest_thank_you(
+                name=name,
+                email=email,
+                interest=interest,
+            )
+        else:
+            thank_you_sent = await send_landing_contact_thank_you(
+                name=name,
+                email=email,
+                interest=interest,
+            )
         if thank_you_sent:
             async with SessionLocal() as db:
                 await mark_inquiry_thank_you_sent(db, inquiry_id)

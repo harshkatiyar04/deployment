@@ -130,11 +130,11 @@ async def submit_landing_contact(
     )
 
     return LandingContactOut(
-        thank_you_sent=source == "waitlist_interest",
+        thank_you_sent=True,
         message=(
             "You're on the list — a confirmation is on its way to your inbox."
             if source == "waitlist_interest"
-            else "Thank you — we'll be in touch shortly."
+            else "Thank you — a confirmation is on its way to your inbox."
         ),
     )
 

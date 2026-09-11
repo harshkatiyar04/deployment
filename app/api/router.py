@@ -17,6 +17,8 @@ from app.api.routers import (
     admin_zenq,
     admin_landing_contact,
     contact,
+    analytics,
+    admin_website_traffic,
     landing_kia,
     auth,
     legal,
@@ -45,6 +47,7 @@ api_router.include_router(auth.router)
 api_router.include_router(legal.router)
 api_router.include_router(signup.router)
 api_router.include_router(contact.router)
+api_router.include_router(analytics.router)
 api_router.include_router(landing_kia.router)
 api_router.include_router(public_circle_invite.router)
 api_router.include_router(public_launch.router)
@@ -64,6 +67,7 @@ api_router.include_router(admin_search.router)
 api_router.include_router(admin_legal.router)
 api_router.include_router(admin_zenq.router)
 api_router.include_router(admin_landing_contact.router)
+api_router.include_router(admin_website_traffic.router)
 api_router.include_router(notifications.router)
 api_router.include_router(router_client.router)
 api_router.include_router(consent.router)

@@ -948,3 +948,62 @@ def render_waitlist_interest_thank_you_html(
         body_inner=body,
         footer_note="One circle. One student. Infinite impact.",
     )
+
+
+def render_landing_contact_thank_you_html(
+    *,
+    name: str,
+    interest: str,
+    website_url: str,
+    logo_url: str | None = None,
+) -> str:
+    """Confirmation for the homepage Get started contact form."""
+    first = _esc((name or "").strip().split(" ")[0] or "there")
+    site = _site_base(website_url)
+    header = _brand_header(logo_url=logo_url)
+    body = f"""
+          <tr>
+            <td class="zenk-pad" style="padding:28px 40px 8px 40px;">
+              <p style="margin:0 0 8px 0;font-size:11px;font-weight:700;letter-spacing:0.14em;text-transform:uppercase;color:{ZENK_BLUE};">
+                We received your message
+              </p>
+              <h1 class="zenk-title" style="margin:0 0 12px 0;font-size:26px;line-height:1.25;font-weight:700;color:{ZENK_INK};">
+                Thank you, {first}.
+              </h1>
+              <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;color:{ZENK_MUTED};">
+                Thanks for writing to ZenK Impact. A member of the team will reply shortly.
+              </p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0"
+                style="margin:0 0 18px 0;background-color:{ZENK_PANEL};border:1px solid {ZENK_BORDER};border-radius:10px;">
+                <tr>
+                  <td style="padding:14px 16px;">
+                    <p style="margin:0 0 4px 0;font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:{ZENK_SOFT};">
+                      Your interest
+                    </p>
+                    <p style="margin:0;font-size:14px;font-weight:700;color:{ZENK_INK};line-height:1.45;">
+                      {_esc(interest)}
+                    </p>
+                  </td>
+                </tr>
+              </table>
+              <p style="margin:0;font-size:13px;line-height:1.55;color:{ZENK_MUTED};">
+                If you need us sooner, write
+                <a href="mailto:info@zenkimpact.com" style="color:{ZENK_BLUE_DEEP};text-decoration:none;">info@zenkimpact.com</a>.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td align="center" class="zenk-pad" style="padding:22px 40px 10px 40px;">
+              <a class="zenk-cta" href="{_esc(site)}"
+                 style="display:inline-block;background-color:{ZENK_BLUE};color:#ffffff;text-decoration:none;font-size:14px;font-weight:700;padding:12px 22px;border-radius:8px;">
+                Explore ZenK
+              </a>
+            </td>
+          </tr>
+"""
+    return _shell(
+        title="We received your message — ZenK Impact",
+        header_inner=header,
+        body_inner=body,
+        footer_note="One circle. One student. Infinite impact.",
+    )

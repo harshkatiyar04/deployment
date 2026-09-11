@@ -1,16 +1,15 @@
-"""Landing Kia TTS — fast first, natural Gemini when cached.
+"""Landing Kia TTS — fast first, natural voice when cached.
 
 Strategy:
-  1. Serve Gemini/Edge disk cache instantly when present
-  2. On miss: Edge Neerja immediately (~1–2s) so the UI stays snappy
-  3. Optionally refresh Gemini in the background for next time (natural voice)
-
-Live requests never wait on Gemini (that was the 10–15s delay).
+  1. Serve disk cache instantly when present
+  2. On miss: Sarvam (if key set) → Edge Neerja → Gemini last resort
+  3. Optionally refresh Gemini in the background for next time
 """
 
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import io
 import logging
@@ -23,19 +22,18 @@ from app.core.settings import settings
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).resolve().parents[2] / "storage" / "landing_kia_tts"
-CACHE_VERSION = "gemini31-kore-v2"
+CACHE_VERSION = "sarvam-pooja-neerja-v1"
 
 GEMINI_TTS_MODEL = os.getenv("LANDING_KIA_GEMINI_TTS_MODEL", "gemini-3.1-flash-tts-preview")
 GEMINI_VOICE = os.getenv("LANDING_KIA_GEMINI_VOICE", "Kore")
-EDGE_VOICE = "en-IN-NeerjaNeural"
-EDGE_RATE = "-4%"
-# Background Gemini upgrade — OFF by default (free tier is ~10 TTS/day).
-# Set LANDING_KIA_GEMINI_BG=1 only if you have paid quota.
+EDGE_VOICE = os.getenv("LANDING_KIA_EDGE_VOICE", "en-IN-NeerjaNeural")
+# Match Sarvam female pace (~1.05) — mild +rate, not rushed
+EDGE_RATE = os.getenv("LANDING_KIA_EDGE_RATE", "+5%")
 GEMINI_BG = os.getenv("LANDING_KIA_GEMINI_BG", "0").strip() in ("1", "true", "True")
 
 STYLE = (
     "Speak as Kia: a warm, friendly Indian woman guiding visitors on ZenK Impact. "
-    "Natural conversational Indian English, calm and human — not robotic. Medium pace."
+    "Natural conversational Indian English, calm and human — not robotic. Steady, clear pace."
 )
 
 _bg_tasks: set[asyncio.Task] = set()
@@ -50,8 +48,8 @@ def _pcm16_to_wav(pcm: bytes, sample_rate: int = 24000) -> bytes:
     buf = io.BytesIO()
     with wave.open(buf, "wb") as wf:
         wf.setnchannels(1)
-        wf.setsampwidth(2)
         wf.setframerate(sample_rate)
+        wf.setsampwidth(2)
         wf.writeframes(pcm)
     return buf.getvalue()
 
@@ -64,16 +62,126 @@ def lookup_cached(text: str) -> tuple[bytes, str] | None:
     if len(cleaned) > 1200:
         cleaned = cleaned[:1200]
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    gem = _cache_path(cleaned, "gemini", "wav")
-    if gem.exists() and gem.stat().st_size > 0:
-        return gem.read_bytes(), "audio/wav"
-    gem_mp3 = _cache_path(cleaned, "gemini", "mp3")
-    if gem_mp3.exists() and gem_mp3.stat().st_size > 0:
-        return gem_mp3.read_bytes(), "audio/mpeg"
-    edge = _cache_path(cleaned, "edge", "mp3")
-    if edge.exists() and edge.stat().st_size > 0:
-        return edge.read_bytes(), "audio/mpeg"
+    for provider, ext, mime in (
+        ("gemini", "wav", "audio/wav"),
+        ("gemini", "mp3", "audio/mpeg"),
+        ("sarvam", "mp3", "audio/mpeg"),
+        ("sarvam", "wav", "audio/wav"),
+        ("edge", "mp3", "audio/mpeg"),
+    ):
+        path = _cache_path(cleaned, provider, ext)
+        if path.exists() and path.stat().st_size > 0:
+            return path.read_bytes(), mime
     return None
+
+
+def _sarvam_enabled() -> bool:
+    return bool((settings.sarvam_api_key or "").strip())
+
+
+async def _sarvam_audio(text: str) -> tuple[bytes, str] | None:
+    """Sarvam Bulbul TTS — warm Indian female voice when configured."""
+    api_key = (settings.sarvam_api_key or "").strip()
+    if not api_key:
+        return None
+
+    speaker = (settings.sarvam_speaker or "pooja").strip().lower()
+    model = (settings.sarvam_model or "bulbul:v3").strip()
+    lang = (settings.sarvam_language_code or "en-IN").strip()
+    try:
+        pace = float(settings.sarvam_pace or 1.05)
+    except (TypeError, ValueError):
+        pace = 1.05
+    pace = max(0.5, min(2.0, pace))
+    try:
+        temperature = float(settings.sarvam_temperature or 0.55)
+    except (TypeError, ValueError):
+        temperature = 0.55
+    temperature = max(0.01, min(2.0, temperature))
+
+    cache_key = f"sarvam-{speaker}-p{pace:.2f}-t{temperature:.2f}"
+    mp3_path = _cache_path(text, cache_key, "mp3")
+    wav_path = _cache_path(text, cache_key, "wav")
+    if mp3_path.exists() and mp3_path.stat().st_size > 0:
+        return mp3_path.read_bytes(), "audio/mpeg"
+    if wav_path.exists() and wav_path.stat().st_size > 0:
+        return wav_path.read_bytes(), "audio/wav"
+
+    try:
+        import httpx
+    except ImportError:
+        logger.warning("httpx unavailable for Sarvam TTS")
+        return None
+
+    headers = {
+        "api-subscription-key": api_key,
+        "Content-Type": "application/json",
+    }
+    body = {
+        "text": text,
+        "language_code": lang,
+        "model": model,
+        "speaker": speaker,
+        "pace": pace,
+        "temperature": temperature,
+        "speech_sample_rate": 24000,
+        "output_audio_codec": "mp3",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                "https://api.sarvam.ai/text-to-speech",
+                headers=headers,
+                json=body,
+            )
+        if resp.status_code != 200:
+            logger.warning(
+                "Sarvam TTS HTTP %s (speaker=%s): %s",
+                resp.status_code,
+                speaker,
+                (resp.text or "")[:240],
+            )
+            return None
+        payload = resp.json()
+        audios = payload.get("audios") or []
+        if not audios:
+            logger.warning("Sarvam TTS empty audios for speaker=%s", speaker)
+            return None
+        audio = base64.b64decode(audios[0])
+        if not audio:
+            return None
+
+        # Codec may still return wav depending on account/model; sniff magic
+        if audio[:3] == b"ID3" or audio[:2] == b"\xff\xfb" or audio[:2] == b"\xff\xf3":
+            mp3_path.write_bytes(audio)
+            # Also alias generic provider cache for lookup_cached
+            _cache_path(text, "sarvam", "mp3").write_bytes(audio)
+            mime = "audio/mpeg"
+        elif audio[:4] == b"RIFF":
+            wav_path.write_bytes(audio)
+            _cache_path(text, "sarvam", "wav").write_bytes(audio)
+            mime = "audio/wav"
+        else:
+            mp3_path.write_bytes(audio)
+            _cache_path(text, "sarvam", "mp3").write_bytes(audio)
+            mime = "audio/mpeg"
+
+        logger.info(
+            "Kia Sarvam synth ok speaker=%s pace=%s (%s bytes)",
+            speaker,
+            pace,
+            len(audio),
+        )
+        return audio, mime
+    except Exception as exc:
+        logger.warning("Sarvam TTS failed: %s", exc)
+        for p in (mp3_path, wav_path):
+            if p.exists():
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+        return None
 
 
 def _gemini_sync(text: str) -> tuple[bytes, str] | None:
@@ -175,8 +283,8 @@ async def synthesize(text: str, *, allow_slow: bool = False) -> tuple[bytes, str
     """
     Return (audio_bytes, mime_type).
 
-    Default path is latency-first (cache → Edge). Set allow_slow=True only for
-    offline prebake scripts that intentionally wait on Gemini.
+    Default path is latency-first (cache → Sarvam if configured → Edge).
+    Set allow_slow=True only for offline prebake scripts that intentionally wait on Gemini.
     """
     cleaned = (text or "").strip()
     if not cleaned:
@@ -188,7 +296,6 @@ async def synthesize(text: str, *, allow_slow: bool = False) -> tuple[bytes, str
 
     hit = lookup_cached(cleaned)
     if hit:
-        # Still top up Gemini in bg if we only have Edge
         if GEMINI_BG and not _cache_path(cleaned, "gemini", "wav").exists():
             _schedule_gemini_upgrade(cleaned)
         return hit
@@ -200,12 +307,16 @@ async def synthesize(text: str, *, allow_slow: bool = False) -> tuple[bytes, str
             _save_gemini(cleaned, audio, mime)
             return audio, mime
 
+    if _sarvam_enabled():
+        sarvam = await _sarvam_audio(cleaned)
+        if sarvam:
+            return sarvam
+
     mp3 = await _edge_mp3(cleaned)
     if mp3:
         _schedule_gemini_upgrade(cleaned)
         return mp3, "audio/mpeg"
 
-    # Last resort: wait on Gemini if Edge unavailable
     gem = await asyncio.to_thread(_gemini_sync, cleaned)
     if gem:
         audio, mime = gem

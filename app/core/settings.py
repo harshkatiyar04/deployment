@@ -54,6 +54,23 @@ class Settings(BaseSettings):
     )
     # Content Moderation API
     gemini_api_key: Optional[str] = Field(default=None)
+
+    # Landing Kia — optional Sarvam TTS (server-side only; never VITE_*)
+    # Default: pooja (warm female, bulbul:v3). Fallback Edge: en-IN-NeerjaNeural (female).
+    sarvam_api_key: Optional[str] = Field(default=None, validation_alias="SARVAM_API_KEY")
+    sarvam_speaker: str = Field(default="pooja", validation_alias="SARVAM_SPEAKER")
+    sarvam_model: str = Field(default="bulbul:v3", validation_alias="SARVAM_MODEL")
+    sarvam_language_code: str = Field(default="en-IN", validation_alias="SARVAM_LANGUAGE_CODE")
+    sarvam_pace: float = Field(
+        default=1.05,
+        validation_alias="SARVAM_PACE",
+        description="Sarvam pace 0.5–2.0; keep near Edge Neerja +6%",
+    )
+    sarvam_temperature: float = Field(
+        default=0.55,
+        validation_alias="SARVAM_TEMPERATURE",
+        description="Expressiveness 0.01–2.0; lower = more stable guide tone",
+    )
     groq_api_key: Optional[str] = Field(default=None)
     # Groq model IDs (Llama 3.3 70B / 3.1 8B Instant shut down 2026-08-16)
     groq_kia_model: str = Field(
