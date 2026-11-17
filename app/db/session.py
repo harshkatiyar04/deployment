@@ -32,11 +32,15 @@ def _connect_args() -> dict:
     """
     Neon pooler (PgBouncer) + DDL/migrations invalidate prepared statements.
     Always disable asyncpg statement cache; unique names avoid cross-connection clashes.
+    Neon requires TLS — use asyncpg ssl=True (not libpq sslmode= in the URL).
     """
-    return {
+    args: dict = {
         "statement_cache_size": 0,
         "prepared_statement_name_func": lambda: f"__asyncpg_{uuid4().hex}__",
     }
+    if _is_neon_or_railway():
+        args["ssl"] = True
+    return args
 
 
 def is_stale_prepared_plan_error(exc: BaseException) -> bool:

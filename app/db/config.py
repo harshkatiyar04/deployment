@@ -1,14 +1,44 @@
 from __future__ import annotations
 
-from urllib.parse import quote_plus
+from typing import Optional
+from urllib.parse import parse_qsl, quote_plus, urlencode, urlparse, urlunparse
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.env import get_env_file
 
+# libpq query keys that asyncpg rejects as connect() kwargs (e.g. sslmode=require).
+_ASYNCPG_DROP_QUERY_KEYS = frozenset(
+    {
+        "sslmode",
+        "sslcert",
+        "sslkey",
+        "sslrootcert",
+        "sslcrl",
+        "channel_binding",
+        "gssencmode",
+        "options",
+    }
+)
 
-from typing import Optional
+
+def normalize_asyncpg_database_url(url: str) -> str:
+    """Convert to postgresql+asyncpg:// and strip libpq-only query params."""
+    raw = (url or "").strip()
+    if not raw:
+        return raw
+    if raw.startswith("postgresql://"):
+        raw = "postgresql+asyncpg://" + raw[len("postgresql://") :]
+    elif raw.startswith("postgres://"):
+        raw = "postgresql+asyncpg://" + raw[len("postgres://") :]
+
+    parsed = urlparse(raw)
+    if not parsed.query:
+        return raw
+    kept = [(k, v) for k, v in parse_qsl(parsed.query, keep_blank_values=True) if k.lower() not in _ASYNCPG_DROP_QUERY_KEYS]
+    return urlunparse(parsed._replace(query=urlencode(kept)))
+
 
 class DbSettings(BaseSettings):
     """
@@ -35,10 +65,7 @@ class DbSettings(BaseSettings):
     @property
     def database_url(self) -> str:
         if self.database_url_override:
-            # SQLAlchemy async requires postgresql+asyncpg://
-            if self.database_url_override.startswith("postgresql://"):
-                return self.database_url_override.replace("postgresql://", "postgresql+asyncpg://", 1)
-            return self.database_url_override
+            return normalize_asyncpg_database_url(self.database_url_override)
 
         # URL-encode password (because it contains '@')
         pw = quote_plus(self.db_password)
