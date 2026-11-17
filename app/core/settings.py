@@ -81,6 +81,17 @@ class Settings(BaseSettings):
         default="openai/gpt-oss-20b",
         validation_alias="GROQ_RAS_MODEL",
     )
+    # Temporary: Kia replies via Coarena (free-tier gpt-6-luna). RAS / landing stay on Groq.
+    kia_use_coarena: bool = Field(default=True, validation_alias="KIA_USE_COARENA")
+    coarena_api_key: Optional[str] = Field(default=None, validation_alias="COARENA_API_KEY")
+    coarena_base_url: str = Field(
+        default="https://coarena.ai/api/v1",
+        validation_alias="COARENA_BASE_URL",
+    )
+    coarena_kia_model: str = Field(
+        default="gpt-6-luna",
+        validation_alias="COARENA_KIA_MODEL",
+    )
 
     # The Guardian Open Platform (use "test" for dev tier; set a real key in production)
     guardian_api_key: Optional[str] = Field(default=None, validation_alias="GUARDIAN_API_KEY")

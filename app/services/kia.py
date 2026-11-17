@@ -614,6 +614,120 @@ def _get_groq_client():
         return None
 
 
+def _build_llm_messages(
+    system_prompt: str,
+    user_message: str,
+    history: Optional[List[dict]] = None,
+) -> List[dict]:
+    messages = [{"role": "system", "content": system_prompt}]
+    if history:
+        from app.services.kia_history import LLM_HISTORY_MESSAGE_CAP
+
+        for msg in history[-LLM_HISTORY_MESSAGE_CAP:]:
+            messages.append({
+                "role": msg.get("role", "user"),
+                "content": msg.get("content", ""),
+            })
+    messages.append({"role": "user", "content": user_message})
+    return messages
+
+
+def _coarena_enabled() -> bool:
+    """Temporary Kia reply path: Coarena when flag + key are set."""
+    return bool(settings.kia_use_coarena) and bool((settings.coarena_api_key or "").strip())
+
+
+async def _call_coarena_llm(
+    messages: List[dict],
+    *,
+    max_tokens: int,
+    temperature: float,
+    response_format: Optional[dict] = None,
+) -> Optional[str]:
+    """OpenAI-compatible Coarena chat/completions (temp Kia replies)."""
+    import httpx
+
+    api_key = (settings.coarena_api_key or "").strip()
+    base = (settings.coarena_base_url or "https://coarena.ai/api/v1").rstrip("/")
+    model_name = (settings.coarena_kia_model or "gpt-6-luna").strip()
+    url = f"{base}/chat/completions"
+    payload: dict = {
+        "model": model_name,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    if response_format:
+        payload["response_format"] = response_format
+
+    max_retries = 3
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+            if resp.status_code == 429:
+                if attempt >= max_retries:
+                    logger.error(
+                        "Coarena rate limited after %d retries: %s",
+                        max_retries,
+                        resp.text[:300],
+                    )
+                    return None
+                wait_time = 5 * attempt
+                logger.warning(
+                    "Coarena rate limited. Retrying in %ds (attempt %d/%d)",
+                    wait_time,
+                    attempt,
+                    max_retries,
+                )
+                await asyncio.sleep(wait_time)
+                continue
+            if resp.status_code >= 400:
+                logger.error(
+                    "Coarena LLM failed HTTP %s: %s",
+                    resp.status_code,
+                    resp.text[:400],
+                )
+                return None
+            data = resp.json()
+            choices = data.get("choices") or []
+            if not choices:
+                return None
+            content = (choices[0].get("message") or {}).get("content")
+            if content:
+                return str(content).strip()
+            return None
+        except Exception as exc:
+            exc_str = str(exc).lower()
+            if "rate_limit" in exc_str or "429" in exc_str:
+                if attempt >= max_retries:
+                    logger.error(
+                        "Coarena rate limited after %d retries: %s",
+                        max_retries,
+                        exc,
+                    )
+                    return None
+                wait_time = 5 * attempt
+                logger.warning(
+                    "Coarena rate limited. Retrying in %ds (attempt %d/%d)",
+                    wait_time,
+                    attempt,
+                    max_retries,
+                )
+                await asyncio.sleep(wait_time)
+            else:
+                logger.error("Coarena LLM call failed: %s", exc)
+                return None
+    return None
+
+
 async def _call_llm(
     system_prompt: str,
     user_message: str,
@@ -625,8 +739,9 @@ async def _call_llm(
     """
     Send a request to the LLM provider.
 
-    Currently: Groq (qwen/qwen3.6-27b, override GROQ_KIA_MODEL)
-    Future:    Anthropic (Claude) — swap this function only.
+    Temporary: Coarena gpt-6-luna when KIA_USE_COARENA + COARENA_API_KEY.
+    Default / fallback: Groq (override GROQ_KIA_MODEL).
+    RAS and landing Kia keep their own Groq paths.
 
     Args:
         system_prompt: Full system prompt (Constitution + persona + context)
@@ -639,25 +754,19 @@ async def _call_llm(
     Returns:
         The model's response text, or None on failure.
     """
+    messages = _build_llm_messages(system_prompt, user_message, history)
+
+    if _coarena_enabled():
+        return await _call_coarena_llm(
+            messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            response_format=response_format,
+        )
+
     client = _get_groq_client()
     if not client:
         return None
-
-    # Build messages array with conversation history
-    messages = [{"role": "system", "content": system_prompt}]
-
-    # Append conversation history (last N exchanges for continuity)
-    if history:
-        from app.services.kia_history import LLM_HISTORY_MESSAGE_CAP
-
-        for msg in history[-LLM_HISTORY_MESSAGE_CAP:]:
-            messages.append({
-                "role": msg.get("role", "user"),
-                "content": msg.get("content", ""),
-            })
-
-    # Append current user message
-    messages.append({"role": "user", "content": user_message})
 
     # ── Retry logic for rate limiting ────────────────────────────────
     max_retries = 3
