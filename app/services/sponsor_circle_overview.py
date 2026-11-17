@@ -19,10 +19,6 @@ from app.services.sponsor_circle_time_impact import (
     build_member_participation,
     build_time_impact,
 )
-from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
-from app.services.zenq_score_display import build_sponsor_scoreboard
-
-
 async def build_circle_overview(
     db: AsyncSession,
     user_id: str,
@@ -59,13 +55,6 @@ async def build_circle_overview(
     )
     pending_enrollment_count = int(pending_enroll.scalar_one() or 0)
 
-    zenq_display = await resolve_circle_zenq_display(
-        db,
-        circle_id,
-        student_count=student_count,
-        materialize_if_missing=settings.zenq_engine_enabled,
-    )
-
     time_data = await build_time_impact(db, circle_id)
     participation_data = await build_member_participation(
         db, circle, current_user_id=user_id
@@ -96,21 +85,22 @@ async def build_circle_overview(
         top_minutes = highest
         top_hrs = time_data.get("highest_circle_hrs")
 
-    scoreboard = await build_sponsor_scoreboard(
-        db,
-        circle_id=circle_id,
-        user_id=user_id,
-        zenq_display=zenq_display,
-        activity={
-            "participation_pct": my_pct,
-            "hours_this_month": my_hours,
-        },
-    )
+    # Ranks from v2 ladder when available; else unscored.
+    circle_rank = None
+    total_circles = None
+    try:
+        from app.services.zenq_v2.market import season_ladder
 
-    league = await list_engine_league_rows(db, circle_id)
-    my_league = next((r for r in league if r.get("is_mine")), None)
-    circle_rank = int(my_league["rank"]) if my_league else None
-    total_circles = len(league) if league else None
+        ladder = await season_ladder(db, bracket="B")
+        items = ladder.get("items") or []
+        total_circles = len(items) if items else None
+        for row in items:
+            if str(row.get("circle_id")) == str(circle_id):
+                circle_rank = row.get("rank")
+                break
+    except Exception:
+        circle_rank = None
+        total_circles = None
 
     return {
         "circle_id": circle.id,
@@ -119,13 +109,14 @@ async def build_circle_overview(
         "member_count": member_count,
         "student_count": student_count,
         "pending_enrollment_count": pending_enrollment_count,
-        "zenq_score": zenq_display.get("zenq_score"),
-        "zenq_available": bool(zenq_display.get("zenq_available")),
-        "zenq_source": zenq_display.get("zenq_source"),
-        "zenq_change": zenq_display.get("zenq_change"),
-        "zenq_breakdown": zenq_display.get("zenq_breakdown"),
-        "zenq_scoreboard": scoreboard,
-        "legacy_zqa_avg": zenq_display.get("legacy_zqa_avg"),
+        "zenq_v2_product": True,
+        "zenq_score": None,
+        "zenq_available": False,
+        "zenq_source": "zenq_v2",
+        "zenq_change": None,
+        "zenq_breakdown": None,
+        "zenq_scoreboard": None,
+        "legacy_zqa_avg": None,
         "circle_rank": circle_rank,
         "total_circles": total_circles,
         "participation_pct": my_pct,

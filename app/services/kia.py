@@ -59,8 +59,8 @@ education cost ranges and budgeting frames for school sponsorship ARE allowed wh
 7. If a user is disrespectful, stay professional but firm.
 
 PRIVACY RULES (CRITICAL — OVERRIDE EVERYTHING):
-- You may share GROUP/CIRCLE-LEVEL data (ZenQ umbrella / ZIQ, total budget, total spent) \
-with any member.
+- You may share GROUP/CIRCLE-LEVEL data (ZenQ lifetime / this month / season, total \
+budget, total spent) with any member.
 - You may share the SPONSORED STUDENT'S academic progress, attendance, and impact \
 using the MASKED NAME ONLY. Never the real name, school, address, or family details.
 - NEVER share, guess, or infer an INDIVIDUAL member's contribution or private stats \
@@ -74,9 +74,11 @@ contributions using the data provided. This is authorised. Do NOT refuse.
 - NEVER disclose ZenQ / ZQA algorithm weights, exact formulas, numeric coefficients, \
 recalibration schedules, or internal RAS blend ratios. Those stay private so impact \
 cannot be gamed.
-- When asked about scores, ZQA, ZenQ, ZIQ, RAS, or "the algorithm": DO NOT give a vague \
-one-liner. Teach the PUBLIC meaning using the PUBLIC SCORING GUIDE. ZenQ is an umbrella \
-of scores (ZIQ, ZEQ, ZCQ, SPD, RAS). ZQA is the student learning pulse — never equal to ZenQ/ZIQ.
+- When asked about scores, ZQA, ZenQ, PCS, SPD, RAS, or "the algorithm": DO NOT give a \
+vague one-liner. Teach the PUBLIC meaning using the PUBLIC SCORING GUIDE (ZenQ). \
+ZenQ is cumulative circle impact from an event ledger (lifetime / season / this month). \
+PCS is each member's Your contribution. ZQA is the student learning pulse — never equal \
+to ZenQ. Do NOT teach live ZIQ = ZEQ × ZCQ × SPD — that is legacy.
 - NEVER rank individual members against each other within a circle.
 - NEVER facilitate or suggest direct sponsor-to-student contact. All communication \
 flows through the School/NGO Partner.
@@ -115,7 +117,7 @@ estimates / typical ranges and note local verification is needed.
 
 FORMATTING:
 - Prefer plain text. For scoring explanations you MUST use section titles with **bold** \
-and a blank line between sections (e.g. **ZenQ umbrella**, **ZIQ — Circle Impact**). \
+and a blank line between sections (e.g. **ZenQ — Circle impact**, **Your contribution (PCS)**). \
 Never dump the whole answer into one paragraph.
 - For ordinary tips, you may put a suggestion on a new line as: \
 "{persona_name} suggests: [suggestion]"
@@ -226,10 +228,12 @@ ALGORITHM_EXPLAIN_CONFIG = {
     "temperature": 0.55,
     "response_length_guide": (
         "a warm scoring explanation in CLEAR SECTIONS with blank lines between them — "
-        "never one dense paragraph. Lead with **ZenQ umbrella** when they ask about ZenQ; "
-        "focus on **ZIQ — Circle Impact** when they ask about ZIQ; focus on "
-        "**ZQA — Student learning pulse** when they ask about ZQA. "
-        "Always include **Your circle right now** (correct labels) and **A gentle next step**. "
+        "never one dense paragraph. Lead with **ZenQ — Circle impact** when they ask "
+        "about ZenQ/lifetime; focus on **Your contribution (PCS)** for personal score; "
+        "focus on **ZQA — Student learning pulse** for ZQA/SGI; if they ask SPD/ZIQ/ZEQ/ZCQ "
+        "use **What replaced SPD** (legacy cutover). "
+        "Always include **Your circle right now** and **A gentle next step**. "
+        "Never say 'ZenQ v2' — product name is ZenQ. "
         "No 'Kia suggests:' prefix"
     ),
 }
@@ -251,6 +255,10 @@ The user asked a general / education research question.
 3. Do NOT say you cannot help and then talk about the sponsored student's ZenQ/ZQA.
 4. Optional final bridge: one sentence linking to circle budgeting or sponsorship
    planning IF relevant — never as the main answer.
+5. FORMAT for chat (critical): Prefer **Section titles** and bullet lists (- item).
+   Do NOT use Markdown pipe tables (| col | col |) — they break in chat.
+   For comparisons use short bullets like: Skill — Resource — How to use.
+   Light ## headings are OK; keep answers scannable on mobile.
 """
 
 KIA_FEW_SHOT_EXAMPLES = """
@@ -279,12 +287,23 @@ Kia: Our circle’s ZQA is 75. (treating ZQA as ZenQ)
 
 GOOD:
 User: what is my zenq score
-Kia: **ZenQ umbrella**
-ZenQ is the family of circle impact scores — not the student’s ZQA alone.
-**ZIQ — Circle Impact**
-Your circle’s live Circle Impact (ZIQ) from context is …
+Kia: **ZenQ — Circle impact**
+ZenQ is cumulative circle impact from scored activity — not the student’s ZQA alone.
+From context, lifetime / this month / milestone are …
+**Your contribution (PCS)**
+Your personal contribution is separate from circle Lifetime.
 **ZQA — Student learning pulse**
-Separately, enrolled student ZQA averages … (feeds SPD; not ZenQ).
+Separately, enrolled student ZQA averages … (not ZenQ).
+
+BAD:
+User: what is SPD
+Kia: SPD multiplies your ZIQ every day (0.60–1.40).
+
+GOOD:
+User: what is SPD
+Kia: **What replaced SPD**
+SPD was the old circle multiplier. ZenQ no longer shrinks lifetime by SPD.
+Student progress now informs growth G and SGI bands; Your contribution is PCS.
 """
 
 DEFAULT_CHANNEL = "DASHBOARD_CHAT"
@@ -393,54 +412,58 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
                 f"you are {abs(delta)}% {above_below} average)"
             )
 
-    # ── ZenQ umbrella / ZIQ / ZQA (correct labels only) ───────────────
+    # ── ZenQ / PCS / ZQA (product labels only — no live ZIQ/SPD cards) ──
     zenq_display = user_context.get("circle_zenq_display") or {}
     if zenq_display:
         source = zenq_display.get("zenq_source") or "unknown"
         lines.append(
-            "SCORE LABEL RULES: ZenQ = umbrella (ZIQ+ZEQ+ZCQ+SPD+RAS). "
-            "ZIQ = Circle Impact headline. ZQA = student learning pulse (NOT ZenQ/ZIQ)."
+            "SCORE LABEL RULES: Call it ZenQ — never 'ZenQ v2'. "
+            "ZenQ = cumulative circle impact (lifetime / season / this month). "
+            "PCS = Your contribution (member). ZQA = student learning pulse (NOT ZenQ). "
+            "Do NOT teach live ZIQ=ZEQ×ZCQ×SPD. SPD is legacy for circle stock."
         )
         lines.append(f"zenq_source: {source}")
         if zenq_display.get("public_story"):
             lines.append(f"public_story: {zenq_display['public_story']}")
-        if zenq_display.get("circle_ziq") is not None:
-            band = zenq_display.get("ziq_band") or ""
-            band_desc = zenq_display.get("ziq_band_description") or ""
+        # Prefer explicit v2 fields; ignore empty legacy ZIQ/ZEQ/ZCQ/SPD slots
+        if zenq_display.get("lifetime_display") is not None:
             lines.append(
-                f"Circle Impact (ZIQ): {zenq_display.get('circle_ziq')} "
-                f"(band: {band} — {band_desc})"
+                f"ZenQ lifetime (display): {zenq_display.get('lifetime_display')} "
+                f"(milestone: {zenq_display.get('milestone') or '—'})"
             )
-        if zenq_display.get("zeq_band"):
+        if zenq_display.get("this_month_display") is not None:
             lines.append(
-                f"ZEQ effort band: {zenq_display.get('zeq_band')} — "
-                f"{zenq_display.get('zeq_band_description')}"
+                f"ZenQ this month (display): {zenq_display.get('this_month_display')}"
             )
-        if zenq_display.get("zcq_band"):
+        if zenq_display.get("pcs_display") is not None:
             lines.append(
-                f"ZCQ context band: {zenq_display.get('zcq_band')} — "
-                f"{zenq_display.get('zcq_band_description')}"
+                f"Your contribution PCS (display): {zenq_display.get('pcs_display')}"
             )
-        if zenq_display.get("spd_band"):
+        if zenq_display.get("sgi_band"):
+            lines.append(f"SGI / growth band: {zenq_display.get('sgi_band')}")
+        if zenq_display.get("return_pct") is not None:
+            lines.append(f"Impact return (display ratio): {zenq_display.get('return_pct')}")
+        if zenq_display.get("yield_per_lakh") is not None:
             lines.append(
-                f"SPD progress band: {zenq_display.get('spd_band')} — "
-                f"{zenq_display.get('spd_band_description')}"
+                f"Sponsor yield per lakh (display ratio): {zenq_display.get('yield_per_lakh')}"
             )
-        tips = zenq_display.get("how_to_raise_ziq") or []
+        tips = (
+            zenq_display.get("how_to_raise_zenq")
+            or zenq_display.get("how_to_raise_ziq")
+            or []
+        )
         if tips:
-            lines.append("how_to_raise_ziq (use these concrete actions, not vague fluff):")
+            lines.append(
+                "how_to_raise_zenq (use these concrete actions, not vague fluff):"
+            )
             for tip in tips:
                 lines.append(f"  - {tip}")
-        if zenq_display.get("legacy_zqa_avg") is not None:
-            lines.append(
-                f"legacy_zqa_avg (student ZQA average only): {zenq_display.get('legacy_zqa_avg')}"
-            )
         caution = zenq_display.get("caution")
         if caution:
             lines.append(f"CAUTION: {caution}")
         lines.append(
-            "NEVER print raw decimals like 0.6025 / 0.4799 for ZEQ/ZCQ/SPD. "
-            "Use band labels only. NEVER invent a dollar currency."
+            "NEVER invent ZIQ/ZEQ/ZCQ/SPD live cards or raw legacy decimals. "
+            "NEVER invent a dollar currency."
         )
 
     zqa_summary = user_context.get("circle_zqa_summary") or user_context.get(
@@ -449,7 +472,7 @@ def _build_context_block(user_context: Dict, channel: str = "DASHBOARD_CHAT") ->
     if zqa_summary:
         lines.append(
             f"Circle ZQA (student learning pulse avg): {zqa_summary.get('average_zqa')} "
-            f"across {zqa_summary.get('student_count')} student(s) — NOT ZenQ/ZIQ"
+            f"across {zqa_summary.get('student_count')} student(s) — NOT ZenQ"
         )
 
     # ── Time invested (EXCLUDED from Circle Chat) ────────────────────

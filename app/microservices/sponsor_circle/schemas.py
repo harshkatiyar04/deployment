@@ -292,7 +292,8 @@ class TimeImpactResponse(BaseModel):
 class CircleRankRow(BaseModel):
     rank: int
     name: str
-    zenq: int
+    # Live pilot season_per_member_month can be fractional (e.g. 12.125)
+    zenq: float
     city: str
     is_mine: bool
 
@@ -560,9 +561,10 @@ class ProfilePulseResponse(BaseModel):
 class ImpactLeagueRow(BaseModel):
     rank: int
     circle_name: str
-    impact_score: Optional[int] = None
+    # Live pilot IP can be fractional (e.g. 12.75) — was int and crashed the league page.
+    impact_score: Optional[float] = None
     student_count: int = 0
-    zenq_avg: Optional[int] = None
+    zenq_avg: Optional[float] = None
     is_mine: bool = False
 
 

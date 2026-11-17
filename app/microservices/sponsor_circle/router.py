@@ -778,56 +778,41 @@ async def get_rankings(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Circle ZenQ ranking — materialized ZIQ league when available."""
-    from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
+    """Circle ZenQ ranking — ZenQ season ladder (legacy ZIQ league archived)."""
+    from app.services.zenq_v2.market import season_ladder
 
     circle, _ = await resolve_user_circle(db, user.id, circle_id)
-    student_res = await db.execute(
-        select(func.count()).select_from(SchoolStudent).where(SchoolStudent.circle_id == circle.id)
-    )
-    student_count = int(student_res.scalar_one() or 0)
-
-    league = await list_engine_league_rows(db, circle.id)
-    if league:
+    ladder = await season_ladder(db, bracket="B")
+    items = ladder.get("items") or []
+    if ladder.get("ladder_visible") and items:
         return RankingsResponse(
             circles=[
                 CircleRankRow(
-                    rank=row["rank"],
-                    name=row["circle_name"],
-                    zenq=row["zenq_avg"],
+                    rank=int(row.get("rank") or 0),
+                    name=str(row.get("circle_name") or row.get("circle_id") or "")[:64],
+                    # Raw season_per_member_month (no display_divisor) — league rate
+                    zenq=round(float(row.get("season_per_member_month") or 0), 4),
                     city="",
-                    is_mine=row["is_mine"],
+                    is_mine=str(row.get("circle_id")) == str(circle.id),
                 )
-                for row in league
+                for row in items
             ],
-            platform_rankings_available=len(league) > 1,
+            platform_rankings_available=len(items) > 1,
             message=(
-                "Live Circle Impact rankings across scored circles."
-                if len(league) > 1
-                else "Showing your circle only. More circles appear as they are scored."
+                "Season ZenQ per member-month ladder (bracket B)."
+                if len(items) > 1
+                else "Showing your bracket. More circles appear after monthly close."
             ),
         )
 
-    display = await resolve_circle_zenq_display(db, circle.id, student_count=student_count)
-    if not display.get("zenq_available"):
-        return RankingsResponse(
-            circles=[],
-            platform_rankings_available=False,
-            message="No ZenQ data yet. Rankings appear after students enroll and activity is recorded.",
-        )
-    zenq = int(display.get("zenq_score") or 0)
     return RankingsResponse(
-        circles=[
-            CircleRankRow(
-                rank=1,
-                name=circle.name,
-                zenq=zenq,
-                city="",
-                is_mine=True,
-            )
-        ],
+        circles=[],
         platform_rankings_available=False,
-        message="Showing your circle only. National circle rankings are not published yet.",
+        message=ladder.get("message")
+        or (
+            "Rankings appear once your circle has live ZenQ activity in this bracket. "
+            "Scores update from the first member — no month seal required."
+        ),
     )
 
 
@@ -1333,47 +1318,44 @@ async def get_impact_league(
     user: SignupRequest = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    from app.services.zenq_public_scores import list_engine_league_rows, resolve_circle_zenq_display
+    """Impact league from ZenQ season ladder (legacy ZIQ league archived)."""
+    from app.services.zenq_v2.market import season_ladder
 
     circle, _ = await resolve_user_circle(db, user.id, circle_id)
-    student_res = await db.execute(
-        select(func.count()).select_from(SchoolStudent).where(SchoolStudent.circle_id == circle.id)
-    )
-    count = int(student_res.scalar_one() or 0)
-
-    league = await list_engine_league_rows(db, circle.id)
-    if league:
-        return ImpactLeagueResponse(
-            rows=[ImpactLeagueRow(**row) for row in league],
-            available=True,
-            message=(
-                "Live Circle Impact league across scored circles."
-                if len(league) > 1
-                else "Showing your circle only. More circles appear as they are scored."
-            ),
-        )
-
-    display = await resolve_circle_zenq_display(db, circle.id, student_count=count)
-    if not display.get("zenq_available"):
-        return ImpactLeagueResponse(
-            rows=[],
-            available=False,
-            message="Impact League needs sponsored students with ZQA data. Enroll students via School Comm first.",
-        )
-    score = int(display.get("zenq_score") or 0)
-    return ImpactLeagueResponse(
-        rows=[
+    ladder = await season_ladder(db, bracket="B")
+    items = ladder.get("items") or []
+    if ladder.get("ladder_visible") and items:
+        rows = [
             ImpactLeagueRow(
-                rank=1,
-                circle_name=circle.name,
-                impact_score=score,
-                student_count=count,
-                zenq_avg=score,
-                is_mine=True,
+                rank=int(row.get("rank") or 0),
+                circle_name=str(row.get("circle_name") or row.get("circle_id") or "")[:128],
+                # Raw season_per_member_month (no display_divisor) — league rate
+                impact_score=round(
+                    float(row.get("season_per_member_month") or row.get("season_zenq") or 0),
+                    4,
+                ),
+                student_count=int(row.get("members_n") or row.get("member_months") or 0),
+                zenq_avg=round(
+                    float(row.get("season_per_member_month") or row.get("season_zenq") or 0),
+                    4,
+                ),
+                is_mine=str(row.get("circle_id")) == str(circle.id),
             )
-        ],
-        available=True,
-        message="Showing your circle only. Cross-circle league tables are not published yet.",
+            for row in items
+        ]
+        return ImpactLeagueResponse(
+            rows=rows,
+            available=True,
+            message="Season ZenQ per member-month ladder (bracket B).",
+        )
+    return ImpactLeagueResponse(
+        rows=[],
+        available=False,
+        message=ladder.get("message")
+        or (
+            "League appears once your circle has Season ZenQ activity in this bracket. "
+            "Ranked by Season ZenQ per member-month — not Lifetime ZenQ."
+        ),
     )
 
 

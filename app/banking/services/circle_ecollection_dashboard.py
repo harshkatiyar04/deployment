@@ -236,7 +236,12 @@ async def simulate_bank_credit(
         "REMITTER_ACCNO": "0000000000",
         "REMITTER_IFSC": "ICIC0000001",
     }
-    c_resp, _ = await eco.handle_credit_confirm(db, confirm_payload, client_ip="127.0.0.1")
+    c_resp, _ = await eco.handle_credit_confirm(
+        db,
+        confirm_payload,
+        client_ip="127.0.0.1",
+        actor_id=str(user_id) if user_id else None,
+    )
     return {
         "ok": c_resp.get("STATUS") == "A",
         "stage": "credit_confirm",

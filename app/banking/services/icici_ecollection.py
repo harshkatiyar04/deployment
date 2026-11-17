@@ -300,6 +300,7 @@ async def handle_credit_confirm(
     payload: dict[str, Any],
     *,
     client_ip: Optional[str] = None,
+    actor_id: Optional[str] = None,
 ) -> tuple[dict[str, Any], int]:
     try:
         data = parse_credit_confirm_request(payload)
@@ -416,6 +417,21 @@ async def handle_credit_confirm(
             )
         except Exception:
             logger.exception("Kia credit event emit failed utr=%s", txn.utr)
+        try:
+            from app.services.zenq_v2.bridge import bridge_pledge_paid
+
+            amount_inr = float(txn.amount_paise or 0) / 100.0
+            # Mock simulate passes actor_id so funding IP / PCS bump.
+            # Live ICICI webhooks leave actor_id=None until remitter→member mapping exists.
+            await bridge_pledge_paid(
+                db,
+                circle_id=str(txn.circle_id),
+                amount_inr=amount_inr,
+                txn_id=str(txn.id),
+                actor_id=actor_id,
+            )
+        except Exception:
+            logger.exception("ZenQ v2 pledge bridge failed utr=%s", txn.utr)
     return resp, 200
 
 

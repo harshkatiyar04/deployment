@@ -15,6 +15,7 @@ from app.api.routers import (
     admin_search,
     admin_legal,
     admin_zenq,
+    zenq_v2,
     admin_landing_contact,
     contact,
     analytics,
@@ -66,6 +67,8 @@ api_router.include_router(admin_platform_health.router)
 api_router.include_router(admin_search.router)
 api_router.include_router(admin_legal.router)
 api_router.include_router(admin_zenq.router)
+api_router.include_router(zenq_v2.router)
+api_router.include_router(zenq_v2.admin_router)
 api_router.include_router(admin_landing_contact.router)
 api_router.include_router(admin_website_traffic.router)
 api_router.include_router(notifications.router)

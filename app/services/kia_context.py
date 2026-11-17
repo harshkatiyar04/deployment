@@ -275,19 +275,20 @@ async def fetch_user_context(
                 }
             # Live circle ZenQ / ZIQ (never confuse with student ZQA).
             try:
-                from app.services.zenq_public_scores import resolve_circle_zenq_display
                 from app.services.kia_zenq_snapshot import enrich_zenq_display_for_kia
+                from app.services.zenq_v2.dashboard import get_circle_dashboard
 
-                display = await resolve_circle_zenq_display(
-                    db,
-                    circle_id,
-                    student_count=student_count,
-                    materialize_if_missing=False,
-                )
-                context["circle_zenq_display"] = enrich_zenq_display_for_kia(display)
+                dash = await get_circle_dashboard(db, circle_id)
+                try:
+                    from app.services.zenq_v2.ledger import get_member_me
+
+                    dash["member"] = await get_member_me(db, str(user_id), circle_id)
+                except Exception:
+                    pass
+                context["circle_zenq_display"] = enrich_zenq_display_for_kia(dash)
             except Exception as zenq_exc:
                 logger.warning(
-                    "kia_context: zenq display failed for circle %s: %s",
+                    "kia_context: zenq v2 display failed for circle %s: %s",
                     circle_id,
                     zenq_exc,
                 )
@@ -297,19 +298,20 @@ async def fetch_user_context(
 
         if "circle_zenq_display" not in context:
             try:
-                from app.services.zenq_public_scores import resolve_circle_zenq_display
                 from app.services.kia_zenq_snapshot import enrich_zenq_display_for_kia
+                from app.services.zenq_v2.dashboard import get_circle_dashboard
 
-                display = await resolve_circle_zenq_display(
-                    db,
-                    circle_id,
-                    student_count=student_count,
-                    materialize_if_missing=False,
-                )
-                context["circle_zenq_display"] = enrich_zenq_display_for_kia(display)
+                dash = await get_circle_dashboard(db, circle_id)
+                try:
+                    from app.services.zenq_v2.ledger import get_member_me
+
+                    dash["member"] = await get_member_me(db, str(user_id), circle_id)
+                except Exception:
+                    pass
+                context["circle_zenq_display"] = enrich_zenq_display_for_kia(dash)
             except Exception as zenq_exc:
                 logger.warning(
-                    "kia_context: zenq display failed for circle %s: %s",
+                    "kia_context: zenq v2 display failed for circle %s: %s",
                     circle_id,
                     zenq_exc,
                 )

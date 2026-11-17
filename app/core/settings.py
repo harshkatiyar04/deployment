@@ -88,14 +88,19 @@ class Settings(BaseSettings):
     # Dev-only: allow auto-join demo circle (never enable in production)
     allow_demo_circle: bool = Field(default=False, validation_alias="ZENK_ALLOW_DEMO_CIRCLE")
 
-    # ZenQ live scoring — on by default (set ZENQ_ENGINE_ENABLED=false only to roll back)
-    zenq_engine_enabled: bool = Field(default=True, validation_alias="ZENQ_ENGINE_ENABLED")
-    # ZenQ live event pipeline (chat → materializer) — on by default for admin observatory
+    # Legacy 1.5.1 board archived — true is ignored (no materializer)
+    zenq_engine_enabled: bool = Field(default=False, validation_alias="ZENQ_ENGINE_ENABLED")
+    # Live event hooks → ZenQ v2 ledger emitters
     zenq_live_events: bool = Field(default=True, validation_alias="ZENQ_LIVE_EVENTS")
-    # Weekly weight recalibration proposals (admin approval required before activation)
-    zenq_recalibration_enabled: bool = Field(default=True, validation_alias="ZENQ_RECALIBRATION_ENABLED")
+    # Legacy 1.5.1 weight recalibration archived
+    zenq_recalibration_enabled: bool = Field(default=False, validation_alias="ZENQ_RECALIBRATION_ENABLED")
     # AI-backed RAS for chat messages via Groq (falls back to heuristics if unavailable)
     zenq_ai_ras_enabled: bool = Field(default=True, validation_alias="ZENQ_AI_RAS_ENABLED")
+
+    # ZenQ v2 product path (defaults on after 1.5.1 archive)
+    zenq_v2_ledger: bool = Field(default=True, validation_alias="ZENQ_V2_LEDGER")
+    zenq_v2_close: bool = Field(default=True, validation_alias="ZENQ_V2_CLOSE")
+    zenq_v2_product: bool = Field(default=True, validation_alias="ZENQ_V2_PRODUCT")
 
     # Soft launch — Path 1 (default full = current behaviour; waitlist gates public signup later)
     launch_mode: str = Field(default="full", validation_alias="ZENK_LAUNCH_MODE")

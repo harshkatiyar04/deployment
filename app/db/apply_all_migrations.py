@@ -50,6 +50,14 @@ async def apply_all_migrations() -> None:
     from app.db.migrations.migration_048_landing_contact_visitor_meta import run_migration as m048
     from app.db.migrations.migration_049_landing_contact_source import run_migration as m049
     from app.db.migrations.migration_050_landing_analytics import run_migration as m050
+    from app.db.migrations.migration_051_zenq_v2_ledger import run_migration as m051
+    from app.db.migrations.migration_052_zenq_v2_idempotency import run_migration as m052
+    from app.db.migrations.migration_053_zenq_v2_member_silent import run_migration as m053
+    from app.db.migrations.migration_054_zenq_v2_partners import run_migration as m054
+    from app.db.migrations.migration_055_zenq_v2_csr_allocation import run_migration as m055
+    from app.db.migrations.migration_056_zenq_v2_recalibration import run_migration as m056
+    from app.db.migrations.migration_057_zenq_v2_design_params import run_migration as m057
+    from app.db.migrations.migration_058_zenq_v2_pilot_no_seal import run_migration as m058
 
     for label, fn in (
         ("008", m008),
@@ -94,6 +102,14 @@ async def apply_all_migrations() -> None:
         ("048", m048),
         ("049", m049),
         ("050", m050),
+        ("051", m051),
+        ("052", m052),
+        ("053", m053),
+        ("054", m054),
+        ("055", m055),
+        ("056", m056),
+        ("057", m057),
+        ("058", m058),
     ):
         try:
             await fn()

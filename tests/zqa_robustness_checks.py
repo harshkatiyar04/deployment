@@ -1,12 +1,12 @@
 """ZQA v2 robustness checks (run: python -m tests.zqa_robustness_checks)."""
 
-from app.algorithms.zenq.zqa import (
+from app.algorithms.zqa.zqa import (
     compute_academic_composite,
     compute_zqa_result,
     resolve_academic_subjects,
     validate_zqa_inputs,
 )
-from app.algorithms.zenq.zqa_policy import publish_blocking_issues
+from app.algorithms.zqa.zqa_policy import publish_blocking_issues
 from app.services.school_zqa_engine import assert_zqa_publishable
 
 

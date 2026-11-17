@@ -7,7 +7,7 @@ import logging
 
 from sqlalchemy import text
 
-from app.algorithms.zenq.constants import DEFAULT_WEIGHTS
+from app.algorithms.zqa.constants import DEFAULT_WEIGHTS
 from app.db.session import engine
 
 logger = logging.getLogger(__name__)

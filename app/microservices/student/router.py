@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+from datetime import date
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
+logger = logging.getLogger(__name__)
 
 from app.core.jwt_auth import get_current_user
 from app.db.session import get_db
@@ -365,6 +369,22 @@ async def student_kia_chat(
     db.add(kia_msg)
     await db.commit()
     await db.refresh(kia_msg)
+
+    # ZenQ v2: student Kia practice → ledger when circle is linked (1/day).
+    try:
+        from app.services.zenq_v2.bridge import bridge_kia
+
+        circle_id = (ctx.get("overview") or {}).get("circle_id")
+        if circle_id:
+            await bridge_kia(
+                db,
+                circle_id=str(circle_id),
+                actor_user_id=str(user.id),
+                kia_kind="PRACTICE",
+                idempotency_key=f"v2:kia:practice:{user.id}:{date.today().isoformat()}",
+            )
+    except Exception:
+        logger.debug("[zenq_v2] student kia PRACTICE bridge skipped", exc_info=True)
 
     return StudentKiaChatResponse(
         reply=reply,

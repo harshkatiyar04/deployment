@@ -14,7 +14,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 
 from app.models.school import SchoolStudent
 
-from app.algorithms.zenq.zqa_policy import ZQA_POLICY_TEXT
+from app.algorithms.zqa.zqa_policy import ZQA_POLICY_TEXT
 
 TEAL = colors.HexColor("#0d9488")
 DARK = colors.HexColor("#0f172a")

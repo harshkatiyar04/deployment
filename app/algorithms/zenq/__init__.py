@@ -1,48 +1,10 @@
-from .core import (
-    apply_decay,
-    apply_ras,
-    classify_zqa_band,
-    compute_a,
-    compute_comm_index,
-    compute_equity,
-    compute_inspire_index,
-    compute_s,
-    compute_spd,
-    compute_t,
-    compute_zcq,
-    compute_zeq,
-    compute_ziq,
-    compute_ziq_per_member,
-    compute_zqa_composite,
-    get_k,
-    get_k_att,
-    get_n_eff,
-)
-from .models import RealtimeZenqResult, ZcqInputs, ZeqInputs, ZqaInputs
-from .recalibration import recalibrate_weights
+"""Legacy ZenQ 1.5.1 board package has been archived.
 
-__all__ = [
-    "apply_decay",
-    "apply_ras",
-    "classify_zqa_band",
-    "compute_a",
-    "compute_comm_index",
-    "compute_equity",
-    "compute_inspire_index",
-    "compute_s",
-    "compute_spd",
-    "compute_t",
-    "compute_zcq",
-    "compute_zeq",
-    "compute_ziq",
-    "compute_ziq_per_member",
-    "compute_zqa_composite",
-    "get_k",
-    "get_k_att",
-    "get_n_eff",
-    "RealtimeZenqResult",
-    "ZcqInputs",
-    "ZeqInputs",
-    "ZqaInputs",
-    "recalibrate_weights",
-]
+School ZQA: `app.algorithms.zqa`
+Chat RAS: `app.services.chat_ras`
+Product scoring: `app.algorithms.zenq_v2` + `app.services.zenq_v2`
+Archive: `archive/legacy/zenq-1.5.1-ras-ai/`
+"""
+raise ImportError(
+    "app.algorithms.zenq board engine archived. Use zenq_v2 / algorithms.zqa / chat_ras."
+)

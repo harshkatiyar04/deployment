@@ -53,62 +53,76 @@ LANDING_KIA_CHUNKS: List[KiaChunk] = [
     KiaChunk(
         id="scoring-overview",
         title="Scoring overview",
-        tags=("score", "scoring", "algorithm", "zenq", "board", "metrics", "six"),
+        tags=("score", "scoring", "algorithm", "zenq", "board", "metrics", "pcs", "v2"),
         text=(
-            "Six algorithms feed one impact board: ZenQ (circle impact), ZEQ (effort), "
-            "ZQA (learning pulse), ZCQ (context), SPD (progress delta), and RAS "
-            "(mentorship authenticity / chat quality). Together they show effort meeting evidence."
+            "ZenQ is the product scoring system. Circle ZenQ (lifetime / this month / season) "
+            "comes from scored activity on an event ledger. Your contribution is PCS (personal). "
+            "ZQA is the student learning pulse; growth from the child’s own baseline informs G/SGI "
+            "(it no longer multiplies circle stock as old SPD did). RAS rates chat quality."
         ),
     ),
     KiaChunk(
         id="zenq",
         title="ZenQ — Circle Impact",
-        tags=("zenq", "ziq", "circle impact", "headline"),
+        tags=("zenq", "ziq", "circle impact", "headline", "lifetime"),
         text=(
-            "ZenQ is the circle’s live impact grade — the headline score your circle sees. "
-            "It rolls effort, context, and student growth into one score that updates as "
-            "people show up and the child progresses. Example story: Developing → Strong "
-            "after a term of consistent mentoring because growth became visible."
+            "ZenQ is the circle’s cumulative impact — lifetime never resets; season resets each "
+            "January; this month shows current earnings. It rises from sessions, thoughtful chat, "
+            "targets, Kia, pledges, referrals, and sparks — not from student ZQA alone. "
+            "Example: a circle moves milestone Seed → Sprout as people keep showing up."
+        ),
+    ),
+    KiaChunk(
+        id="pcs",
+        title="PCS — Your contribution",
+        tags=("pcs", "contribution", "member", "personal"),
+        text=(
+            "PCS (Your contribution) is each member’s own cumulative impact from attributed "
+            "activity. It is not the same as circle Lifetime. Quiet months may fade PCS after "
+            "long silence; the circle lifetime stock is not erased by a hard student quarter."
         ),
     ),
     KiaChunk(
         id="zeq",
-        title="ZEQ — Effort",
-        tags=("zeq", "effort", "sponsor effort", "mentoring hours", "showing up"),
+        title="Effort (sessions & showing up)",
+        tags=("zeq", "effort", "sponsor effort", "mentoring hours", "showing up", "presence"),
         text=(
-            "ZEQ tracks sponsor/circle effort: mentoring time, kept promises, meaningful chat, "
-            "and how fairly effort is shared. Showing up counts — quiet money alone does not "
-            "define the score. Example: four members and about twelve mentor hours with weekly "
-            "check-ins keeps effort Active."
+            "Effort still matters in ZenQ as presence and learning events: mentoring time, "
+            "kept promises, and meaningful participation. Showing up counts — quiet money alone "
+            "does not define the score. Example: weekly sessions and targets keep presence IP moving."
         ),
     ),
     KiaChunk(
         id="zqa",
         title="ZQA — Learning Pulse",
-        tags=("zqa", "learning", "academics", "student pulse", "report card"),
+        tags=("zqa", "learning", "academics", "student pulse", "report card", "sgi"),
         text=(
-            "ZQA is the student learning pulse — more than a report card. It blends academics, "
-            "deeper thinking, social-emotional growth, and attendance into one learning-health read. "
+            "ZQA is the student learning pulse — more than a report card. It blends academics and "
+            "related signals into a learning-health read. Growth from the student’s own baseline "
+            "informs growth multiplier G and SGI bands. ZQA is never equal to circle ZenQ. "
             "Demo story: ZQA moved 54 → 62 as the circle supported the student."
         ),
     ),
     KiaChunk(
         id="zcq",
-        title="ZCQ — Context Quotient",
-        tags=("zcq", "context", "fairness", "need", "circumstances"),
+        title="Context (need band)",
+        tags=("zcq", "context", "fairness", "need", "circumstances", "k"),
         text=(
-            "ZCQ is context fairness. It adjusts for the student’s real circumstances — need level, "
-            "attendance patterns, circle size — so harder journeys are not punished by a one-size curve."
+            "Context fairness remains via the circle need band K — adjusting for the student’s "
+            "real circumstances so harder journeys are not punished by a one-size curve. "
+            "This is not the old ZCQ×SPD product formula."
         ),
     ),
     KiaChunk(
         id="spd",
-        title="SPD — Progress Delta",
-        tags=("spd", "progress", "delta", "baseline", "growth"),
+        title="SPD — legacy name",
+        tags=("spd", "progress", "delta", "baseline", "growth", "legacy"),
         text=(
-            "SPD measures how far the child moved from their own baseline — never against classmates "
-            "or national ranks. Growth from where they started is what matters. Example: +8 points "
-            "over six months is celebrated momentum."
+            "SPD was the old circle multiplier that could shrink the whole ZenQ score. "
+            "In ZenQ, student progress no longer multiplies lifetime stock that way. "
+            "Progress from the child’s own baseline now informs growth G (≥ 1) and SGI narrative. "
+            "School ZQA may still track progress vs baseline internally — that is not a public "
+            "SPD card on the circle scoreboard."
         ),
     ),
     KiaChunk(
@@ -117,18 +131,20 @@ LANDING_KIA_CHUNKS: List[KiaChunk] = [
         tags=("ras", "chat", "message quality", "authenticity", "mentorship"),
         text=(
             "RAS rates whether guidance feels thoughtful and student-centred. Genuine messages rise; "
-            "copy-paste check-ins do not. Example: asking about algebra and suggesting one problem "
-            "beats a generic ‘hope you’re fine’ every week."
+            "copy-paste check-ins do not. In ZenQ, better chat quality maps into chat impact "
+            "points. Example: asking about algebra and suggesting one problem beats a generic "
+            "‘hope you’re fine’ every week."
         ),
     ),
     KiaChunk(
         id="formula",
         title="How scores relate",
-        tags=("formula", "multiply", "relation", "how scores work"),
+        tags=("formula", "multiply", "relation", "how scores work", "e"),
         text=(
-            "On the marketing story board, circle impact is framed as effort, context, and progress "
-            "working together — often summarised as impact emerging from effort × context × progress. "
-            "ZenK does not publish proprietary weights. Dashboards update as the circle shows up."
+            "ZenQ: scored activity → impact points → monthly earnings E (weighted, × need K × "
+            "growth G) → lifetime and season. PCS is personal. Yield and return are display ratios "
+            "for funders — they do not add back into IP. ZenK does not publish proprietary weights. "
+            "Do not teach live ZIQ = ZEQ × ZCQ × SPD."
         ),
     ),
     KiaChunk(
@@ -137,8 +153,9 @@ LANDING_KIA_CHUNKS: List[KiaChunk] = [
         tags=("demo", "try", "interactive", "join circle", "asha"),
         text=(
             "The landing page has an interactive Impact scores demo. You can join a demo circle "
-            "(name stays on the page) and watch ZenQ, ZEQ, ZQA, ZCQ, SPD, and RAS move together "
-            "when someone shows up — a preview of how the board responds to participation."
+            "(name stays on the page) and watch signals move when someone shows up — a preview of "
+            "how the board responds to participation. Product scoring is ZenQ (lifetime, PCS, "
+            "ZQA/SGI, RAS) — not the old SPD multiplier story."
         ),
     ),
     KiaChunk(
@@ -240,10 +257,9 @@ SUGGESTION_PROMPTS: List[str] = [
     "What is ZenK?",
     "How does scoring work?",
     "What is ZenQ?",
-    "What does ZEQ measure?",
+    "What is PCS?",
     "Explain ZQA learning pulse",
-    "What is ZCQ context?",
-    "What is SPD progress delta?",
+    "What is SPD?",
     "What is RAS chat quality?",
     "What is a circle?",
     "Who can join?",

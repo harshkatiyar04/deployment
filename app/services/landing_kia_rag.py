@@ -38,49 +38,57 @@ _FAST: Dict[str, str] = {
         "one child and measure the impact."
     ),
     "how does scoring work?": (
-        "Six signals feed one board: ZenQ (circle impact), ZEQ (effort), ZQA (learning pulse), "
-        "ZCQ (context), SPD (progress from baseline), and RAS (mentorship quality). "
-        "Together they show effort meeting evidence — proprietary weights stay unpublished."
+        "ZenQ: scored activity builds circle ZenQ (lifetime / this month / season). "
+        "Your contribution is PCS. ZQA is the student learning pulse; growth from their "
+        "own baseline informs G/SGI — old SPD no longer multiplies circle stock. "
+        "RAS rates chat quality. Proprietary weights stay unpublished."
     ),
     "what is zenq?": (
-        "ZenQ is the circle’s live impact grade — the headline score. It rolls effort, "
-        "context, and student growth into one number that updates as people show up."
+        "ZenQ is the circle’s cumulative impact — lifetime never resets; season resets "
+        "each January. It rises from sessions, thoughtful chat, targets, Kia, pledges, "
+        "and related activity — not from student ZQA alone."
+    ),
+    "what is pcs?": (
+        "PCS is Your contribution — each member’s own cumulative impact from attributed "
+        "activity. It is separate from circle Lifetime."
     ),
     "what does zeq measure?": (
-        "ZEQ tracks effort: mentoring time, kept promises, meaningful chat, and how fairly "
-        "effort is shared across the circle. Showing up counts — quiet money alone doesn’t."
+        "Effort still matters as presence and learning: mentoring time, kept promises, "
+        "and meaningful participation. Showing up counts — quiet money alone doesn’t."
     ),
     "explain zqa": (
-        "ZQA is the student learning pulse — more than a report card. It blends academics, "
-        "deeper thinking, social-emotional growth, and attendance into one learning-health read."
+        "ZQA is the student learning pulse — more than a report card. It is never equal "
+        "to circle ZenQ. Growth from the student’s own baseline informs G and SGI bands."
     ),
     "explain zqa learning pulse": (
-        "ZQA is the student learning pulse — more than a report card. It blends academics, "
-        "deeper thinking, social-emotional growth, and attendance into one learning-health read."
+        "ZQA is the student learning pulse — more than a report card. It is never equal "
+        "to circle ZenQ. Growth from the student’s own baseline informs G and SGI bands."
     ),
     "what is zcq?": (
-        "ZCQ is context fairness. It adjusts for the student’s real circumstances — need, "
-        "attendance patterns, circle size — so harder journeys aren’t punished by a flat curve."
+        "Context fairness remains via the circle need band — harder journeys aren’t "
+        "punished by a flat curve. This is not the old ZCQ×SPD product formula."
     ),
     "what is zcq context?": (
-        "ZCQ is context fairness. It adjusts for the student’s real circumstances — need, "
-        "attendance patterns, circle size — so harder journeys aren’t punished by a flat curve."
+        "Context fairness remains via the circle need band — harder journeys aren’t "
+        "punished by a flat curve. This is not the old ZCQ×SPD product formula."
     ),
     "what is spd?": (
-        "SPD measures how far the child has moved from their own baseline — never against "
-        "classmates or national ranks. Growth from where they started is what counts."
+        "SPD was the old circle multiplier that could shrink the whole score. "
+        "ZenQ replaced that with growth G (≥ 1) and SGI narrative from the child’s "
+        "own baseline — lifetime stock is not erased by a hard quarter."
     ),
     "what is spd progress delta?": (
-        "SPD measures how far the child has moved from their own baseline — never against "
-        "classmates or national ranks. Growth from where they started is what counts."
+        "SPD was the old circle multiplier that could shrink the whole score. "
+        "ZenQ replaced that with growth G (≥ 1) and SGI narrative from the child’s "
+        "own baseline — lifetime stock is not erased by a hard quarter."
     ),
     "what is ras?": (
         "RAS rates whether guidance feels thoughtful and student-centred. Genuine messages rise; "
-        "copy-paste check-ins don’t."
+        "copy-paste check-ins don’t. In ZenQ that feeds chat impact quality."
     ),
     "what is ras chat quality?": (
         "RAS rates whether guidance feels thoughtful and student-centred. Genuine messages rise; "
-        "copy-paste check-ins don’t."
+        "copy-paste check-ins don’t. In ZenQ that feeds chat impact quality."
     ),
     "what is a circle?": (
         "A circle is a small group — sponsors, mentors, peers, and supporters — formed around "
@@ -104,12 +112,14 @@ _FAST: Dict[str, str] = {
         "funds move only through governed escrow — visible and released against agreed support."
     ),
     "how does the demo work?": (
-        "On this page, the Impact scores demo lets you join a sample circle and watch ZenQ, "
-        "ZEQ, ZQA, ZCQ, SPD, and RAS move when someone shows up — a preview of the live board."
+        "On this page, the Impact scores demo lets you join a sample circle and watch signals "
+        "move when someone shows up — a preview of participation. Product scoring is ZenQ "
+        "(lifetime, PCS, ZQA/SGI, RAS), not the old SPD multiplier story."
     ),
     "how does the live demo work?": (
-        "On this page, the Impact scores demo lets you join a sample circle and watch ZenQ, "
-        "ZEQ, ZQA, ZCQ, SPD, and RAS move when someone shows up — a preview of the live board."
+        "On this page, the Impact scores demo lets you join a sample circle and watch signals "
+        "move when someone shows up — a preview of participation. Product scoring is ZenQ "
+        "(lifetime, PCS, ZQA/SGI, RAS), not the old SPD multiplier story."
     ),
     "what do mentors do?": (
         "Mentors invest time in real guidance. Mentor hours and participation show up on the "
@@ -151,7 +161,7 @@ You sound like a thoughtful teammate explaining the product — never like a cha
 
 ONLY answer using the PLATFORM CONTEXT below. Topics allowed:
 - What ZenK is, Kizuna, circles, roles, waitlist / Founding Circles
-- Scoring: ZenQ, ZEQ, ZQA, ZCQ, SPD, RAS and how the board shows effort → evidence
+- Scoring: ZenQ (lifetime / month / season), PCS, ZQA / SGI / G, RAS; SPD only as legacy
 - Trust/escrow at a product level (process), demo on the landing page, privacy consent on the form
 
 HARD REFUSALS (politely redirect to platform topics):

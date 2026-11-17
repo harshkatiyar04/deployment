@@ -1,73 +1,59 @@
-"""Member-safe ZenQ / ZIQ snapshot for Kia (bands, not raw engine decimals)."""
+"""Member-safe ZenQ snapshot for Kia — ZenQ v2 wording (1.5.1 bands archived)."""
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from app.algorithms.zenq.score_scales import score_card
 
+def enrich_zenq_display_for_kia(display: Optional[dict[str, Any]] = None) -> dict[str, Any]:
+    """v2-only teaching fields — no legacy ZIQ/ZEQ/SPD coefficient cards."""
+    display = display or {}
+    this_month = display.get("this_month") or {}
+    member = display.get("member") or {}
 
-def enrich_zenq_display_for_kia(display: dict[str, Any]) -> dict[str, Any]:
-    """
-    Convert resolve_circle_zenq_display() into Kia-safe fields.
+    lifetime_display = display.get("lifetime_display")
+    if lifetime_display is None and display.get("lifetime") is not None:
+        lifetime_display = display.get("lifetime")
 
-    Members see ZIQ as an integer + public band labels for ZEQ/ZCQ/SPD.
-    Raw 4-decimal engine coefficients are NOT exposed for chat teaching.
-    """
-    source = display.get("zenq_source") or "unknown"
-    breakdown = display.get("zenq_breakdown") or {}
+    this_month_display = this_month.get("earnings_display")
+    if this_month_display is None and this_month.get("earnings") is not None:
+        this_month_display = this_month.get("earnings")
 
-    ziq: Optional[int] = None
-    if breakdown.get("ziq") is not None:
-        ziq = int(round(float(breakdown["ziq"])))
-    elif source == "engine" and display.get("zenq_score") is not None:
-        ziq = int(display["zenq_score"])
+    pcs_display = member.get("pcs_display")
+    if pcs_display is None and member.get("pcs") is not None:
+        pcs_display = member.get("pcs")
 
-    zeq = breakdown.get("zeq_avg")
-    zcq = breakdown.get("zcq")
-    spd = breakdown.get("spd_avg")
-
-    ziq_card = score_card("ziq", float(ziq)) if ziq is not None else None
-    zeq_card = score_card("zeq", float(zeq)) if zeq is not None else None
-    zcq_card = score_card("zcq", float(zcq)) if zcq is not None else None
-    spd_card = score_card("spd", float(spd)) if spd is not None else None
-
-    out: dict[str, Any] = {
-        "zenq_source": source,
-        "circle_ziq": ziq,
-        "zenq_available": bool(display.get("zenq_available")),
-        "legacy_zqa_avg": display.get("legacy_zqa_avg"),
-        # Human teaching fields — use these in chat, never raw floats.
-        "ziq_band": (ziq_card or {}).get("band"),
-        "ziq_band_description": (ziq_card or {}).get("band_description"),
-        "zeq_band": (zeq_card or {}).get("band"),
-        "zeq_band_description": (zeq_card or {}).get("band_description"),
-        "zcq_band": (zcq_card or {}).get("band"),
-        "zcq_band_description": (zcq_card or {}).get("band_description"),
-        "spd_band": (spd_card or {}).get("band"),
-        "spd_band_description": (spd_card or {}).get("band_description"),
+    return {
+        "zenq_source": "zenq_v2",
+        # Explicitly null — Kia must not invent legacy cards
+        "circle_ziq": None,
+        "ziq_band": None,
+        "zeq_band": None,
+        "zcq_band": None,
+        "spd_band": None,
+        "legacy_zqa_avg": None,
+        "zenq_available": bool(display.get("scored")),
+        "lifetime_display": lifetime_display,
+        "this_month_display": this_month_display,
+        "pcs_display": pcs_display,
+        "milestone": display.get("milestone"),
+        "sgi_band": this_month.get("sgi_band") or display.get("sgi_band"),
+        "return_pct": display.get("return_pct"),
+        "yield_per_lakh": display.get("yield_per_lakh"),
         "public_story": (
-            "ZIQ (Circle Impact) is the headline under the ZenQ umbrella. "
-            "It grows when circle effort (ZEQ), the child's context (ZCQ), and "
-            "student progress from their own baseline (SPD) all move in a healthy way. "
-            "Never quote internal decimal coefficients to members."
+            "Circle impact is ZenQ: lifetime, this month's earnings, and milestones "
+            "from scored activity. Your contribution is PCS. Student ZQA/SGI is separate. "
+            "Legacy SPD no longer multiplies circle ZenQ."
         ),
+        "how_to_raise_zenq": [
+            "Complete verified sessions and learning targets with the student.",
+            "Keep encouraging chat substantive (not one-liners).",
+            "Support Sparks and referrals when the circle is ready; keep pledges current.",
+        ],
+        # Alias for older prompt paths that still read this key
         "how_to_raise_ziq": [
-            "ZEQ — Post 2–3 thoughtful, student-centred chat notes this week (not one-liners).",
-            "ZEQ — Join circle discussions and help with one concrete task (order, enrollment, school update).",
-            "SPD — Ask the school partner for a timely quarterly update; celebrate one subject win.",
-            "SPD — Support attendance gently (check-ins when the child misses school).",
-            "ZCQ — You do not 'game' context; use it to care better when need is higher.",
+            "Complete verified sessions and learning targets with the student.",
+            "Keep encouraging chat substantive (not one-liners).",
+            "Support Sparks and referrals when the circle is ready; keep pledges current.",
         ],
     }
-
-    if source == "legacy_zqa_avg":
-        out["circle_ziq"] = None
-        out["ziq_band"] = None
-        out["caution"] = (
-            "Circle Impact engine score is not materialised yet. "
-            "legacy_zqa_avg is student ZQA average only — "
-            "do NOT call it ZenQ, ZIQ, or Circle Impact."
-        )
-
-    return out

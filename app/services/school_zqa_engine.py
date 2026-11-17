@@ -9,7 +9,7 @@ from typing import Any, Optional
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.algorithms.zenq.core import (
+from app.algorithms.zqa.formulas import (
     compute_a,
     compute_comm_index,
     compute_inspire_index,
@@ -23,8 +23,8 @@ from app.algorithms.zenq.core import (
     get_k_att,
     get_n_eff,
 )
-from app.algorithms.zenq.zqa import ZqaComputationResult, compute_zqa_result
-from app.algorithms.zenq.zqa_policy import format_publish_blockers, publish_blocking_issues
+from app.algorithms.zqa.zqa import ZqaComputationResult, compute_zqa_result
+from app.algorithms.zqa.zqa_policy import format_publish_blockers, publish_blocking_issues
 from app.models.school import (
     SchoolAttendance,
     SchoolStudent,
@@ -116,7 +116,7 @@ def assert_zqa_publishable(
     class_size: Optional[int],
     narrative: Optional[str] = None,
 ) -> None:
-    from app.algorithms.zenq.zqa import validate_zqa_inputs
+    from app.algorithms.zqa.zqa import validate_zqa_inputs
 
     issues = validate_zqa_inputs(
         subject_scores=subject_scores,

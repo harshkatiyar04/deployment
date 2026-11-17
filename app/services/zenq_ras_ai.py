@@ -8,9 +8,8 @@ import logging
 import re
 from typing import Any, Optional
 
-from app.algorithms.zenq.aggregators import is_substantive_message
-from app.algorithms.zenq.ras import score_message_ras
 from app.core.settings import settings
+from app.services.chat_ras import is_substantive_message, score_message_ras
 
 logger = logging.getLogger(__name__)
 
@@ -207,7 +206,7 @@ def message_quality_fields(
     shield_action: str = "allow",
 ) -> dict[str, float | bool]:
     """Sync fallback — heuristics only (legacy callers)."""
-    from app.algorithms.zenq.ras import message_quality_fields as _heuristic_fields
+    from app.services.chat_ras import message_quality_fields as _heuristic_fields
 
     base = _heuristic_fields(text, shield_action)
     return {

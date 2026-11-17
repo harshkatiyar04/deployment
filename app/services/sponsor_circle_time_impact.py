@@ -593,11 +593,7 @@ async def build_member_participation(
         "circle_total_minutes": total_minutes,
         "period_label": since.strftime("%B %Y"),
         "metrics_available": True,
-        "message": (
-            "Member time is estimated from each seat holder’s chat, marketplace orders, "
-            "and enrollment approvals this month. Totals match the sum of member rows "
-            "(student activity is listed separately and not counted in seat totals)."
-        ),
+        "message": None,
         "member_count": member_count,
         "member_limit": limit,
         "is_leader": is_leader_viewer,

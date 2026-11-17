@@ -29,7 +29,7 @@ from app.core.settings import settings
 from app.db.session import get_db, SessionLocal
 from app.services.zenq_ras_ai import message_quality_fields_async
 from app.services.zenq_event_processor import run_chat_message_zenq_pipeline
-from app.services.zenq_materializer import ZENQ_SCORING_ROLES
+from app.services.zenq_event_processor import ZENQ_SCORING_ROLES
 from app.chat.models import (
     ChatChannel,
     ChatMessage,
@@ -240,6 +240,27 @@ async def _process_kia_bot_response(
                     "payload": msg_out.model_dump(mode="json"),
                 },
             )
+
+            # ZenQ v2: circle Kia reply credits PREP for the requesting member (1/day).
+            if role != "corporate" and requesting_user_id and circle_id:
+                try:
+                    from datetime import date as _date
+
+                    from app.services.zenq_v2.bridge import bridge_kia
+
+                    await bridge_kia(
+                        db,
+                        circle_id=circle_id,
+                        actor_user_id=requesting_user_id,
+                        kia_kind="PREP",
+                        idempotency_key=(
+                            f"v2:kia:prep:{requesting_user_id}:{_date.today().isoformat()}"
+                        ),
+                    )
+                except Exception:
+                    logger.debug(
+                        "[zenq_v2] kia PREP bridge skipped circle=%s", circle_id, exc_info=True
+                    )
             
             # Stop typing status
             await manager.broadcast(

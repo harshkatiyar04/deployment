@@ -9,7 +9,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.algorithms.zenq.constants import SPARK_COOLDOWN_DAYS, SPARK_DURATION_DAYS
+from app.algorithms.zqa.constants import SPARK_COOLDOWN_DAYS, SPARK_DURATION_DAYS
 from app.models.zenq import ZenqSparkEvent
 
 
@@ -76,9 +76,20 @@ async def create_student_spark(
     await db.commit()
     await db.refresh(row)
 
-    from app.services.zenq_event_processor import schedule_circle_recompute
+    v2_bridge: dict[str, Any] | None = None
+    try:
+        from app.services.zenq_v2.referrals import bridge_legacy_spark
 
-    schedule_circle_recompute(circle_id, trigger_source="zenq_spark")
+        v2_bridge = await bridge_legacy_spark(
+            db,
+            student_id=student_id,
+            circle_id=circle_id,
+            spark_row_id=str(row.id),
+            reason=row.reason,
+        )
+    except Exception:
+        v2_bridge = {"ok": False, "error": "bridge_exception"}
+
     return {
         "id": row.id,
         "student_id": student_id,
@@ -86,4 +97,5 @@ async def create_student_spark(
         "reason": row.reason,
         "expires_at": row.expires_at.isoformat(),
         "active_days": SPARK_DURATION_DAYS,
+        "zenq_v2": v2_bridge,
     }

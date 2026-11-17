@@ -15,8 +15,6 @@ from app.core.rate_limit import limiter
 from app.core.docs_auth import DocsAuthMiddleware
 from app.core.security_headers import SecurityHeadersMiddleware
 from app.core.settings import api_docs_enabled, settings
-from app.services.zenq_maintenance import zenq_maintenance_loop
-
 from app.api.router import api_router
 from app.db.init_db import init_db
 from app.db.session import SessionLocal
@@ -60,6 +58,9 @@ _BASE_ALLOWED_ORIGINS = [
     "https://zenkimpact.vercel.app",
     # Allow all vercel preview deployments for this project
     "https://zenk-fe-git-main-alphah-devs-projects.vercel.app",
+    # Production marketing site (apex + www — both resolve without redirect)
+    "https://zenkimpact.com",
+    "https://www.zenkimpact.com",
     # Local development
     "http://localhost:5173",
     "http://localhost:5174",
@@ -154,8 +155,12 @@ async def _startup() -> None:
     except Exception as exc:
         logger.warning("[Startup] DB pool reset skipped: %s", exc)
     asyncio.create_task(_keepalive_loop())
-    if settings.zenq_live_events:
-        asyncio.create_task(zenq_maintenance_loop())
+    try:
+        from app.services.zenq_v2.close_job import start_month_end_seal_task
+
+        start_month_end_seal_task()
+    except Exception as exc:
+        logger.warning("[Startup] ZenQ month-end seal task skipped: %s", exc)
     logger.info("[Startup] Server ready. DB keepalive task started.")
 
 
